@@ -1,0 +1,66 @@
+{
+  "name": "gemscan-ai-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "typecheck": "tsc --noEmit",
+    "check:no-billing-deps": "node scripts/check-no-billing-deps.js",
+    "preinstall": "node scripts/check-no-billing-deps.js",
+    "prestart": "node scripts/check-no-billing-deps.js",
+    "lint": "eslint .",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "@reduxjs/toolkit": "^2.2.5",
+    "@supabase/supabase-js": "^2.43.0",
+    "@tanstack/react-query": "^5.40.0",
+    "base64-arraybuffer": "^1.0.2",
+    "expo": "~51.0.0",
+    "expo-asset": "~10.0.0",
+    "expo-camera": "~15.0.0",
+    "expo-constants": "~16.0.2",
+    "expo-file-system": "~17.0.0",
+    "expo-gl": "~14.0.0",
+    "expo-image-manipulator": "~12.0.0",
+    "expo-image-picker": "~15.1.0",
+    "expo-linking": "~6.3.1",
+    "expo-localization": "~15.0.0",
+    "expo-location": "~17.0.0",
+    "expo-router": "~3.5.0",
+    "expo-secure-store": "~13.0.0",
+    "expo-status-bar": "~1.12.0",
+    "i18next": "^23.11.5",
+    "react": "18.2.0",
+    "react-hook-form": "^7.51.5",
+    "react-i18next": "^14.1.2",
+    "react-native": "0.74.5",
+    "react-native-fast-tflite": "^1.4.0",
+    "react-native-safe-area-context": "4.10.5",
+    "react-native-screens": "3.31.1",
+    "react-native-url-polyfill": "^3.0.0",
+    "react-redux": "^9.1.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/react": "~18.2.79",
+    "eslint": "^8.57.0",
+    "eslint-config-expo": "~7.1.2",
+    "jest": "^29.7.0",
+    "jest-expo": "~51.0.0",
+    "react-test-renderer": "^18.2.0",
+    "typescript": "~5.3.3"
+  },
+  "comments": {
+    "billingPolicy": "This app MUST NEVER depend on react-native-iap, expo-in-app-purchases, react-native-purchases, or any Google Play Billing / StoreKit wrapper. See scripts/check-no-billing-deps.js, which fails install/start if any banned package appears here. Payments happen ONLY on the official website — see /05-Monetization-Legal-Payments.md at the repo root."
+  },
+  "jest": {
+    "preset": "jest-expo",
+    "testPathIgnorePatterns": ["/node_modules/", "/android/", "/ios/"]
+  }
+}
