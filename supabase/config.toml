@@ -1,0 +1,36 @@
+project_id = "gemscan-ai"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+
+[db]
+port = 54322
+
+[auth]
+enabled = true
+site_url = "https://gemscan.ai"
+additional_redirect_urls = ["https://gemscan.ai/auth/callback"]
+jwt_expiry = 3600
+enable_signup = true
+
+[functions.verify-subscription]
+verify_jwt = true
+
+[functions.create-checkout-session]
+verify_jwt = true
+
+# The AI Scan Pipeline orchestrator — called by a signed-in mobile user for
+# their own scan, so it verifies the caller's Supabase session JWT like
+# verify-subscription does.
+[functions.orchestrate-scan]
+verify_jwt = true
+
+# Webhook endpoints verify authenticity via provider signature, not Supabase
+# JWT (the caller is Stripe/the mobile-money gateway, not a logged-in user).
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.mobile-money-webhook]
+verify_jwt = false
