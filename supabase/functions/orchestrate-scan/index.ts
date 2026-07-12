@@ -26,6 +26,7 @@
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders } from "../_shared/cors.ts";
+import { logError } from "../_shared/logger.ts";
 import { featuresForTier } from "../_shared/entitlements.ts";
 import { providerRegistry } from "./providers/providerRegistry.ts";
 import type { ProviderInput, ProviderResult, VisionProvider } from "./providers/types.ts";
@@ -141,6 +142,7 @@ export async function handleRequest(req: Request): Promise<Response> {
         ensembleScansEnabled: features.ensembleScans,
       });
     } catch (err) {
+      logError("orchestrate-scan", err, { scanId, stage: "processScan" });
       // Best-effort: leave a clear "failed" record rather than an orphaned
       // scan stuck in "processing" forever if something throws mid-pipeline.
       await serviceClient
@@ -154,6 +156,7 @@ export async function handleRequest(req: Request): Promise<Response> {
       return jsonResponse({ error: (err as Error).message }, 500);
     }
   } catch (err) {
+    logError("orchestrate-scan", err, { stage: "handleRequest" });
     return jsonResponse({ error: (err as Error).message }, 500);
   }
 }

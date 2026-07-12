@@ -12,6 +12,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders } from "../_shared/cors.ts";
+import { logError } from "../_shared/logger.ts";
 // Feature entitlements are derived server-side from `tier` in one shared
 // place (also used by orchestrate-scan to enforce daily scan limits / gate
 // the multi-model ensemble at scan time, not just to render a UI hint), so
@@ -84,6 +85,7 @@ Deno.serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
+    logError("verify-subscription", err);
     return new Response(JSON.stringify({ error: (err as Error).message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
