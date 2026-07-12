@@ -301,8 +301,9 @@ async function withTimeout(
   input: ProviderInput,
 ): Promise<ProviderResult> {
   const start = Date.now();
-  const timeout = new Promise<ProviderResult>((resolve) =>
-    setTimeout(
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<ProviderResult>((resolve) => {
+    timeoutId = setTimeout(
       () =>
         resolve({
           provider: provider.name,
@@ -313,12 +314,19 @@ async function withTimeout(
           error: `Timed out after ${PROVIDER_TIMEOUT_MS}ms`,
         }),
       PROVIDER_TIMEOUT_MS,
-    ),
-  );
+    );
+  });
 
   try {
-    return await Promise.race([provider.identify(input), timeout]);
+    const result = await Promise.race([provider.identify(input), timeout]);
+    // Whichever settles first, cancel the other timer — otherwise a provider
+    // that resolves quickly still leaves its timeout pending for the full
+    // PROVIDER_TIMEOUT_MS, which Deno's test sanitizer (correctly) flags as a
+    // resource leak.
+    clearTimeout(timeoutId);
+    return result;
   } catch (err) {
+    clearTimeout(timeoutId);
     return {
       provider: provider.name,
       candidate: null,
