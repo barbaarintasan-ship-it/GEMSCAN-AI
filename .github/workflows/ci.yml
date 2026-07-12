@@ -100,6 +100,21 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
+      - name: Generate debug keystore
+        # mobile/android/app/debug.keystore is gitignored on purpose (a
+        # keystore file has no business being committed, even the standard
+        # debug one) — so CI generates the same well-known debug keystore
+        # Android Studio itself generates locally, using its documented
+        # fixed alias/password. This never touches release signing.
+        run: |
+          keytool -genkeypair -v \
+            -keystore mobile/android/app/debug.keystore \
+            -storetype PKCS12 \
+            -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US"
+
       - name: Build debug APK
         working-directory: mobile/android
         run: ./gradlew assembleDebug --console=plain
