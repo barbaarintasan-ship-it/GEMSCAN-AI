@@ -12,6 +12,8 @@ This is the complete research-and-architecture deliverable requested before any 
 8. [08-Self-Critique-and-Design-Improvements.md](08-Self-Critique-and-Design-Improvements.md) — critical review of the whole architecture (accuracy, scalability, legal, commercial gaps) — its findings are already merged into docs 02–06
 9. [09-AI-Scan-Pipeline-Production-Verification-Report.md](09-AI-Scan-Pipeline-Production-Verification-Report.md) — post-implementation production verification pass over the AI Scan Pipeline (types, lint, migrations/RLS, builds, tests, memory/performance/security review, dead/duplicate code cleanup) — completed before the website/checkout milestone began
 10. [FINAL-DEVOPS-VERIFICATION-REPORT.md](FINAL-DEVOPS-VERIFICATION-REPORT.md) — DevOps/CI-CD/staging readiness check. **Finding: this layer does not exist yet** — no git repo, no GitHub connection, no CI automation, no live Supabase project, no Fly.io setup for this project, no mobile build pipeline, no monitoring. Read before assuming any deployment infrastructure is in place.
+11. [10-Hosting-Architecture-Decision.md](10-Hosting-Architecture-Decision.md) — Supabase-only backend decided; Fly.io explicitly deferred (not needed at current scope, revisit only if Professional-tier PDF generation becomes a real bottleneck)
+12. [INFRASTRUCTURE-COMPLETION-REPORT.md](INFRASTRUCTURE-COMPLETION-REPORT.md) — the infrastructure foundation build itself: GitHub repo/branches/CI-CD (live and verified green), Supabase readiness, mobile CI/CD, monitoring, and remaining risks
 
 ## Critical decisions that need your sign-off before code starts
 
