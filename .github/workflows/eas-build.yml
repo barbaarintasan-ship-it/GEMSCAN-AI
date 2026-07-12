@@ -1,0 +1,57 @@
+name: EAS Build
+
+# Manual-trigger only (workflow_dispatch), deliberately NOT on every push —
+# EAS builds consume paid/metered build minutes, so this should be a
+# deliberate action, not something that fires on every commit.
+#
+# Requires an EXPO_TOKEN repository secret (from an authenticated
+# `eas login` / expo.dev account token) before this can run at all — see
+# INFRASTRUCTURE-COMPLETION-REPORT.md for what's still pending here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "EAS build profile"
+        required: true
+        default: "preview"
+        type: choice
+        options:
+          - development
+          - preview
+          - production
+      platform:
+        description: "Target platform"
+        required: true
+        default: "android"
+        type: choice
+        options:
+          - android
+          - ios
+          - all
+
+jobs:
+  eas-build:
+    name: EAS Build (${{ github.event.inputs.profile }} / ${{ github.event.inputs.platform }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Run EAS Build
+        working-directory: mobile
+        run: eas build --platform ${{ github.event.inputs.platform }} --profile ${{ github.event.inputs.profile }} --non-interactive
