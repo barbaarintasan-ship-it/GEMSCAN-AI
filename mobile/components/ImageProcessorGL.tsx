@@ -50,14 +50,30 @@ export type ImageProcessorHandle = {
   // the Stage 1 quality assessment and the on-device gemstone object-detection
   // result. Used by the real-time scanner so per-frame detection gating costs
   // nothing beyond the quality sampling it already does.
-  analyzeFrame: (uri: string) => Promise<{ quality: QualityAssessment; detection: GemstoneDetection }>;
+  analyzeFrame: (uri: string) => Promise<{
+    quality: QualityAssessment;
+    detection: GemstoneDetection;
+    // True when the on-device GL analysis could not run on this device, so the
+    // quality/detection above are safe defaults, not real measurements.
+    glUnavailable: boolean;
+  }>;
   enhance: (uri: string) => Promise<{ uri: string }>;
 };
 
+// Conservative quality gates. IMPORTANT: until the 1x1-framebuffer bug was
+// fixed these thresholds only ever saw all-zero pixels, so they were never
+// validated against real photos. They are now deliberately permissive — the
+// point of the gate is to catch genuinely unusable frames (a smeared/defocused
+// shot, a near-black room, a blown-out highlight), NOT to reject a merely
+// imperfect photo. The cloud ensemble is robust to soft/dim images and simply
+// returns lower confidence, whereas a false "retake" makes the app feel broken.
+// Sharpness is a variance-of-Laplacian estimate over a 96x96 downscale; the
+// downscale itself smooths detail, so real in-focus photos land low — hence a
+// low blur floor. Tune upward only with on-device measurements.
 const QUALITY_THRESHOLDS = {
-  blurSharpnessMin: 4, // below this, flag as blurry
-  lowLightBrightnessMax: 0.18,
-  overexposedBrightnessMin: 0.92,
+  blurSharpnessMin: 1.2, // below this the frame is essentially textureless (defocused)
+  lowLightBrightnessMax: 0.1, // below this it is genuinely too dark to see the specimen
+  overexposedBrightnessMin: 0.96, // above this the specimen is blown out to white
 };
 
 const VERTEX_SHADER = `
@@ -304,61 +320,84 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
   // Shared for assessQuality + analyzeFrame: downscale the source and read back
   // the small RGBA grid once, so a live frame that needs both quality and
   // detection only pays for a single manipulate + GL draw + readPixels.
-  async function readAnalysisPixels(uri: string): Promise<Uint8Array> {
-    // Wait for the GL context to finish initializing before touching it. On a
-    // healthy device this resolves almost immediately; only a device that never
-    // produces a context will hit the timeout.
-    const ready = await waitForGL(GL_READY_TIMEOUT_MS);
+  // Returns the small RGBA grid, or NULL when the on-device GL path is
+  // unavailable/failing on this device. IMPORTANT: this must never throw — the
+  // GL pipeline is a best-effort on-device optimisation, and a device where it
+  // fails must still be able to scan (the cloud AI is the real identifier). A
+  // null result tells callers "couldn't analyse on-device — don't block".
+  async function readAnalysisPixels(uri: string): Promise<Uint8Array | null> {
+    try {
+      const ready = await waitForGL(GL_READY_TIMEOUT_MS);
+      const gl = glRef.current;
+      if (!ready || !gl || !passthroughProgramRef.current) return null;
 
-    // Downscale first via expo-image-manipulator (cheap, native, and
-    // guarantees the texture we hand to GL is already small) rather than
-    // relying on GL alone to do the downsampling.
-    const resized = await ImageManipulator.manipulateAsync(
-      uri,
-      [{ resize: { width: ANALYSIS_SIZE, height: ANALYSIS_SIZE } }],
-      { compress: 1, format: ImageManipulator.SaveFormat.PNG },
-    );
-
-    const gl = glRef.current;
-    if (!ready || !gl || !passthroughProgramRef.current) {
-      throw new Error(
-        `GL context unavailable after ${GL_READY_TIMEOUT_MS}ms — cannot analyze frame`,
+      const resized = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: ANALYSIS_SIZE, height: ANALYSIS_SIZE } }],
+        { compress: 1, format: ImageManipulator.SaveFormat.PNG },
       );
+
+      // Render into the 96x96 offscreen framebuffer (NOT the 1x1 default one).
+      const target = ensureRenderTarget(gl, analysisTargetRef, ANALYSIS_SIZE);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, target);
+      gl.viewport(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
+      gl.useProgram(passthroughProgramRef.current);
+      setupQuad(gl, passthroughProgramRef.current);
+
+      const texture = await loadTexture(gl, resized.uri);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.uniform1i(gl.getUniformLocation(passthroughProgramRef.current, "uTexture"), 0);
+
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      gl.flush();
+
+      const pixels = new Uint8Array(ANALYSIS_SIZE * ANALYSIS_SIZE * 4);
+      gl.readPixels(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      gl.deleteTexture(texture);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      return pixels;
+    } catch {
+      return null;
     }
-
-    // Render into the 96x96 offscreen framebuffer (NOT the 1x1 default one).
-    const target = ensureRenderTarget(gl, analysisTargetRef, ANALYSIS_SIZE);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, target);
-    gl.viewport(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
-    gl.useProgram(passthroughProgramRef.current);
-    setupQuad(gl, passthroughProgramRef.current);
-
-    const texture = await loadTexture(gl, resized.uri);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.uniform1i(gl.getUniformLocation(passthroughProgramRef.current, "uTexture"), 0);
-
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
-    gl.flush();
-
-    const pixels = new Uint8Array(ANALYSIS_SIZE * ANALYSIS_SIZE * 4);
-    gl.readPixels(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    gl.deleteTexture(texture);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    return pixels;
   }
+
+  // Quality when on-device analysis is unavailable: treat the frame as usable
+  // (do NOT flag blurry/dark) so a flaky GL path can't block the scan. The
+  // cloud ensemble still judges the actual image.
+  const PASSTHROUGH_QUALITY: QualityAssessment = {
+    qualityScore: 0.8,
+    blurry: false,
+    lowLight: false,
+    overexposed: false,
+    meanBrightness: 0.5,
+    sharpness: 999,
+  };
 
   useImperativeHandle(ref, () => ({
     async assessQuality(uri: string) {
       const pixels = await readAnalysisPixels(uri);
+      if (!pixels) return PASSTHROUGH_QUALITY;
       return computeQualityFromPixels(pixels, ANALYSIS_SIZE);
     },
 
     async analyzeFrame(uri: string) {
       const pixels = await readAnalysisPixels(uri);
+      if (!pixels) {
+        // GL analysis unavailable on this device: report usable quality and no
+        // detection box, and signal glUnavailable so the live scanner can fall
+        // back to a manual/timed capture instead of waiting forever on a gate
+        // that can never pass.
+        return {
+          quality: PASSTHROUGH_QUALITY,
+          detection: computeDetectionFromPixels(new Uint8Array(ANALYSIS_SIZE * ANALYSIS_SIZE * 4), ANALYSIS_SIZE),
+          glUnavailable: true,
+        };
+      }
       return {
         quality: computeQualityFromPixels(pixels, ANALYSIS_SIZE),
         detection: computeDetectionFromPixels(pixels, ANALYSIS_SIZE),
+        glUnavailable: false,
       };
     },
 
@@ -382,6 +421,10 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
         return { uri: resized.uri };
       }
 
+      // On-device GL enhancement is BEST-EFFORT. If ANY GL step fails on this
+      // device, fall back to the plain resized image below — a broken GL path
+      // must never break the scan; the cloud still receives a valid full image.
+      try {
       // First, sample a small proxy of the source to compute gray-world
       // white balance gains + an exposure gain, without doing that math on
       // the full-resolution image.
@@ -470,11 +513,14 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
       });
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
-      if (!snapshot.uri || typeof snapshot.uri !== "string") {
-        throw new Error("GL snapshot did not return a file URI");
+        if (!snapshot.uri || typeof snapshot.uri !== "string") {
+          return { uri: resized.uri };
+        }
+        return { uri: snapshot.uri };
+      } catch {
+        // Any GL failure → use the reliable CPU-resized image.
+        return { uri: resized.uri };
       }
-
-      return { uri: snapshot.uri };
     },
   }));
 

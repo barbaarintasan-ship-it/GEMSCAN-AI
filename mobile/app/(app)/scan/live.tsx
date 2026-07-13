@@ -133,6 +133,10 @@ export default function LiveScanScreen() {
   const [capturedAngles, setCapturedAngles] = useState<CapturedAngleImage["angle"][]>([]);
   const [canAnalyzeNow, setCanAnalyzeNow] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+  // Set when the on-device GL detection can't run on this device. We then stop
+  // the auto-scan loop and let the user drive a reliable manual capture + cloud
+  // analysis instead of waiting forever on a detection gate that can't pass.
+  const [glUnavailable, setGlUnavailable] = useState(false);
 
   // ── HUD animations (native-driven, run continuously while the camera is up) ──
   const scanLineAnim = useRef(new Animated.Value(0)).current;
@@ -212,10 +216,22 @@ export default function LiveScanScreen() {
       if (!snap?.uri) throw new Error("No preview frame");
 
       // ONE combined on-device pass → quality (Stage 1) + gemstone detection.
-      const { quality: q, detection } = await imageProcessorRef.current.analyzeFrame(snap.uri);
+      const { quality: q, detection, glUnavailable: glDown } =
+        await imageProcessorRef.current.analyzeFrame(snap.uri);
       // The low-res sampling frame is disposable — a full-res frame is grabbed
       // separately if this angle locks in.
       FileSystem.deleteAsync(snap.uri, { idempotent: true }).catch(() => {});
+
+      // On-device detection can't run on this phone → stop the pointless auto
+      // loop and switch to the manual "Scan now" path (reliable: capture →
+      // cloud). Without this the detection gate below could never pass and the
+      // scanner would sit at 0% forever.
+      if (glDown) {
+        setGlUnavailable(true);
+        runningRef.current = false;
+        setGuidanceText("Point the camera at the stone, then tap “Scan now”.");
+        return;
+      }
 
       latestDetectionRef.current = detection;
       setDetectionPresent(detection.present);
@@ -300,9 +316,10 @@ export default function LiveScanScreen() {
         }
       }
     } catch (err) {
-      // Transient (GL not ready yet, a dropped frame): log at breadcrumb level
-      // and keep scanning rather than aborting the whole session.
+      // Surface the real error (instead of silently swallowing it) so a stuck
+      // scan is diagnosable, while still keeping the loop alive.
       captureException(err, { where: "live.tick" });
+      setErrorText(`Scan error: ${(err as Error).message || "unknown"}`);
     } finally {
       busyRef.current = false;
       if (runningRef.current) scheduleTick(SAMPLE_INTERVAL_MS);
@@ -451,9 +468,29 @@ export default function LiveScanScreen() {
     }
   }
 
-  function handleAnalyzeNow() {
+  // Manual capture + analyse. Always works — even when on-device detection is
+  // unavailable — because it grabs a full-res frame itself if none was
+  // auto-captured yet, then runs the same upload → cloud pipeline.
+  async function handleAnalyzeNow() {
     runningRef.current = false;
-    void finishAndAnalyze();
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setErrorText(null);
+    if (capturedImagesRef.current.length === 0) {
+      setPhaseBoth("analyzing");
+      try {
+        await captureFullFrame("front");
+      } catch (err) {
+        setErrorText(`Capture failed: ${(err as Error).message || "unknown error"}`);
+        setPhaseBoth("scanning");
+        return;
+      }
+      if (capturedImagesRef.current.length === 0) {
+        setErrorText("Could not capture a photo. Make sure the camera is working, then try again.");
+        setPhaseBoth("scanning");
+        return;
+      }
+    }
+    await finishAndAnalyze();
   }
 
   if (!permission) return <View style={styles.container} />;
@@ -617,13 +654,21 @@ export default function LiveScanScreen() {
           {capturedAngles.length ? capturedAngles.join(", ") : "…"}
         </Text>
 
+        {glUnavailable && (
+          <Text style={styles.noticeText}>
+            Live auto-detect isn’t supported on this phone. Point at the stone and tap “Scan now”.
+          </Text>
+        )}
+
         {errorText && <Text style={styles.errorText}>{errorText}</Text>}
 
-        {canAnalyzeNow && (
-          <Pressable style={styles.analyzeButton} onPress={handleAnalyzeNow}>
-            <Text style={styles.primaryButtonText}>{t("scanner.analyzeNow")}</Text>
-          </Pressable>
-        )}
+        {/* Always-available manual path — the reliable capture → cloud flow that
+            works regardless of whether on-device detection is running. */}
+        <Pressable style={styles.analyzeButton} onPress={handleAnalyzeNow}>
+          <Text style={styles.primaryButtonText}>
+            {canAnalyzeNow ? t("scanner.analyzeNow") : "Scan now"}
+          </Text>
+        </Pressable>
 
         <View style={styles.secondaryRow}>
           <Pressable onPress={() => router.replace("/(app)/scan/upload")}>
@@ -744,6 +789,7 @@ const styles = StyleSheet.create({
   subMeterValue: { color: "#C9A227", fontSize: 12, fontWeight: "600" },
   chips: { color: "#8A8A8E", fontSize: 12 },
   errorText: { color: "#E4685D", fontSize: 13 },
+  noticeText: { color: "#C9A227", fontSize: 13, lineHeight: 18 },
   primaryButton: { backgroundColor: "#C9A227", borderRadius: 999, paddingVertical: 14, alignItems: "center" },
   primaryButtonText: { color: "#0B0B0C", fontWeight: "700", fontSize: 15 },
   secondaryButton: { alignItems: "center", paddingVertical: 8 },
