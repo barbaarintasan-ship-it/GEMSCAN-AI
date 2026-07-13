@@ -14,7 +14,11 @@
 import type { ProviderInput, ProviderResult, VisionProvider } from "./types.ts";
 import { createAbstainResult, fetchImageAsBase64 } from "./promptShared.ts";
 
-const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-2.0-flash";
+// Auto-updating alias — same rationale as geminiVision.ts: a pinned
+// gemini-2.0-flash was retired by Google, which silently made this hallmark/coin
+// OCR pipeline abstain on every scan. "gemini-flash-latest" tracks the newest GA
+// flash model. Still overridable via the GEMINI_MODEL secret.
+const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-flash-latest";
 
 const APPLICABLE_CATEGORIES = ["jewelry", "coin", "hallmark", "precious_metal"];
 
