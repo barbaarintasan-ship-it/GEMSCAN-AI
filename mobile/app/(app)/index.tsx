@@ -1,5 +1,5 @@
 import React, { useLayoutEffect } from "react";
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import { View, Text, Pressable, StyleSheet, BackHandler, Platform } from "react-native";
 import { useRouter, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
@@ -11,6 +11,13 @@ export default function HomeScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const { t } = useTranslation();
+
+  // Close the app. BackHandler.exitApp() is the Android way to finish the
+  // activity; iOS has no supported programmatic exit (Apple rejects it), so the
+  // button is only shown on Android.
+  const handleExit = () => {
+    BackHandler.exitApp();
+  };
 
   // Header actions to reach the two new foundation screens. Set here so the
   // icons can navigate with the screen's router instance.
@@ -74,6 +81,13 @@ export default function HomeScreen() {
       <PremiumGate requiredTier="premium" featureName="Deep Scan (multi-model AI ensemble)">
         <Text style={styles.body}>{t("home.deepScanUnlocked")}</Text>
       </PremiumGate>
+
+      {Platform.OS === "android" && (
+        <Pressable style={styles.exitButton} onPress={handleExit} accessibilityLabel="Exit app">
+          <Ionicons name="exit-outline" size={18} color="#E4685D" />
+          <Text style={styles.exitButtonText}>Exit app</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -111,4 +125,13 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   collectionButtonText: { color: "#C9A227", fontWeight: "600", fontSize: 15 },
+  exitButton: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 12,
+    marginTop: "auto",
+  },
+  exitButtonText: { color: "#E4685D", fontWeight: "600", fontSize: 15 },
 });
