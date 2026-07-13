@@ -44,6 +44,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { useKeepAwake } from "expo-keep-awake";
 import * as FileSystem from "expo-file-system";
 import { ImageProcessorGL, type ImageProcessorHandle } from "../../../components/ImageProcessorGL";
 import { detectSpecimenBoundingBox, classifyCoarse } from "../../../lib/onDeviceDetection";
@@ -89,6 +90,11 @@ type Phase = "detecting" | "scanning" | "analyzing" | "locked";
 export default function LiveScanScreen() {
   const router = useRouter();
   const { t } = useTranslation();
+  // Keep the display awake for the whole live-scan session: the user holds the
+  // phone still and never touches the screen while rotating the stone, so the
+  // OS screen-timeout would otherwise dim/sleep the display mid-scan. Active
+  // only while this screen is mounted; released automatically on unmount.
+  useKeepAwake();
   const { width: screenW, height: screenH } = useWindowDimensions();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);

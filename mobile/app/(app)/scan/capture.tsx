@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { useKeepAwake } from "expo-keep-awake";
 import { ImageProcessorGL, type ImageProcessorHandle } from "../../../components/ImageProcessorGL";
 import { detectSpecimenBoundingBox, classifyCoarse } from "../../../lib/onDeviceDetection";
 import { segmentBackground } from "../../../lib/backgroundSegmentation";
@@ -54,6 +55,9 @@ const ANGLE_STEPS: AngleStep[] = [
 
 export default function CaptureScreen() {
   const router = useRouter();
+  // Hold the screen on while the camera capture flow is open (the user lines up
+  // angles without touching the screen; the OS timeout would otherwise dim it).
+  useKeepAwake();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
   const imageProcessorRef = useRef<ImageProcessorHandle>(null);
