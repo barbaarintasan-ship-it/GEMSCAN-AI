@@ -25,6 +25,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as FileSystem from "expo-file-system";
 import { ImageProcessorGL, type ImageProcessorHandle } from "../../../components/ImageProcessorGL";
@@ -372,6 +373,17 @@ export default function LiveScanScreen() {
       <ImageProcessorGL ref={imageProcessorRef} />
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
 
+      {/* Floating back control — the live screen has no header, so this is the
+          explicit way out of the camera (the Android hardware back also works). */}
+      <Pressable
+        style={styles.backButton}
+        onPress={() => router.back()}
+        hitSlop={10}
+        accessibilityLabel="Back"
+      >
+        <Ionicons name="arrow-back" size={24} color="#F5F1E8" />
+      </Pressable>
+
       {/* Center reticle — where to hold the specimen. */}
       <View style={styles.reticleWrap} pointerEvents="none">
         <View style={styles.reticle} />
@@ -429,6 +441,18 @@ export default function LiveScanScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
+  backButton: {
+    position: "absolute",
+    top: 48,
+    left: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(11,11,12,0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+  },
   centered: { flex: 1, backgroundColor: "#0B0B0C", padding: 24, gap: 14, justifyContent: "center" },
   body: { fontSize: 14, color: "#C9C9CC", lineHeight: 20 },
   lockHeadline: { fontSize: 24, fontWeight: "700", color: "#2E7D32" },

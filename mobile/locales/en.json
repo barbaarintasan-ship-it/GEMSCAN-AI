@@ -1,0 +1,54 @@
+{
+  "common": {
+    "appName": "GemScan AI",
+    "back": "Back",
+    "cancel": "Cancel",
+    "loading": "Loading…",
+    "retry": "Retry",
+    "close": "Close"
+  },
+  "home": {
+    "subtitle": "Identify gemstones, minerals and more with AI.",
+    "startLiveScan": "Start Live Scan",
+    "uploadImages": "Upload Images",
+    "myCollection": "My Collection",
+    "settings": "Settings",
+    "currentPlan": "Current plan: {{tier}}",
+    "scansPerDay": "{{count}} scans/day",
+    "unlimitedScans": "unlimited scans",
+    "deepScanUnlocked": "Deep Scan is unlocked — every scan runs the full multi-model AI ensemble."
+  },
+  "settings": {
+    "title": "Settings",
+    "profileSection": "Profile",
+    "email": "Email",
+    "displayName": "Display name",
+    "notSet": "Not set",
+    "languageSection": "Language",
+    "english": "English",
+    "somali": "Somali",
+    "privacySection": "Privacy",
+    "privacyPolicy": "Privacy Policy",
+    "howYourDataIsUsed": "How your data is used",
+    "subscriptionSection": "Subscription",
+    "manageSubscription": "Manage subscription",
+    "aboutSection": "App information",
+    "version": "Version",
+    "logout": "Log out",
+    "loggingOut": "Logging out…"
+  },
+  "privacy": {
+    "dataUsageBody": "Your scan photos are stored privately and used only to identify your specimen and improve accuracy. Location is coarse and fuzzed. Subscriptions are handled only on the website — the app never processes payments."
+  },
+  "history": {
+    "title": "My Collection",
+    "emptyTitle": "No scans yet",
+    "emptyHint": "Scan your first gemstone to start your collection.",
+    "startScanning": "Start scanning",
+    "confidence": "{{value}}% confidence",
+    "processing": "Processing…",
+    "failed": "Scan failed",
+    "noResult": "No confident match",
+    "loadError": "Couldn't load your scans."
+  }
+}

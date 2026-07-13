@@ -1,32 +1,67 @@
-import React from "react";
+import React, { useLayoutEffect } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useNavigation } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { useSubscriptionStatus } from "../../lib/subscription";
 import { PremiumGate } from "../../components/PremiumGate";
 
 export default function HomeScreen() {
   const { data, isLoading } = useSubscriptionStatus();
   const router = useRouter();
+  const navigation = useNavigation();
+  const { t } = useTranslation();
+
+  // Header actions to reach the two new foundation screens. Set here so the
+  // icons can navigate with the screen's router instance.
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={styles.headerActions}>
+          <Pressable
+            onPress={() => router.push("/(app)/history")}
+            hitSlop={8}
+            accessibilityLabel={t("home.myCollection")}
+          >
+            <Ionicons name="albums-outline" size={22} color="#F5F1E8" />
+          </Pressable>
+          <Pressable
+            onPress={() => router.push("/(app)/settings")}
+            hitSlop={8}
+            accessibilityLabel={t("home.settings")}
+          >
+            <Ionicons name="settings-outline" size={22} color="#F5F1E8" />
+          </Pressable>
+        </View>
+      ),
+    });
+  }, [navigation, router, t]);
 
   return (
     <View style={styles.container}>
-      <Text style={styles.heading}>GemScan AI</Text>
+      <Text style={styles.subtitle}>{t("home.subtitle")}</Text>
 
       {!isLoading && (
         <Text style={styles.tierBadge}>
-          Current plan: {data?.tier ?? "free"}
+          {t("home.currentPlan", { tier: data?.tier ?? "free" })}
+          {" — "}
           {data?.features.dailyScanLimit != null
-            ? ` — ${data.features.dailyScanLimit} scans/day`
-            : " — unlimited scans"}
+            ? t("home.scansPerDay", { count: data.features.dailyScanLimit })
+            : t("home.unlimitedScans")}
         </Text>
       )}
 
       <Pressable style={styles.scanButton} onPress={() => router.push("/(app)/scan/live")}>
-        <Text style={styles.scanButtonText}>Start Live Scan</Text>
+        <Text style={styles.scanButtonText}>{t("home.startLiveScan")}</Text>
       </Pressable>
 
       <Pressable style={styles.secondaryButton} onPress={() => router.push("/(app)/scan/upload")}>
-        <Text style={styles.secondaryButtonText}>Upload Images</Text>
+        <Text style={styles.secondaryButtonText}>{t("home.uploadImages")}</Text>
+      </Pressable>
+
+      <Pressable style={styles.collectionButton} onPress={() => router.push("/(app)/history")}>
+        <Ionicons name="albums-outline" size={18} color="#C9A227" />
+        <Text style={styles.collectionButtonText}>{t("home.myCollection")}</Text>
       </Pressable>
 
       {/*
@@ -37,9 +72,7 @@ export default function HomeScreen() {
         gated here in the UI.
       */}
       <PremiumGate requiredTier="premium" featureName="Deep Scan (multi-model AI ensemble)">
-        <Text style={styles.body}>
-          Deep Scan is unlocked — every scan runs the full multi-model AI ensemble.
-        </Text>
+        <Text style={styles.body}>{t("home.deepScanUnlocked")}</Text>
       </PremiumGate>
     </View>
   );
@@ -47,7 +80,8 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 24, backgroundColor: "#0B0B0C", gap: 16 },
-  heading: { fontSize: 22, fontWeight: "700", color: "#F5F1E8" },
+  headerActions: { flexDirection: "row", gap: 20, paddingRight: 4 },
+  subtitle: { fontSize: 15, color: "#C9C9CC", lineHeight: 21 },
   body: { fontSize: 14, color: "#C9C9CC", lineHeight: 20 },
   tierBadge: {
     color: "#C9A227",
@@ -69,4 +103,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   secondaryButtonText: { color: "#F5F1E8", fontWeight: "700", fontSize: 15 },
+  collectionButton: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 12,
+  },
+  collectionButtonText: { color: "#C9A227", fontWeight: "600", fontSize: 15 },
 });

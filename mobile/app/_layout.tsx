@@ -3,6 +3,7 @@ import { Slot } from "expo-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "../lib/auth";
 import { captureException, initMonitoring } from "../lib/monitoring";
+import "../lib/i18n";
 
 const queryClient = new QueryClient();
 

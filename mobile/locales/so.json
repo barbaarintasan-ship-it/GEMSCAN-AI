@@ -1,0 +1,54 @@
+{
+  "common": {
+    "appName": "GemScan AI",
+    "back": "Dib u noqo",
+    "cancel": "Jooji",
+    "loading": "Waa la soo rarayaa…",
+    "retry": "Isku day mar kale",
+    "close": "Xir"
+  },
+  "home": {
+    "subtitle": "Aqoonso dhagxaanta qaaliga ah, macdanta iyo wax kale adigoo isticmaalaya AI.",
+    "startLiveScan": "Bilow Iskaanka Tooska ah",
+    "uploadImages": "Soo Geli Sawirro",
+    "myCollection": "Ururkeyga",
+    "settings": "Dejinta",
+    "currentPlan": "Qorshaha hadda: {{tier}}",
+    "scansPerDay": "{{count}} iskaan maalintii",
+    "unlimitedScans": "iskaan aan xad lahayn",
+    "deepScanUnlocked": "Iskaanka Qoto-dheer waa la furay — iskaan kastaa wuxuu ku shaqeeyaa dhammaan moodooyinka AI-ga."
+  },
+  "settings": {
+    "title": "Dejinta",
+    "profileSection": "Astaanta",
+    "email": "Iimaylka",
+    "displayName": "Magaca la muujinayo",
+    "notSet": "Lama dejin",
+    "languageSection": "Luqadda",
+    "english": "Ingiriisi",
+    "somali": "Soomaali",
+    "privacySection": "Asturnaanta",
+    "privacyPolicy": "Siyaasadda Asturnaanta",
+    "howYourDataIsUsed": "Sida xogtaada loo isticmaalo",
+    "subscriptionSection": "Rukunka",
+    "manageSubscription": "Maamul rukunka",
+    "aboutSection": "Macluumaadka barnaamijka",
+    "version": "Nooca",
+    "logout": "Ka bax",
+    "loggingOut": "Waa laga baxayaa…"
+  },
+  "privacy": {
+    "dataUsageBody": "Sawirradaada iskaanka si gaar ah ayaa loo kaydiyaa, waxaana loo isticmaalaa oo keliya in lagu aqoonsado tusaalahaaga iyo in la hagaajiyo saxnaanta. Goobta waa mid guud oo aan sax ahayn. Rukunnada waxaa lagu maamulaa oo keliya websaydka — barnaamijku waligiis lacag ma qaado."
+  },
+  "history": {
+    "title": "Ururkeyga",
+    "emptyTitle": "Wali iskaan ma jiro",
+    "emptyHint": "Iskaan dhagaxaaga ugu horreeya si aad u bilowdo ururkaaga.",
+    "startScanning": "Bilow iskaanka",
+    "confidence": "{{value}}% kalsooni",
+    "processing": "Waa la falanqaynayaa…",
+    "failed": "Iskaanku wuu fashilmay",
+    "noResult": "Ma jiro natiijo la hubo",
+    "loadError": "Iskaannadaada lama soo rari karin."
+  }
+}
