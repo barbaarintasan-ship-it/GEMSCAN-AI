@@ -10,6 +10,46 @@ Both were traced to their root cause, fixed, and verified as far as is possible
 without a physical Android device / authenticated session (the remaining
 device-side verification steps are listed explicitly at the end).
 
+A follow-up round (below) found and fixed two more deployment-level faults —
+"Body is unusable" and a retired Gemini model — verified end-to-end against the
+live deployed function.
+
+---
+
+## 0. Follow-up: "Body is unusable" + broken Gemini model (verified live)
+
+After deploying the Section 2 fix, an **end-to-end test against the deployed
+function** (throwaway user + real user JWT + an existing uploaded image, then
+cleaned up) revealed the true production state:
+
+- **"Body is unusable"** was the *deployed* (old) `orchestrate-scan` still
+  running the `req.clone().json()` double-read. The Deno runtime's current
+  wording for reading an already-consumed body is literally `TypeError: Body is
+  unusable`. DB evidence: every recent scan was `status = failed` with
+  `processing_started_at` set but `processing_completed_at` null and **zero**
+  `scan_ai_responses` rows — i.e. it threw inside `processScan` *before* the
+  provider fan-out. Uploads were fine (20 `scan_images`, 40 storage objects).
+  **Fix: deploy the Section 2 code** (`orchestrate-scan` v6). After deploy the
+  same scan returned HTTP 200 `status: completed`.
+
+- **Gemini abstained on every scan** because `GEMINI_MODEL` defaulted to
+  `gemini-2.0-flash`, which Google has retired ("no longer available"). Since
+  Gemini is the **only** cloud provider a *free-tier* user gets (OpenAI/Claude
+  are `requiresEnsembleTier`), free scans silently fell back to the on-device
+  hint only → always low confidence, i.e. "scanning doesn't work." `gemini-2.5-
+  flash` was also blocked for this key ("no longer available to new users").
+  **Fix:** `mobile`-independent — `providers/geminiVision.ts` now defaults to the
+  auto-updating alias **`gemini-flash-latest`** (still overridable via the
+  `GEMINI_MODEL` secret). Verified: after redeploy, `gemini_vision` ran with
+  `error = (none)` in ~5s and returned a parseable candidate; the ensemble
+  completed normally.
+
+- **Secrets confirmed present** on the deployed project via `supabase secrets
+  list`: `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` (values are
+  hashed in the listing). OpenAI (`gpt-4o-mini`) and Claude (`claude-sonnet-4-6`)
+  model IDs are current; they only run for ensemble-tier users so weren't
+  exercised by the free-tier E2E test.
+
 ---
 
 ## 1. Root cause — "GL context not ready"

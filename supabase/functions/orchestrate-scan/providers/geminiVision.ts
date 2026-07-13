@@ -10,7 +10,13 @@ import {
   parseJsonCandidateResponse,
 } from "./promptShared.ts";
 
-const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-2.0-flash";
+// Model selection is deliberately an auto-updating alias. Pinned versions
+// (gemini-2.0-flash, gemini-2.5-flash) get retired or restricted to
+// pre-existing users, which silently made every free-tier scan abstain (Gemini
+// is the only cloud provider free users get). "gemini-flash-latest" always
+// resolves to the newest GA flash model the API key can access. Still
+// overridable via the GEMINI_MODEL secret if a specific pin is ever needed.
+const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-flash-latest";
 
 export const geminiVisionProvider: VisionProvider = {
   name: "gemini_vision",
