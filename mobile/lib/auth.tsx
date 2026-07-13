@@ -11,9 +11,20 @@ type AuthContextValue = {
   signUp: (
     email: string,
     password: string,
+    profile?: SignUpProfile,
   ) => Promise<{ error: string | null; needsEmailConfirmation: boolean }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
+};
+
+// Extra profile fields collected at sign-up. Stored in the auth user's
+// metadata (options.data) so they persist immediately without a schema change;
+// the handle_new_user DB trigger (migration 0003) copies them into
+// public.profiles so they are queryable server-side.
+export type SignUpProfile = {
+  phone?: string;
+  country?: string;
+  city?: string;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -35,8 +46,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.subscription.unsubscribe();
   }, []);
 
-  const signUp = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signUp({ email, password });
+  const signUp = async (email: string, password: string, profile?: SignUpProfile) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        // Trimmed here so downstream (metadata + the profiles trigger) never
+        // stores stray whitespace. Empty strings become null.
+        data: {
+          phone: profile?.phone?.trim() || null,
+          country: profile?.country?.trim() || null,
+          city: profile?.city?.trim() || null,
+        },
+      },
+    });
     if (error) return { error: error.message, needsEmailConfirmation: false };
     // When the project requires email confirmation, signUp succeeds but returns
     // no session — the user must confirm via email before they can log in. When
