@@ -40,6 +40,28 @@
   "privacy": {
     "dataUsageBody": "Your scan photos are stored privately and used only to identify your specimen and improve accuracy. Location is coarse and fuzzed. Subscriptions are handled only on the website — the app never processes payments."
   },
+  "scanner": {
+    "noGemstone": "No gemstone detected. Please place a gemstone in front of the camera.",
+    "detecting": "Detecting object…",
+    "detected": "Gemstone detected",
+    "capturing": "Capturing angles…",
+    "analyzingSurface": "Analyzing surface…",
+    "preparingAi": "Preparing AI analysis…",
+    "confidence": "Confidence",
+    "progress": "Progress",
+    "notChecked": "not yet checked",
+    "verifying": "verifying…",
+    "holdRotate": "Hold the gemstone steady, then rotate it slowly",
+    "analyzing": "Analyzing your specimen — running the AI ensemble. This can take up to 30 seconds…",
+    "cameraNeeded": "GemScan AI needs camera access to scan gemstones.",
+    "grantCamera": "Grant camera access",
+    "analyzeNow": "Analyze now",
+    "uploadInstead": "Upload gemstone photos",
+    "manualCapture": "Manual capture",
+    "viewResults": "View results",
+    "keepScanning": "Keep scanning",
+    "captured": "Captured"
+  },
   "history": {
     "title": "My Collection",
     "emptyTitle": "No scans yet",

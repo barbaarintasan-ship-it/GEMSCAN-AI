@@ -40,6 +40,28 @@
   "privacy": {
     "dataUsageBody": "Sawirradaada iskaanka si gaar ah ayaa loo kaydiyaa, waxaana loo isticmaalaa oo keliya in lagu aqoonsado tusaalahaaga iyo in la hagaajiyo saxnaanta. Goobta waa mid guud oo aan sax ahayn. Rukunnada waxaa lagu maamulaa oo keliya websaydka — barnaamijku waligiis lacag ma qaado."
   },
+  "scanner": {
+    "noGemstone": "Ma jiro dhagax qaali ah oo la helay. Fadlan dhagax qaali ah hor dhig kamaradda.",
+    "detecting": "Waa la baaraya shayga…",
+    "detected": "Dhagax qaali ah ayaa la helay",
+    "capturing": "Waa la qabanayaa dhinacyada…",
+    "analyzingSurface": "Waa la falanqaynayaa dusha…",
+    "preparingAi": "Waa la diyaarinayaa falanqaynta AI…",
+    "confidence": "Kalsooni",
+    "progress": "Horumar",
+    "notChecked": "wali lama hubin",
+    "verifying": "waa la xaqiijinayaa…",
+    "holdRotate": "Dhagaxa si adag u hay, ka dibna si tartiib ah u rogrog",
+    "analyzing": "Waa la falanqaynayaa tusaalahaaga — waxaa socda kooxda AI-ga. Tan waxay qaadan kartaa ilaa 30 ilbiriqsi…",
+    "cameraNeeded": "GemScan AI wuxuu u baahan yahay kamaradda si uu u iskaano dhagxaanta.",
+    "grantCamera": "Ogolow kamaradda",
+    "analyzeNow": "Hadda falanqee",
+    "uploadInstead": "Soo geli sawirro dhagax",
+    "manualCapture": "Qabashada gacanta",
+    "viewResults": "Arag natiijooyinka",
+    "keepScanning": "Sii wad iskaanka",
+    "captured": "La qabtay"
+  },
   "history": {
     "title": "Ururkeyga",
     "emptyTitle": "Wali iskaan ma jiro",

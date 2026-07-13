@@ -21,6 +21,7 @@
 import React, { forwardRef, useImperativeHandle, useRef } from "react";
 import { GLView, type ExpoWebGLRenderingContext } from "expo-gl";
 import * as ImageManipulator from "expo-image-manipulator";
+import { computeDetectionFromPixels, type GemstoneDetection } from "../lib/gemstoneDetector";
 
 const ANALYSIS_SIZE = 96; // small + cheap for blur/exposure sampling
 const ENHANCE_OUTPUT_SIZE = 1024; // final size sent onward to Stage 4 cloud AI
@@ -36,6 +37,11 @@ export type QualityAssessment = {
 
 export type ImageProcessorHandle = {
   assessQuality: (uri: string) => Promise<QualityAssessment>;
+  // Live-scan combined pass: from a SINGLE downscale + readPixels, returns both
+  // the Stage 1 quality assessment and the on-device gemstone object-detection
+  // result. Used by the real-time scanner so per-frame detection gating costs
+  // nothing beyond the quality sampling it already does.
+  analyzeFrame: (uri: string) => Promise<{ quality: QualityAssessment; detection: GemstoneDetection }>;
   enhance: (uri: string) => Promise<{ uri: string }>;
 };
 
@@ -204,39 +210,54 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
   const passthroughProgramRef = useRef<WebGLProgram | null>(null);
   const enhanceProgramRef = useRef<WebGLProgram | null>(null);
 
+  // Shared for assessQuality + analyzeFrame: downscale the source and read back
+  // the small RGBA grid once, so a live frame that needs both quality and
+  // detection only pays for a single manipulate + GL draw + readPixels.
+  async function readAnalysisPixels(uri: string): Promise<Uint8Array> {
+    // Downscale first via expo-image-manipulator (cheap, native, and
+    // guarantees the texture we hand to GL is already small) rather than
+    // relying on GL alone to do the downsampling.
+    const resized = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: ANALYSIS_SIZE, height: ANALYSIS_SIZE } }],
+      { compress: 1, format: ImageManipulator.SaveFormat.PNG },
+    );
+
+    const gl = glRef.current;
+    if (!gl || !passthroughProgramRef.current) {
+      throw new Error("GL context not ready yet");
+    }
+
+    gl.viewport(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
+    gl.useProgram(passthroughProgramRef.current);
+    setupQuad(gl, passthroughProgramRef.current);
+
+    const texture = await loadTexture(gl, resized.uri);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.uniform1i(gl.getUniformLocation(passthroughProgramRef.current, "uTexture"), 0);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.flush();
+
+    const pixels = new Uint8Array(ANALYSIS_SIZE * ANALYSIS_SIZE * 4);
+    gl.readPixels(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    gl.deleteTexture(texture);
+    return pixels;
+  }
+
   useImperativeHandle(ref, () => ({
     async assessQuality(uri: string) {
-      // Downscale first via expo-image-manipulator (cheap, native, and
-      // guarantees the texture we hand to GL is already small) rather than
-      // relying on GL alone to do the downsampling.
-      const resized = await ImageManipulator.manipulateAsync(
-        uri,
-        [{ resize: { width: ANALYSIS_SIZE, height: ANALYSIS_SIZE } }],
-        { compress: 1, format: ImageManipulator.SaveFormat.PNG },
-      );
-
-      const gl = glRef.current;
-      if (!gl || !passthroughProgramRef.current) {
-        throw new Error("GL context not ready yet");
-      }
-
-      gl.viewport(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
-      gl.useProgram(passthroughProgramRef.current);
-      setupQuad(gl, passthroughProgramRef.current);
-
-      const texture = await loadTexture(gl, resized.uri);
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, texture);
-      gl.uniform1i(gl.getUniformLocation(passthroughProgramRef.current, "uTexture"), 0);
-
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-      gl.flush();
-
-      const pixels = new Uint8Array(ANALYSIS_SIZE * ANALYSIS_SIZE * 4);
-      gl.readPixels(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      gl.deleteTexture(texture);
-
+      const pixels = await readAnalysisPixels(uri);
       return computeQualityFromPixels(pixels, ANALYSIS_SIZE);
+    },
+
+    async analyzeFrame(uri: string) {
+      const pixels = await readAnalysisPixels(uri);
+      return {
+        quality: computeQualityFromPixels(pixels, ANALYSIS_SIZE),
+        detection: computeDetectionFromPixels(pixels, ANALYSIS_SIZE),
+      };
     },
 
     async enhance(uri: string) {

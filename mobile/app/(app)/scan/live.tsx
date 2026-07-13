@@ -1,31 +1,48 @@
-// LIVE SCAN MODE (primary experience) + INTELLIGENT AUTO SCAN LOCK.
+// LIVE GEMSTONE SCANNER (primary experience).
 //
-// Opens the camera immediately and continuously analyzes the preview on-device:
-// every ~600ms it grabs a low-res snapshot, runs the existing
-// ImageProcessorGL.assessQuality (Stage 1 blur/exposure), and feeds the result
-// into the pure lib/liveScanEngine state machine. The engine drives live
-// guidance ("Hold steady", "Move closer", …), auto-captures a full-resolution
-// frame when an angle locks in, marches through the multi-angle sequence, and
-// decides when enough evidence has been collected.
+// A true real-time AI scanner, not a photo-capture tool. The camera preview is
+// always live and continuously analyzed on-device; the user never presses a
+// capture button. The flow is:
 //
-// Layered ON TOP (without redesigning the above) is the Auto Scan Lock system
-// (lib/autoScanLock.ts): as evidence accumulates the screen spends a *bounded*
-// number of real cloud evaluations against ONE reused scanId, shows the live
-// AI confidence + an Evidence Quality indicator, and — the moment the ensemble
-// confidence crosses the backend-configured threshold (default 95%) —
-// automatically locks with "High confidence achieved." / "Analysis complete."
-// The user can still keep scanning or analyze manually.
+//   1. DETECTION GATE (lib/gemstoneDetector) — before any scanning or AI, each
+//      frame is checked for a distinct, gemstone-like object. Until one is held
+//      steadily in view we show "No gemstone detected…" and do NOT start
+//      identification or spend a single cloud call. This is what rejects an
+//      empty scene / random surface up front.
+//   2. AUTOMATIC ANGLE CAPTURE (lib/liveScanEngine) — once a gemstone is
+//      detected, the pure engine drives live guidance and auto-captures
+//      high-quality full-resolution frames as the user slowly rotates the stone
+//      (front / sides / top / bottom / macro). No manual multi-photo upload.
+//   3. AUTO SCAN LOCK + AI ENSEMBLE (lib/autoScanLock + orchestrate-scan) — as
+//      evidence accumulates, a bounded number of cloud evaluations run against
+//      ONE reused scan; the Gemini/OpenAI/Claude vision ensemble votes and the
+//      scan auto-locks the moment real confidence crosses the backend
+//      threshold. Low confidence → keep scanning (never a hallucinated answer).
+//
+// A professional scanner HUD sits on top: a sweeping scan line, an animated
+// frame that tracks the detected object, a live confidence indicator, a scan
+// progress percentage, and status narration ("Detecting object…", "Gemstone
+// detected", "Capturing angles…", "Analyzing surface…", "Preparing AI
+// analysis…").
 //
 // Reuse contract: capture/enhance/detect/segment/upload/orchestrate are the
-// SAME functions the manual capture screen uses. Cost/battery: only the cheap
-// on-device quality check runs per frame; a full-resolution capture happens
-// only when an angle locks in; cloud calls are capped and stop entirely once
-// confidence is high enough (reusing one scanId means re-evals don't consume
-// extra daily quota).
+// SAME functions the manual capture and upload screens use — this screen only
+// changes HOW frames are gathered (live + automatic), not the pipeline they
+// feed. Manual upload remains available as a secondary path.
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  ActivityIndicator,
+  Animated,
+  Easing,
+  useWindowDimensions,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as FileSystem from "expo-file-system";
 import { ImageProcessorGL, type ImageProcessorHandle } from "../../../components/ImageProcessorGL";
@@ -38,7 +55,6 @@ import {
   processFrame,
   createLiveScanState,
   canAnalyze,
-  nextAngleLabel,
   LIVE_ANGLE_SEQUENCE,
   type LiveScanState,
   type Angle,
@@ -51,6 +67,13 @@ import {
   AUTO_LOCK_COPY,
   DEFAULT_AUTOLOCK_CONFIG,
 } from "../../../lib/autoScanLock";
+import {
+  REQUIRED_DETECTION_FRAMES,
+  SCAN_STATUS_I18N_KEY,
+  scanStatusForProgress,
+  type GemstoneDetection,
+  type DetectionBox,
+} from "../../../lib/gemstoneDetector";
 
 // How often we sample the preview for on-device analysis. ~600ms (≈1.6 fps) is
 // a deliberate balance: responsive-feeling guidance without hammering the
@@ -61,8 +84,12 @@ const SAMPLE_INTERVAL_MS = 600;
 // Evidence Quality blend. Mirrors the non-optional steps of the live sequence.
 const REQUIRED_ANGLE_COUNT = LIVE_ANGLE_SEQUENCE.filter((s) => !s.optional).length;
 
+type Phase = "detecting" | "scanning" | "analyzing" | "locked";
+
 export default function LiveScanScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
+  const { width: screenW, height: screenH } = useWindowDimensions();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
   const imageProcessorRef = useRef<ImageProcessorHandle>(null);
@@ -75,6 +102,11 @@ export default function LiveScanScreen() {
   const busyRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Detection-gate bookkeeping (Phase 1).
+  const phaseRef = useRef<Phase>("detecting");
+  const detectFramesRef = useRef(0); // consecutive frames a gemstone was present
+  const latestDetectionRef = useRef<GemstoneDetection | null>(null);
+
   // Auto Scan Lock bookkeeping (all in refs — read inside the loop closure).
   const scanIdRef = useRef<string | null>(null); // ONE reused scan across evals
   const uploadedAnglesRef = useRef<Set<string>>(new Set());
@@ -84,16 +116,62 @@ export default function LiveScanScreen() {
   const thresholdRef = useRef(DEFAULT_AUTOLOCK_CONFIG.threshold);
   const manualContinueRef = useRef(false); // user chose to keep scanning past a lock
 
-  const [guidanceText, setGuidanceText] = useState("Point the camera at your specimen");
+  const [phase, setPhase] = useState<Phase>("detecting");
+  const [detectionPresent, setDetectionPresent] = useState(false);
+  const [detectionBox, setDetectionBox] = useState<DetectionBox | null>(null);
+  const [guidanceText, setGuidanceText] = useState("");
   const [evidence, setEvidence] = useState(0);
   const [evidenceQuality, setEvidenceQuality] = useState(0);
   const [confidence, setConfidence] = useState<number | null>(null);
   const [evaluating, setEvaluating] = useState(false);
-  const [targetLabel, setTargetLabel] = useState<string | null>("front");
   const [capturedAngles, setCapturedAngles] = useState<CapturedAngleImage["angle"][]>([]);
   const [canAnalyzeNow, setCanAnalyzeNow] = useState(false);
-  const [phase, setPhase] = useState<"scanning" | "locked" | "analyzing">("scanning");
   const [errorText, setErrorText] = useState<string | null>(null);
+
+  // ── HUD animations (native-driven, run continuously while the camera is up) ──
+  const scanLineAnim = useRef(new Animated.Value(0)).current;
+  const framePulseAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const sweep = Animated.loop(
+      Animated.sequence([
+        Animated.timing(scanLineAnim, {
+          toValue: 1,
+          duration: 1800,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(scanLineAnim, {
+          toValue: 0,
+          duration: 1800,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(framePulseAnim, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(framePulseAnim, {
+          toValue: 0,
+          duration: 900,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    sweep.start();
+    pulse.start();
+    return () => {
+      sweep.stop();
+      pulse.stop();
+    };
+  }, [scanLineAnim, framePulseAnim]);
 
   useEffect(() => {
     if (!permission?.granted) return;
@@ -105,6 +183,11 @@ export default function LiveScanScreen() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [permission?.granted]);
+
+  function setPhaseBoth(next: Phase) {
+    phaseRef.current = next;
+    setPhase(next);
+  }
 
   function scheduleTick(delay: number) {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -122,18 +205,45 @@ export default function LiveScanScreen() {
       const snap = await cameraRef.current.takePictureAsync({ quality: 0, skipProcessing: true });
       if (!snap?.uri) throw new Error("No preview frame");
 
-      const q = await imageProcessorRef.current.assessQuality(snap.uri);
+      // ONE combined on-device pass → quality (Stage 1) + gemstone detection.
+      const { quality: q, detection } = await imageProcessorRef.current.analyzeFrame(snap.uri);
       // The low-res sampling frame is disposable — a full-res frame is grabbed
       // separately if this angle locks in.
       FileSystem.deleteAsync(snap.uri, { idempotent: true }).catch(() => {});
 
+      latestDetectionRef.current = detection;
+      setDetectionPresent(detection.present);
+      setDetectionBox(detection.box);
+
+      // ── PHASE 1: DETECTION GATE ──────────────────────────────────────────
+      // Do not run the scan engine or any cloud AI until a gemstone-like object
+      // is reliably present. This is the "reject empty scene / non-object" gate.
+      if (phaseRef.current === "detecting") {
+        if (detection.present) {
+          detectFramesRef.current += 1;
+          setConfidence(null);
+          if (detectFramesRef.current >= REQUIRED_DETECTION_FRAMES) {
+            // Gemstone confirmed — begin real scanning.
+            setPhaseBoth("scanning");
+            setGuidanceText(t("scanner.holdRotate"));
+          } else {
+            setGuidanceText(t("scanner.detected"));
+          }
+        } else {
+          detectFramesRef.current = 0;
+          setGuidanceText(t("scanner.noGemstone"));
+        }
+        return; // never fall through to capture/eval while gating
+      }
+
+      // ── PHASE 2/3: SCANNING + AUTO LOCK ──────────────────────────────────
       const decision = processFrame(engineStateRef.current, q);
       engineStateRef.current = decision.state;
 
-      setGuidanceText(decision.guidanceText);
       setEvidence(decision.evidenceStrength);
-      setTargetLabel(nextAngleLabel(decision.state) ?? null);
       setCanAnalyzeNow(canAnalyze(decision.state));
+      // Narrate scan progress; fall back to frame guidance for corrective hints.
+      setGuidanceText(decision.guidanceText || t("scanner.holdRotate"));
 
       if (decision.captureAngle) {
         await captureFullFrame(decision.captureAngle);
@@ -199,10 +309,20 @@ export default function LiveScanScreen() {
     if (!photo?.uri) return;
 
     const quality = await imageProcessorRef.current.assessQuality(photo.uri);
-    const [detectionBbox, enhanced] = await Promise.all([
+    const [modelBbox, enhanced] = await Promise.all([
       detectSpecimenBoundingBox(photo.uri),
       imageProcessorRef.current.enhance(photo.uri),
     ]);
+
+    // Prefer the trained detector's box when a model is bundled; otherwise fall
+    // back to the on-device heuristic detector's box + objectness so the
+    // detected-object confidence is still persisted (scan_images.detection_bbox).
+    const heuristic = latestDetectionRef.current;
+    const detectionBbox =
+      modelBbox ??
+      (heuristic?.box
+        ? { ...heuristic.box, detectorConfidence: heuristic.objectness }
+        : null);
 
     const captured: CapturedAngleImage = {
       angle,
@@ -271,13 +391,13 @@ export default function LiveScanScreen() {
     }
   }
 
-  // Auto-lock (req 3): the scan finalizes automatically — no button press. The
-  // cloud evaluation already ran on scanIdRef, so the result is ready; we show
-  // the lock screen and let the user view it or keep scanning (req 7).
+  // Auto-lock: the scan finalizes automatically — no button press. The cloud
+  // evaluation already ran on scanIdRef, so the result is ready; we show the
+  // lock screen and let the user view it or keep scanning.
   function autoLock() {
     runningRef.current = false;
     if (timerRef.current) clearTimeout(timerRef.current);
-    setPhase("locked");
+    setPhaseBoth("locked");
   }
 
   function viewResults() {
@@ -288,7 +408,7 @@ export default function LiveScanScreen() {
 
   function keepScanning() {
     manualContinueRef.current = true; // suppress further auto-locks
-    setPhase("scanning");
+    setPhaseBoth("scanning");
     runningRef.current = true;
     scheduleTick(SAMPLE_INTERVAL_MS);
   }
@@ -303,7 +423,7 @@ export default function LiveScanScreen() {
       setErrorText("No usable frames were captured. Try again with better lighting.");
       return;
     }
-    setPhase("analyzing");
+    setPhaseBoth("analyzing");
     try {
       const scanId = await ensureScanId();
       await uploadPending(scanId);
@@ -314,7 +434,7 @@ export default function LiveScanScreen() {
     } catch (err) {
       captureException(err, { where: "live.finishAndAnalyze" });
       setErrorText((err as Error).message);
-      setPhase("scanning");
+      setPhaseBoth("scanning");
     }
   }
 
@@ -328,9 +448,9 @@ export default function LiveScanScreen() {
   if (!permission.granted) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.body}>GemScan AI needs camera access to scan specimens.</Text>
+        <Text style={styles.body}>{t("scanner.cameraNeeded")}</Text>
         <Pressable style={styles.primaryButton} onPress={requestPermission}>
-          <Text style={styles.primaryButtonText}>Grant camera access</Text>
+          <Text style={styles.primaryButtonText}>{t("scanner.grantCamera")}</Text>
         </Pressable>
       </View>
     );
@@ -340,9 +460,7 @@ export default function LiveScanScreen() {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color="#C9A227" size="large" />
-        <Text style={styles.body}>
-          Analyzing your specimen — running the AI ensemble. This can take up to 30 seconds…
-        </Text>
+        <Text style={styles.body}>{t("scanner.analyzing")}</Text>
       </View>
     );
   }
@@ -353,20 +471,56 @@ export default function LiveScanScreen() {
         <Text style={styles.lockHeadline}>{AUTO_LOCK_COPY.headline}</Text>
         <Text style={styles.body}>{AUTO_LOCK_COPY.sub}</Text>
         {confidence != null && (
-          <Text style={styles.confidenceBig}>AI confidence · {Math.round(confidence * 100)}%</Text>
+          <Text style={styles.confidenceBig}>
+            {t("scanner.confidence")} · {Math.round(confidence * 100)}%
+          </Text>
         )}
         <Text style={styles.meterLabel}>
-          Evidence quality · {Math.round(evidenceQuality * 100)}%
+          {t("scanner.progress")} · {Math.round(evidence * 100)}%
         </Text>
         <Pressable style={styles.primaryButton} onPress={viewResults}>
-          <Text style={styles.primaryButtonText}>View results</Text>
+          <Text style={styles.primaryButtonText}>{t("scanner.viewResults")}</Text>
         </Pressable>
         <Pressable style={styles.secondaryButton} onPress={keepScanning}>
-          <Text style={styles.link}>Keep scanning</Text>
+          <Text style={styles.link}>{t("scanner.keepScanning")}</Text>
         </Pressable>
       </View>
     );
   }
+
+  // ── Live scanner HUD (detecting + scanning share the same camera overlay) ──
+  const gemPresent = detectionPresent || phase === "scanning";
+
+  // Status headline: detection narration before scanning, progress narration
+  // during scanning.
+  const statusText =
+    phase === "detecting"
+      ? detectionPresent
+        ? t("scanner.detected")
+        : t("scanner.detecting")
+      : t(SCAN_STATUS_I18N_KEY[scanStatusForProgress(evidence)]);
+
+  const scanLineTranslateY = scanLineAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, screenH],
+  });
+  const frameOpacity = framePulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.45, 1],
+  });
+
+  // Map the normalized detection box to screen space for the animated frame.
+  const box = detectionBox;
+  const boxStyle = box
+    ? {
+        left: box.x * screenW,
+        top: box.y * screenH,
+        width: box.width * screenW,
+        height: box.height * screenH,
+      }
+    : null;
+
+  const progressPct = Math.round(evidence * 100);
 
   return (
     <View style={styles.container}>
@@ -384,54 +538,86 @@ export default function LiveScanScreen() {
         <Ionicons name="arrow-back" size={24} color="#F5F1E8" />
       </Pressable>
 
-      {/* Center reticle — where to hold the specimen. */}
-      <View style={styles.reticleWrap} pointerEvents="none">
-        <View style={styles.reticle} />
-      </View>
+      {/* Sweeping scan line — the signature "scanner" motion. */}
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.scanLine, { transform: [{ translateY: scanLineTranslateY }] }]}
+      />
 
-      {/* Top: live guidance. */}
-      <View style={styles.topBar} pointerEvents="none">
-        <Text style={styles.guidance}>{guidanceText}</Text>
-        {targetLabel && <Text style={styles.target}>Now show the {targetLabel}</Text>}
-      </View>
-
-      {/* Bottom: evidence meter + live confidence/quality + captured chips + controls. */}
-      <View style={styles.bottomBar}>
-        <View style={styles.meterTrack}>
-          <View style={[styles.meterFill, { width: `${Math.round(evidence * 100)}%` }]} />
+      {/* Animated frame around the detected object (or a centered guide box
+          while still detecting). Corner brackets pulse to read as "tracking". */}
+      {boxStyle ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.detectionFrame,
+            boxStyle,
+            { opacity: frameOpacity, borderColor: gemPresent ? "#2E7D32" : "#C9A227" },
+          ]}
+        >
+          <View style={[styles.corner, styles.cornerTL]} />
+          <View style={[styles.corner, styles.cornerTR]} />
+          <View style={[styles.corner, styles.cornerBL]} />
+          <View style={[styles.corner, styles.cornerBR]} />
+        </Animated.View>
+      ) : (
+        <View style={styles.reticleWrap} pointerEvents="none">
+          <Animated.View style={[styles.reticle, { opacity: frameOpacity }]} />
         </View>
-        <Text style={styles.meterLabel}>Evidence collected · {Math.round(evidence * 100)}%</Text>
+      )}
 
-        <Text style={styles.subMeterLabel}>
-          Evidence quality · {Math.round(evidenceQuality * 100)}%
-        </Text>
-        <Text style={styles.subMeterLabel}>
-          AI confidence ·{" "}
-          {evaluating
-            ? "verifying…"
-            : confidence != null
-              ? `${Math.round(confidence * 100)}%`
-              : "not yet checked"}
-        </Text>
+      {/* Top: status narration + detection message. */}
+      <View style={styles.topBar} pointerEvents="none">
+        <View style={styles.statusPill}>
+          <View style={[styles.statusDot, { backgroundColor: gemPresent ? "#2E7D32" : "#C9A227" }]} />
+          <Text style={styles.statusText}>{statusText}</Text>
+        </View>
+        {phase === "detecting" && !detectionPresent && (
+          <Text style={styles.detectHint}>{t("scanner.noGemstone")}</Text>
+        )}
+        {guidanceText ? <Text style={styles.guidance}>{guidanceText}</Text> : null}
+      </View>
+
+      {/* Bottom: progress + live confidence + captured chips + controls. */}
+      <View style={styles.bottomBar}>
+        <View style={styles.meterRow}>
+          <Text style={styles.meterLabel}>{t("scanner.progress")}</Text>
+          <Text style={styles.meterValue}>{progressPct}%</Text>
+        </View>
+        <View style={styles.meterTrack}>
+          <View style={[styles.meterFill, { width: `${progressPct}%` }]} />
+        </View>
+
+        <View style={styles.meterRow}>
+          <Text style={styles.subMeterLabel}>{t("scanner.confidence")}</Text>
+          <Text style={styles.subMeterValue}>
+            {evaluating
+              ? t("scanner.verifying")
+              : confidence != null
+                ? `${Math.round(confidence * 100)}%`
+                : t("scanner.notChecked")}
+          </Text>
+        </View>
 
         <Text style={styles.chips}>
-          Captured: {capturedAngles.length ? capturedAngles.join(", ") : "scanning…"}
+          {t("scanner.captured")}:{" "}
+          {capturedAngles.length ? capturedAngles.join(", ") : "…"}
         </Text>
 
         {errorText && <Text style={styles.errorText}>{errorText}</Text>}
 
         {canAnalyzeNow && (
           <Pressable style={styles.analyzeButton} onPress={handleAnalyzeNow}>
-            <Text style={styles.primaryButtonText}>Analyze now</Text>
+            <Text style={styles.primaryButtonText}>{t("scanner.analyzeNow")}</Text>
           </Pressable>
         )}
 
         <View style={styles.secondaryRow}>
           <Pressable onPress={() => router.replace("/(app)/scan/upload")}>
-            <Text style={styles.link}>Upload images instead</Text>
+            <Text style={styles.link}>{t("scanner.uploadInstead")}</Text>
           </Pressable>
           <Pressable onPress={() => router.replace("/(app)/scan/capture")}>
-            <Text style={styles.link}>Manual capture</Text>
+            <Text style={styles.link}>{t("scanner.manualCapture")}</Text>
           </Pressable>
         </View>
       </View>
@@ -457,6 +643,19 @@ const styles = StyleSheet.create({
   body: { fontSize: 14, color: "#C9C9CC", lineHeight: 20 },
   lockHeadline: { fontSize: 24, fontWeight: "700", color: "#2E7D32" },
   confidenceBig: { fontSize: 18, fontWeight: "700", color: "#C9A227" },
+
+  scanLine: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: "rgba(201,162,39,0.9)",
+    shadowColor: "#C9A227",
+    shadowOpacity: 0.9,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+  },
+
   reticleWrap: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
   reticle: {
     width: 240,
@@ -465,16 +664,54 @@ const styles = StyleSheet.create({
     borderColor: "rgba(201,162,39,0.9)",
     borderRadius: 24,
   },
-  topBar: { position: "absolute", top: 24, left: 20, right: 20, alignItems: "center", gap: 4 },
-  guidance: {
+
+  detectionFrame: {
+    position: "absolute",
+    borderWidth: 2,
+    borderRadius: 12,
+  },
+  corner: {
+    position: "absolute",
+    width: 18,
+    height: 18,
+    borderColor: "#F5F1E8",
+  },
+  cornerTL: { top: -2, left: -2, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: 12 },
+  cornerTR: { top: -2, right: -2, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 12 },
+  cornerBL: { bottom: -2, left: -2, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 12 },
+  cornerBR: { bottom: -2, right: -2, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 12 },
+
+  topBar: { position: "absolute", top: 48, left: 20, right: 20, alignItems: "center", gap: 8 },
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(11,11,12,0.72)",
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+  },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  statusText: { color: "#F5F1E8", fontSize: 15, fontWeight: "700" },
+  detectHint: {
     color: "#F5F1E8",
-    fontSize: 20,
-    fontWeight: "700",
+    fontSize: 13,
+    textAlign: "center",
+    backgroundColor: "rgba(11,11,12,0.72)",
+    borderRadius: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    overflow: "hidden",
+  },
+  guidance: {
+    color: "#C9A227",
+    fontSize: 14,
+    fontWeight: "600",
     textAlign: "center",
     textShadowColor: "rgba(0,0,0,0.8)",
     textShadowRadius: 6,
   },
-  target: { color: "#C9A227", fontSize: 14, fontWeight: "600", textShadowColor: "rgba(0,0,0,0.8)", textShadowRadius: 6 },
+
   bottomBar: {
     position: "absolute",
     bottom: 0,
@@ -485,10 +722,13 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: "rgba(11,11,12,0.72)",
   },
+  meterRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  meterValue: { color: "#F5F1E8", fontSize: 13, fontWeight: "700" },
   meterTrack: { height: 8, borderRadius: 999, backgroundColor: "#2A2A2C", overflow: "hidden" },
   meterFill: { height: 8, backgroundColor: "#2E7D32" },
   meterLabel: { color: "#C9C9CC", fontSize: 12 },
   subMeterLabel: { color: "#8A8A8E", fontSize: 12 },
+  subMeterValue: { color: "#C9A227", fontSize: 12, fontWeight: "600" },
   chips: { color: "#8A8A8E", fontSize: 12 },
   errorText: { color: "#E4685D", fontSize: 13 },
   primaryButton: { backgroundColor: "#C9A227", borderRadius: 999, paddingVertical: 14, alignItems: "center" },
