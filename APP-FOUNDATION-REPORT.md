@@ -79,10 +79,12 @@ A pure read view over the data the pipeline already writes (`scans`,
 - **Commit:** `1671874` (pushed to `main`).
 - **CI:** GitHub Actions `CI` run for commit `1671874` — **success** (typecheck +
   full jest suite).
-- **Android preview APK:** produced via the manual `workflow_dispatch` EAS build
-  (`.github/workflows/eas-build.yml`, profile `preview`, platform `android`),
-  which requires the `EXPO_TOKEN` repo secret. Trigger with
-  `gh workflow run eas-build.yml -f profile=preview -f platform=android`.
+- **Android preview APK — BLOCKED:** the EAS build workflow
+  (`.github/workflows/eas-build.yml`, profile `preview`, platform `android`)
+  cannot complete because the **`EXPO_TOKEN` repo secret is not configured**
+  (`eas build` fails with "An Expo user account is required to proceed"). Add the
+  secret, then run `gh workflow run eas-build.yml -f profile=preview -f platform=android`.
+  See LIVE-SCANNER-UPGRADE-REPORT.md → Build for the full failure log and fix.
 
 ## Files changed
 

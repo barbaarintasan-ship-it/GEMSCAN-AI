@@ -108,9 +108,22 @@ Modified:
 
 ## Build
 
-- **Commit:** _(this commit)_
-- **Android preview build:** the EAS build is a manual `workflow_dispatch`
-  (`.github/workflows/eas-build.yml`) and consumes metered build minutes; trigger
-  it with `gh workflow run eas-build.yml -f profile=preview -f platform=android`
-  (requires the `EXPO_TOKEN` repo secret). CI (`ci.yml`) runs typecheck + the full
-  jest suite on this push.
+- **Commit:** `a352bc2` (pushed to `main`).
+- **CI:** `ci.yml` runs typecheck + the full jest suite on this push.
+- **Android preview APK — BLOCKED (action needed):** the EAS build workflow was
+  dispatched (`gh workflow run eas-build.yml -f profile=preview -f platform=android`,
+  run `29249642336`) but **failed at the `eas build` step**:
+
+  ```
+  Skipped authentication: 'token' not provided.
+  An Expo user account is required to proceed.
+  Error: build command failed.
+  ```
+
+  Root cause: the **`EXPO_TOKEN` repository secret is not configured**, so
+  `expo/expo-github-action@v8` skipped auth and `eas build` had no account. This
+  is the known-pending item flagged in `eas-build.yml` / the infrastructure
+  report. **To unblock:** add an `EXPO_TOKEN` repo secret (from an expo.dev
+  access token) under Settings → Secrets → Actions, then re-run
+  `gh workflow run eas-build.yml -f profile=preview -f platform=android`. The
+  code is committed and CI-validated; only the credential is missing.
