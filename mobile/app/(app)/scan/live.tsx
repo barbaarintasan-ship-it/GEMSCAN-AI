@@ -424,16 +424,23 @@ export default function LiveScanScreen() {
       return;
     }
     setPhaseBoth("analyzing");
+    // Track which pipeline stage we're in so a failure names the stage that
+    // broke ("Upload failed", "AI analysis failed") rather than surfacing a bare
+    // low-level message the user can't act on.
+    let stage: "create scan" | "upload" | "AI analysis" = "create scan";
     try {
       const scanId = await ensureScanId();
+      stage = "upload";
       await uploadPending(scanId);
+      stage = "AI analysis";
       const front = images.find((i) => i.angle === "front") ?? images[0];
       const onDeviceHint = await classifyCoarse(front.processedUri);
       const result = await runOrchestration(scanId, onDeviceHint);
       router.replace({ pathname: "/(app)/scan/results", params: { scanId: result.scanId } });
     } catch (err) {
-      captureException(err, { where: "live.finishAndAnalyze" });
-      setErrorText((err as Error).message);
+      captureException(err, { where: "live.finishAndAnalyze", stage });
+      const detail = (err as Error).message || "unknown error";
+      setErrorText(`${stage} failed: ${detail}`);
       setPhaseBoth("scanning");
     }
   }

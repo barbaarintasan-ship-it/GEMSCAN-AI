@@ -101,10 +101,7 @@ function baseParams(
     images: [
       { angle: "front", original_storage_path: "scan-1/front.jpg", processed_storage_path: null },
     ],
-    req: new Request("http://localhost/", {
-      method: "POST",
-      body: JSON.stringify({ scanId: "scan-1" }),
-    }),
+    onDeviceHint: null,
     ensembleScansEnabled: true,
     ...overrides,
   };
@@ -291,6 +288,40 @@ Deno.test("processScan: when every provider abstains, the final result is insuff
   assertEquals(body.finalResult.message, INSUFFICIENT_CONFIDENCE_MESSAGE);
   assertEquals(body.candidates.length, 0);
   assertEquals(inserted["scan_candidates"], undefined);
+});
+
+Deno.test("processScan: threads the caller-supplied onDeviceHint through to provider input", async () => {
+  // Regression guard for the body-stream bug: onDeviceHint used to be re-read
+  // inside processScan via `req.clone().json()`, which threw "Body already
+  // consumed" in production (handleRequest had already read the body) and
+  // failed every scan. It is now passed as a value; assert it reaches providers.
+  const { client } = createMockServiceClient();
+  let seenHint: ProviderInput["onDeviceHint"] = null;
+  const providers: VisionProvider[] = [
+    mockProvider({
+      name: "gemini_vision",
+      identify: async (input: ProviderInput) => {
+        seenHint = input.onDeviceHint;
+        return {
+          provider: "gemini_vision",
+          candidate: null,
+          alternatives: [],
+          reasoning: "",
+          latencyMs: 1,
+        };
+      },
+    }),
+  ];
+
+  await processScan(
+    baseParams({
+      serviceClient: client,
+      providers,
+      onDeviceHint: { label: "quartz", confidence: 0.42 },
+    }),
+  );
+
+  assertEquals(seenHint, { label: "quartz", confidence: 0.42 });
 });
 
 Deno.test("processScan: returns the backend auto-lock threshold (default 0.95)", async () => {

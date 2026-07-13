@@ -26,7 +26,7 @@
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders } from "../_shared/cors.ts";
-import { logError } from "../_shared/logger.ts";
+import { log, logError } from "../_shared/logger.ts";
 import { featuresForTier } from "../_shared/entitlements.ts";
 import { providerRegistry } from "./providers/providerRegistry.ts";
 import type { ProviderInput, ProviderResult, VisionProvider } from "./providers/types.ts";
@@ -69,10 +69,22 @@ export async function handleRequest(req: Request): Promise<Response> {
       return jsonResponse({ error: "Missing Authorization header" }, 401);
     }
 
-    const { scanId } = await req.json().catch(() => ({}));
+    // Parse the request body exactly ONCE. A Request body is a single-use
+    // stream: reading it here and then AGAIN later (the old code did
+    // `req.clone().json()` inside processScan) throws "Body already consumed",
+    // which deterministically failed EVERY real scan the moment it went through
+    // this handler. Both `scanId` and the optional Stage-2 `onDeviceHint` are
+    // therefore extracted here and threaded through explicitly.
+    const requestBody = await req.json().catch(() => ({}));
+    const scanId = requestBody?.scanId;
+    const onDeviceHint = (requestBody?.onDeviceHint ?? null) as ProviderInput["onDeviceHint"];
     if (!scanId || typeof scanId !== "string") {
       return jsonResponse({ error: "Missing or invalid scanId" }, 400);
     }
+    log("info", "orchestrate-scan", "scan requested", {
+      scanId,
+      hasOnDeviceHint: onDeviceHint !== null,
+    });
 
     // Scoped to the caller's own JWT: RLS means the SELECT below can only
     // ever return this scan if the caller owns it — no separate authorization
@@ -153,7 +165,7 @@ export async function handleRequest(req: Request): Promise<Response> {
         scanId,
         scan,
         images,
-        req,
+        onDeviceHint,
         serviceClient,
         ensembleScansEnabled: features.ensembleScans,
       });
@@ -190,7 +202,10 @@ export async function processScan(params: {
   scanId: string;
   scan: ScanRow;
   images: ImageRow[];
-  req: Request;
+  // Stage-2 on-device hint, already parsed from the request body by the caller
+  // (handleRequest). Passed as a value — NOT re-read from the request — because
+  // the body stream has already been consumed by the time we get here.
+  onDeviceHint: ProviderInput["onDeviceHint"];
   serviceClient: SupabaseClient;
   ensembleScansEnabled: boolean;
   // Optional override of the real provider registry, so tests can exercise
@@ -198,7 +213,8 @@ export async function processScan(params: {
   // instead of hitting real AI vendor APIs.
   providers?: VisionProvider[];
 }): Promise<Response> {
-  const { scanId, scan, images, req, serviceClient, ensembleScansEnabled, providers } = params;
+  const { scanId, scan, images, onDeviceHint, serviceClient, ensembleScansEnabled, providers } =
+    params;
 
   const processingStartedAt = new Date();
   await serviceClient
@@ -206,6 +222,8 @@ export async function processScan(params: {
     .update({ status: "processing", processing_started_at: processingStartedAt.toISOString() })
     .eq("id", scanId);
 
+  // Stage 4a: sign a short-lived URL per image so providers can fetch the bytes.
+  const signStart = Date.now();
   const signedImages = await Promise.all(
     images.map(async (img) => {
       const path = img.processed_storage_path ?? img.original_storage_path;
@@ -213,16 +231,23 @@ export async function processScan(params: {
         .from("scan-images")
         .createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
       if (error || !data) {
+        log("error", "orchestrate-scan", "signed URL generation failed", {
+          scanId,
+          stage: "sign_url",
+          path,
+          reason: error?.message,
+        });
         throw new Error(`Failed to sign URL for ${path}: ${error?.message}`);
       }
       return { angle: img.angle, url: data.signedUrl };
     }),
   );
-
-  // The client is expected to pass through its Stage 2 on-device hint in the
-  // request body too — accept it optionally without requiring it.
-  const requestBody = await req.clone().json().catch(() => ({}));
-  const onDeviceHint = requestBody?.onDeviceHint ?? null;
+  log("info", "orchestrate-scan", "images signed", {
+    scanId,
+    stage: "sign_url",
+    imageCount: signedImages.length,
+    durationMs: Date.now() - signStart,
+  });
 
   const input: ProviderInput = {
     scanId,
@@ -236,10 +261,34 @@ export async function processScan(params: {
   const applicableProviders = (providers ?? providerRegistry).filter(
     (p) => p.isApplicable(input) && (!p.requiresEnsembleTier || ensembleScansEnabled),
   );
+  log("info", "orchestrate-scan", "providers selected", {
+    scanId,
+    stage: "providers",
+    providers: applicableProviders.map((p) => p.name),
+    ensembleScansEnabled,
+  });
 
   const results: ProviderResult[] = await Promise.all(
     applicableProviders.map((provider) => withTimeout(provider, input)),
   );
+
+  // Per-provider outcome log: this is the ground truth for "is Gemini/OpenAI/
+  // Claude actually being called, and did it succeed?" — each line reports the
+  // provider, whether it produced a candidate, its confidence, latency, and the
+  // exact failure reason (missing key, HTTP error, timeout, parse error) when it
+  // abstained. Grep the deployed function logs by `"stage":"provider_result"`.
+  for (const r of results) {
+    log(r.error ? "warn" : "info", "orchestrate-scan", "provider result", {
+      scanId,
+      stage: "provider_result",
+      provider: r.provider,
+      identified: r.candidate !== null,
+      label: r.candidate?.label ?? null,
+      confidence: r.candidate?.confidence ?? null,
+      latencyMs: r.latencyMs,
+      reason: r.error ?? null,
+    });
+  }
 
   // Auto Scan Lock makes this endpoint re-entrant: the Live Scan may call it
   // multiple times against the SAME scanId as it progressively collects more
@@ -313,6 +362,18 @@ export async function processScan(params: {
       total_duration_ms: totalDurationMs,
     })
     .eq("id", scanId);
+
+  log("info", "orchestrate-scan", "scan completed", {
+    scanId,
+    stage: "complete",
+    bestMatch: finalResult.bestMatch,
+    confidenceScore: finalResult.confidenceScore,
+    confidenceBand: finalResult.confidenceBand,
+    insufficientConfidence: finalResult.insufficientConfidence,
+    providersRun: results.length,
+    providersIdentified: results.filter((r) => r.candidate !== null).length,
+    totalDurationMs,
+  });
 
   return jsonResponse({
     scanId,

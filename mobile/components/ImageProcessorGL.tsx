@@ -26,6 +26,15 @@ import { computeDetectionFromPixels, type GemstoneDetection } from "../lib/gemst
 const ANALYSIS_SIZE = 96; // small + cheap for blur/exposure sampling
 const ENHANCE_OUTPUT_SIZE = 1024; // final size sent onward to Stage 4 cloud AI
 
+// How long a GL operation will WAIT for the context to finish initializing
+// before giving up. expo-gl creates the WebGL context asynchronously (via
+// GLView.onContextCreate) after the view mounts, so the very first live-scan
+// frames can arrive before the context exists. Rather than throwing
+// "GL context not ready" on those early frames (the bug users saw), callers
+// now await readiness up to this budget. On a healthy device the context is
+// ready in well under a second; this is only a ceiling.
+const GL_READY_TIMEOUT_MS = 5000;
+
 export type QualityAssessment = {
   qualityScore: number; // 0-1, higher is better
   blurry: boolean;
@@ -210,10 +219,66 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
   const passthroughProgramRef = useRef<WebGLProgram | null>(null);
   const enhanceProgramRef = useRef<WebGLProgram | null>(null);
 
+  // Readiness gate. expo-gl's onContextCreate fires asynchronously after the
+  // <GLView> mounts, so any method invoked before then would previously throw
+  // "GL context not ready". Instead we expose a promise that resolves the moment
+  // the context + shader programs are built, and callers await it (bounded by
+  // GL_READY_TIMEOUT_MS). `readyResolveRef` is the resolver captured so
+  // onContextCreate can fulfil the promise; `readyRef` is a boolean fast-path so
+  // a warm context skips the promise machinery entirely.
+  const readyRef = useRef(false);
+  const readyResolveRef = useRef<(() => void) | null>(null);
+  // Lazily create the readiness promise EXACTLY once. Passing `new Promise(...)`
+  // straight to useRef would re-run the executor on every re-render (this
+  // propless component re-renders whenever its parent does), each time replacing
+  // readyResolveRef with a resolver for a promise that's immediately discarded —
+  // stranding the real promise. The null-guard constructs it a single time.
+  const readyPromiseRef = useRef<Promise<void> | null>(null);
+  if (readyPromiseRef.current === null) {
+    readyPromiseRef.current = new Promise<void>((resolve) => {
+      readyResolveRef.current = resolve;
+    });
+  }
+
+  // Resolve (once) when the GL context and both shader programs are ready.
+  function markGLReady() {
+    if (readyRef.current) return;
+    readyRef.current = true;
+    readyResolveRef.current?.();
+  }
+
+  // Await GL readiness, up to `timeoutMs`. Resolves to true if the context
+  // became ready in time, false if the budget elapsed first (device never
+  // produced a context — genuinely broken GL, or GLView never mounted).
+  function waitForGL(timeoutMs: number): Promise<boolean> {
+    if (readyRef.current && glRef.current && passthroughProgramRef.current) {
+      return Promise.resolve(true);
+    }
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        resolve(false);
+      }, timeoutMs);
+      readyPromiseRef.current?.then(() => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(true);
+      });
+    });
+  }
+
   // Shared for assessQuality + analyzeFrame: downscale the source and read back
   // the small RGBA grid once, so a live frame that needs both quality and
   // detection only pays for a single manipulate + GL draw + readPixels.
   async function readAnalysisPixels(uri: string): Promise<Uint8Array> {
+    // Wait for the GL context to finish initializing before touching it. On a
+    // healthy device this resolves almost immediately; only a device that never
+    // produces a context will hit the timeout.
+    const ready = await waitForGL(GL_READY_TIMEOUT_MS);
+
     // Downscale first via expo-image-manipulator (cheap, native, and
     // guarantees the texture we hand to GL is already small) rather than
     // relying on GL alone to do the downsampling.
@@ -224,8 +289,10 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
     );
 
     const gl = glRef.current;
-    if (!gl || !passthroughProgramRef.current) {
-      throw new Error("GL context not ready yet");
+    if (!ready || !gl || !passthroughProgramRef.current) {
+      throw new Error(
+        `GL context unavailable after ${GL_READY_TIMEOUT_MS}ms — cannot analyze frame`,
+      );
     }
 
     gl.viewport(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
@@ -261,6 +328,12 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
     },
 
     async enhance(uri: string) {
+      // Wait for GL, then produce a CPU-resized copy. That copy doubles as the
+      // graceful fallback: if the context never initializes we still return a
+      // correctly-sized (just un-enhanced) image so the scan can proceed rather
+      // than failing outright.
+      const ready = await waitForGL(GL_READY_TIMEOUT_MS);
+
       const resized = await ImageManipulator.manipulateAsync(
         uri,
         [{ resize: { width: ENHANCE_OUTPUT_SIZE, height: ENHANCE_OUTPUT_SIZE } }],
@@ -268,8 +341,10 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
       );
 
       const gl = glRef.current;
-      if (!gl || !enhanceProgramRef.current || !passthroughProgramRef.current) {
-        throw new Error("GL context not ready yet");
+      if (!ready || !gl || !enhanceProgramRef.current || !passthroughProgramRef.current) {
+        // Graceful fallback: hand back the CPU-resized original unenhanced. The
+        // cloud ensemble still receives a valid, correctly-sized image.
+        return { uri: resized.uri };
       }
 
       // First, sample a small proxy of the source to compute gray-world
@@ -371,6 +446,9 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
           PASSTHROUGH_FRAGMENT_SHADER,
         );
         enhanceProgramRef.current = linkProgram(gl, VERTEX_SHADER, ENHANCE_FRAGMENT_SHADER);
+        // Context + both programs are live — release any callers awaiting
+        // readiness. Only mark ready once everything a method needs exists.
+        markGLReady();
       }}
     />
   );
