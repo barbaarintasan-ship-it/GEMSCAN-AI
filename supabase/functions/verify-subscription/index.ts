@@ -18,7 +18,7 @@ import { logError } from "../_shared/logger.ts";
 // the multi-model ensemble at scan time, not just to render a UI hint), so
 // the mobile app never has to encode "what does premium unlock" logic
 // itself — it just renders whatever the backend says is unlocked.
-import { featuresForTier } from "../_shared/entitlements.ts";
+import { featuresForTier, isOwnerEmail, resolveEffectiveTier } from "../_shared/entitlements.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -69,17 +69,19 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Defensive default: if no row exists yet (shouldn't happen, the signup
-    // trigger creates one), treat as free rather than failing closed on paid
-    // features being blocked.
-    const tier = subscription?.status === "active" ? subscription.tier : "free";
+    // Owner accounts are forced to "professional"; otherwise the active tier or
+    // "free". Defensive default: if no row exists yet (shouldn't happen, the
+    // signup trigger creates one), treat as free rather than failing closed on
+    // paid features being blocked.
+    const owner = isOwnerEmail(user.email);
+    const tier = resolveEffectiveTier(user.email, subscription);
 
     return new Response(
       JSON.stringify({
         tier,
-        status: subscription?.status ?? "active",
-        currentPeriodEnd: subscription?.current_period_end ?? null,
-        source: subscription?.source ?? null,
+        status: owner ? "active" : (subscription?.status ?? "active"),
+        currentPeriodEnd: owner ? null : (subscription?.current_period_end ?? null),
+        source: owner ? "owner" : (subscription?.source ?? null),
         features: featuresForTier(tier),
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },

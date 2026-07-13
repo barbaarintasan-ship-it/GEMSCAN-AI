@@ -27,7 +27,7 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders } from "../_shared/cors.ts";
 import { log, logError } from "../_shared/logger.ts";
-import { featuresForTier } from "../_shared/entitlements.ts";
+import { featuresForTier, resolveEffectiveTier } from "../_shared/entitlements.ts";
 import { providerRegistry } from "./providers/providerRegistry.ts";
 import type { ProviderInput, ProviderResult, VisionProvider } from "./providers/types.ts";
 import { runEnsemble } from "./ensemble.ts";
@@ -129,7 +129,9 @@ export async function handleRequest(req: Request): Promise<Response> {
       .select("tier, status")
       .eq("user_id", user.id)
       .maybeSingle();
-    const tier = subscription?.status === "active" ? subscription.tier : "free";
+    // Owner accounts resolve to "professional" (unlimited) regardless of any
+    // subscriptions row; everyone else gets their active tier or "free".
+    const tier = resolveEffectiveTier(user.email, subscription);
     const features = featuresForTier(tier);
 
     if (features.dailyScanLimit !== null) {

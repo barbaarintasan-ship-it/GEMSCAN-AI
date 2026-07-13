@@ -12,6 +12,32 @@ export type SubscriptionFeatures = {
   batchScanning: boolean;
 };
 
+// Owner / admin accounts. These are the app operators' OWN accounts: always
+// fully entitled ("professional"), never billed, and never expiring. The grant
+// is by email and checked server-side, so it does NOT depend on a subscriptions
+// row, a Stripe/PayPal record, or a period-end date — there is nothing to lapse
+// or to charge. It takes effect the moment the account signs in. Compared
+// case-insensitively. Add/remove operator emails here.
+export const OWNER_EMAILS: ReadonlySet<string> = new Set([
+  "awmusse.musse@gmail.com",
+]);
+
+export function isOwnerEmail(email: string | null | undefined): boolean {
+  return email != null && OWNER_EMAILS.has(email.trim().toLowerCase());
+}
+
+// Single source of truth for turning (caller email + their subscriptions row)
+// into the effective tier. Owner accounts are forced to "professional"
+// (unlimited + every feature); everyone else gets their active subscription
+// tier, or "free" when there is no active subscription.
+export function resolveEffectiveTier(
+  email: string | null | undefined,
+  subscription: { tier?: string | null; status?: string | null } | null | undefined,
+): string {
+  if (isOwnerEmail(email)) return "professional";
+  return subscription?.status === "active" ? (subscription.tier ?? "free") : "free";
+}
+
 export function featuresForTier(tier: string): SubscriptionFeatures {
   switch (tier) {
     case "professional":

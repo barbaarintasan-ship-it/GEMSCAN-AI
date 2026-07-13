@@ -3,7 +3,7 @@
 // orchestrate-scan.
 // Run with: deno test supabase/functions/_shared/entitlements.test.ts
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { featuresForTier } from "./entitlements.ts";
+import { featuresForTier, isOwnerEmail, resolveEffectiveTier } from "./entitlements.ts";
 
 Deno.test("featuresForTier: professional tier unlocks everything with unlimited scans", () => {
   const features = featuresForTier("professional");
@@ -51,4 +51,33 @@ Deno.test("featuresForTier: empty string tier falls back to free (fail-closed, n
   const features = featuresForTier("");
   assertEquals(features.dailyScanLimit, 5);
   assertEquals(features.ensembleScans, false);
+});
+
+Deno.test("isOwnerEmail: owner email matches, case- and whitespace-insensitively", () => {
+  assertEquals(isOwnerEmail("awmusse.musse@gmail.com"), true);
+  assertEquals(isOwnerEmail("AwMusse.Musse@Gmail.com"), true);
+  assertEquals(isOwnerEmail("  awmusse.musse@gmail.com  "), true);
+});
+
+Deno.test("isOwnerEmail: non-owner and empty/null emails are not owners", () => {
+  assertEquals(isOwnerEmail("someone.else@gmail.com"), false);
+  assertEquals(isOwnerEmail(""), false);
+  assertEquals(isOwnerEmail(null), false);
+  assertEquals(isOwnerEmail(undefined), false);
+});
+
+Deno.test("resolveEffectiveTier: owner is always professional, even with no/canceled subscription", () => {
+  assertEquals(resolveEffectiveTier("awmusse.musse@gmail.com", null), "professional");
+  assertEquals(
+    resolveEffectiveTier("awmusse.musse@gmail.com", { tier: "free", status: "canceled" }),
+    "professional",
+  );
+  // And that professional resolves to fully unlimited via featuresForTier.
+  assertEquals(featuresForTier(resolveEffectiveTier("awmusse.musse@gmail.com", null)).dailyScanLimit, null);
+});
+
+Deno.test("resolveEffectiveTier: non-owner gets active tier, or free when inactive/absent", () => {
+  assertEquals(resolveEffectiveTier("user@example.com", { tier: "premium", status: "active" }), "premium");
+  assertEquals(resolveEffectiveTier("user@example.com", { tier: "premium", status: "canceled" }), "free");
+  assertEquals(resolveEffectiveTier("user@example.com", null), "free");
 });
