@@ -149,6 +149,33 @@ function setupQuad(gl: ExpoWebGLRenderingContext, program: WebGLProgram) {
   gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
 }
 
+// Create (once) an offscreen framebuffer with a `size`x`size` RGBA colour
+// texture attachment, so GL passes render into a correctly-sized target rather
+// than the 1x1 DEFAULT framebuffer of the hidden GLView. Reading/snapshotting
+// the default framebuffer returned an almost-entirely-zero buffer (the view is
+// 1px), which made on-device quality + gemstone detection garbage. Returns the
+// cached target on subsequent calls (kept for the GL context lifetime).
+function ensureRenderTarget(
+  gl: ExpoWebGLRenderingContext,
+  cache: { current: { fbo: WebGLFramebuffer; tex: WebGLTexture } | null },
+  size: number,
+): WebGLFramebuffer {
+  if (cache.current) return cache.current.fbo;
+  const tex = gl.createTexture()!;
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const fbo = gl.createFramebuffer()!;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+  cache.current = { fbo, tex };
+  return fbo;
+}
+
 async function loadTexture(
   gl: ExpoWebGLRenderingContext,
   uri: string,
@@ -218,6 +245,10 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
   const glRef = useRef<ExpoWebGLRenderingContext | null>(null);
   const passthroughProgramRef = useRef<WebGLProgram | null>(null);
   const enhanceProgramRef = useRef<WebGLProgram | null>(null);
+  // Offscreen render targets — see ensureRenderTarget. One 96x96 target for the
+  // analysis/proxy reads, one 1024x1024 for the final enhancement snapshot.
+  const analysisTargetRef = useRef<{ fbo: WebGLFramebuffer; tex: WebGLTexture } | null>(null);
+  const enhanceTargetRef = useRef<{ fbo: WebGLFramebuffer; tex: WebGLTexture } | null>(null);
 
   // Readiness gate. expo-gl's onContextCreate fires asynchronously after the
   // <GLView> mounts, so any method invoked before then would previously throw
@@ -295,6 +326,9 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
       );
     }
 
+    // Render into the 96x96 offscreen framebuffer (NOT the 1x1 default one).
+    const target = ensureRenderTarget(gl, analysisTargetRef, ANALYSIS_SIZE);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target);
     gl.viewport(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
     gl.useProgram(passthroughProgramRef.current);
     setupQuad(gl, passthroughProgramRef.current);
@@ -310,6 +344,7 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
     const pixels = new Uint8Array(ANALYSIS_SIZE * ANALYSIS_SIZE * 4);
     gl.readPixels(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     gl.deleteTexture(texture);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     return pixels;
   }
 
@@ -355,6 +390,8 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
         [{ resize: { width: ANALYSIS_SIZE, height: ANALYSIS_SIZE } }],
         { compress: 1, format: ImageManipulator.SaveFormat.PNG },
       );
+      const proxyTarget = ensureRenderTarget(gl, analysisTargetRef, ANALYSIS_SIZE);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, proxyTarget);
       gl.viewport(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
       gl.useProgram(passthroughProgramRef.current);
       setupQuad(gl, passthroughProgramRef.current);
@@ -394,7 +431,10 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
       const targetBrightness = 0.47;
       const exposureGain = Math.max(0.6, Math.min(1.6, targetBrightness / Math.max(grayMean, 0.05)));
 
-      // Now render the full-resolution enhancement pass.
+      // Now render the full-resolution enhancement pass into the 1024x1024
+      // offscreen framebuffer (NOT the 1x1 default one) and snapshot THAT.
+      const enhanceTarget = ensureRenderTarget(gl, enhanceTargetRef, ENHANCE_OUTPUT_SIZE);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, enhanceTarget);
       gl.viewport(0, 0, ENHANCE_OUTPUT_SIZE, ENHANCE_OUTPUT_SIZE);
       gl.useProgram(enhanceProgramRef.current);
       setupQuad(gl, enhanceProgramRef.current);
@@ -422,10 +462,13 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
       gl.deleteTexture(texture);
 
       const snapshot = await GLView.takeSnapshotAsync(gl, {
+        framebuffer: enhanceTarget,
+        rect: { x: 0, y: 0, width: ENHANCE_OUTPUT_SIZE, height: ENHANCE_OUTPUT_SIZE },
         format: "jpeg",
         compress: 0.9,
         flip: false,
       });
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
       if (!snapshot.uri || typeof snapshot.uri !== "string") {
         throw new Error("GL snapshot did not return a file URI");
