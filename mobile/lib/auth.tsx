@@ -8,7 +8,10 @@ import { supabase } from "./supabase";
 type AuthContextValue = {
   session: Session | null;
   isLoading: boolean;
-  signUp: (email: string, password: string) => Promise<{ error: string | null }>;
+  signUp: (
+    email: string,
+    password: string,
+  ) => Promise<{ error: string | null; needsEmailConfirmation: boolean }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 };
@@ -33,8 +36,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password });
-    return { error: error?.message ?? null };
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) return { error: error.message, needsEmailConfirmation: false };
+    // When the project requires email confirmation, signUp succeeds but returns
+    // no session — the user must confirm via email before they can log in. When
+    // confirmation is off, a session is returned immediately and onAuthStateChange
+    // will pick it up. Distinguish the two so the UI can react correctly instead
+    // of silently bouncing back to the login screen.
+    return { error: null, needsEmailConfirmation: data.session === null };
   };
 
   const signIn = async (email: string, password: string) => {

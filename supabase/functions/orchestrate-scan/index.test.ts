@@ -41,6 +41,8 @@ function createMockServiceClient() {
   const updates: Record<string, unknown[]> = {};
   let signedUrlError: string | null = null;
 
+  const deletes: Record<string, number> = {};
+
   // deno-lint-ignore no-explicit-any
   function makeQueryBuilder(table: string): any {
     return {
@@ -53,6 +55,15 @@ function createMockServiceClient() {
       insert(rows: unknown[]) {
         (inserted[table] ??= []).push(...rows);
         return Promise.resolve({ error: null });
+      },
+      // Auto Scan Lock re-entrancy: processScan clears prior AI rows for the
+      // scan before re-inserting. Record the delete().eq() so the re-entrancy
+      // test can assert it happened without duplicating rows.
+      delete() {
+        deletes[table] = (deletes[table] ?? 0) + 1;
+        return {
+          eq: (_col: string, _val: unknown) => Promise.resolve({ error: null }),
+        };
       },
     };
   }
@@ -73,6 +84,7 @@ function createMockServiceClient() {
     client: client as unknown as SupabaseClient,
     inserted,
     updates,
+    deletes,
     failSignedUrl(message: string) {
       signedUrlError = message;
     },
@@ -279,4 +291,38 @@ Deno.test("processScan: when every provider abstains, the final result is insuff
   assertEquals(body.finalResult.message, INSUFFICIENT_CONFIDENCE_MESSAGE);
   assertEquals(body.candidates.length, 0);
   assertEquals(inserted["scan_candidates"], undefined);
+});
+
+Deno.test("processScan: returns the backend auto-lock threshold (default 0.95)", async () => {
+  const { client } = createMockServiceClient();
+  const providers: VisionProvider[] = [mockProvider({ name: "gemini_vision" })];
+
+  const response = await processScan(baseParams({ serviceClient: client, providers }));
+  const body = await response.json();
+
+  assertEquals(body.autoLockThreshold, 0.95);
+});
+
+Deno.test("processScan: is re-entrant — clears prior AI rows before re-persisting so re-evaluation doesn't duplicate", async () => {
+  // Auto Scan Lock may re-call the same scanId as evidence accumulates. Each
+  // call must delete the scan's prior scan_ai_responses + scan_candidates
+  // before inserting, so rows are replaced rather than duplicated.
+  const { client, deletes } = createMockServiceClient();
+  const providers: VisionProvider[] = [
+    mockProvider({
+      name: "gemini_vision",
+      identify: async () => ({
+        provider: "gemini_vision",
+        candidate: { label: "Amethyst", confidence: 0.9 },
+        alternatives: [],
+        reasoning: "",
+        latencyMs: 10,
+      }),
+    }),
+  ];
+
+  await processScan(baseParams({ serviceClient: client, providers }));
+
+  assertEquals(deletes["scan_ai_responses"], 1);
+  assertEquals(deletes["scan_candidates"], 1);
 });

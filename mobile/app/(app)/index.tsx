@@ -21,8 +21,12 @@ export default function HomeScreen() {
         </Text>
       )}
 
-      <Pressable style={styles.scanButton} onPress={() => router.push("/(app)/scan/capture")}>
-        <Text style={styles.scanButtonText}>Start New Scan</Text>
+      <Pressable style={styles.scanButton} onPress={() => router.push("/(app)/scan/live")}>
+        <Text style={styles.scanButtonText}>Start Live Scan</Text>
+      </Pressable>
+
+      <Pressable style={styles.secondaryButton} onPress={() => router.push("/(app)/scan/upload")}>
+        <Text style={styles.secondaryButtonText}>Upload Images</Text>
       </Pressable>
 
       {/*
@@ -57,4 +61,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   scanButtonText: { color: "#0B0B0C", fontWeight: "700", fontSize: 16 },
+  secondaryButton: {
+    borderWidth: 1,
+    borderColor: "#8A8A8E",
+    borderRadius: 999,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  secondaryButtonText: { color: "#F5F1E8", fontWeight: "700", fontSize: 15 },
 });

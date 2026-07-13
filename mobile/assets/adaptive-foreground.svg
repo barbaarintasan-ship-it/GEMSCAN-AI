@@ -1,0 +1,38 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gemGold" x1="512" y1="300" x2="512" y2="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F4D77A"/>
+      <stop offset="0.5" stop-color="#D9B23B"/>
+      <stop offset="1" stop-color="#A9821E"/>
+    </linearGradient>
+    <linearGradient id="gemLight" x1="380" y1="320" x2="560" y2="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFF3C9"/>
+      <stop offset="1" stop-color="#E7C25A"/>
+    </linearGradient>
+  </defs>
+  <!-- Gem + scan marks scaled to ~62% and centered so it survives adaptive-icon masking -->
+  <g transform="translate(512 512) scale(0.62) translate(-512 -500)">
+    <g stroke="#0B0B0C" stroke-width="6" stroke-linejoin="round">
+      <path d="M280 452 L512 792 L744 452 Z" fill="url(#gemGold)"/>
+      <path d="M280 452 L392 452 L336 372 Z" fill="url(#gemGold)"/>
+      <path d="M392 452 L512 452 L456 372 Z" fill="url(#gemLight)"/>
+      <path d="M512 452 L632 452 L568 372 Z" fill="url(#gemGold)"/>
+      <path d="M632 452 L744 452 L688 372 Z" fill="url(#gemLight)"/>
+      <path d="M336 372 L456 372 L392 452 L280 452 Z" fill="url(#gemLight)"/>
+      <path d="M456 372 L568 372 L512 452 L392 452 Z" fill="url(#gemGold)"/>
+      <path d="M568 372 L688 372 L744 452 L632 452 Z" fill="url(#gemLight)"/>
+      <path d="M280 452 L392 452 L512 792 Z" fill="url(#gemGold)"/>
+      <path d="M392 452 L512 452 L512 792 Z" fill="url(#gemLight)"/>
+      <path d="M512 452 L632 452 L512 792 Z" fill="url(#gemGold)"/>
+      <path d="M632 452 L744 452 L512 792 Z" fill="url(#gemLight)"/>
+    </g>
+    <path d="M232 560 L792 560" stroke="#FFF3C9" stroke-width="10" stroke-linecap="round" opacity="0.85"/>
+    <circle cx="792" cy="560" r="14" fill="#FFF3C9"/>
+    <g stroke="#C9A227" stroke-width="16" stroke-linecap="round" fill="none">
+      <path d="M232 300 L232 250 L282 250"/>
+      <path d="M792 300 L792 250 L742 250"/>
+      <path d="M232 700 L232 750 L282 750"/>
+      <path d="M792 700 L792 750 L742 750"/>
+    </g>
+  </g>
+</svg>

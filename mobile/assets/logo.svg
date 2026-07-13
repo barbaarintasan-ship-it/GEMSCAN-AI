@@ -1,0 +1,58 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#141416"/>
+      <stop offset="1" stop-color="#0B0B0C"/>
+    </linearGradient>
+    <linearGradient id="gemGold" x1="512" y1="300" x2="512" y2="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F4D77A"/>
+      <stop offset="0.5" stop-color="#D9B23B"/>
+      <stop offset="1" stop-color="#A9821E"/>
+    </linearGradient>
+    <linearGradient id="gemLight" x1="380" y1="320" x2="560" y2="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFF3C9"/>
+      <stop offset="1" stop-color="#E7C25A"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="512" cy="500" r="360" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#C9A227" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#C9A227" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1024" height="1024" rx="220" fill="url(#bg)"/>
+  <circle cx="512" cy="500" r="360" fill="url(#glow)"/>
+
+  <!-- Brilliant-cut gem: crown table + pavilion facets -->
+  <g stroke="#0B0B0C" stroke-width="6" stroke-linejoin="round">
+    <!-- pavilion (lower point) -->
+    <path d="M280 452 L512 792 L744 452 Z" fill="url(#gemGold)"/>
+    <!-- crown facets -->
+    <path d="M280 452 L392 452 L336 372 Z" fill="url(#gemGold)"/>
+    <path d="M392 452 L512 452 L456 372 Z" fill="url(#gemLight)"/>
+    <path d="M512 452 L632 452 L568 372 Z" fill="url(#gemGold)"/>
+    <path d="M632 452 L744 452 L688 372 Z" fill="url(#gemLight)"/>
+    <!-- table (top flat) -->
+    <path d="M336 372 L688 372 L568 372 L456 372 Z" fill="url(#gemLight)"/>
+    <path d="M336 372 L688 372 L744 452 L280 452 Z" fill="url(#gemGold)" fill-opacity="0.0"/>
+    <path d="M336 372 L456 372 L392 452 L280 452 Z" fill="url(#gemLight)"/>
+    <path d="M456 372 L568 372 L512 452 L392 452 Z" fill="url(#gemGold)"/>
+    <path d="M568 372 L688 372 L744 452 L632 452 Z" fill="url(#gemLight)"/>
+    <!-- pavilion inner facets -->
+    <path d="M280 452 L392 452 L512 792 Z" fill="url(#gemGold)"/>
+    <path d="M392 452 L512 452 L512 792 Z" fill="url(#gemLight)"/>
+    <path d="M512 452 L632 452 L512 792 Z" fill="url(#gemGold)"/>
+    <path d="M632 452 L744 452 L512 792 Z" fill="url(#gemLight)"/>
+  </g>
+
+  <!-- Scan sweep line across the gem -->
+  <path d="M232 560 L792 560" stroke="#FFF3C9" stroke-width="10" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="792" cy="560" r="14" fill="#FFF3C9"/>
+
+  <!-- Scan corner brackets -->
+  <g stroke="#C9A227" stroke-width="16" stroke-linecap="round" fill="none">
+    <path d="M232 300 L232 250 L282 250"/>
+    <path d="M792 300 L792 250 L742 250"/>
+    <path d="M232 700 L232 750 L282 750"/>
+    <path d="M792 700 L792 750 L742 750"/>
+  </g>
+</svg>

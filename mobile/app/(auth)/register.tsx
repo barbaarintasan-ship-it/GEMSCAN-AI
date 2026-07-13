@@ -9,18 +9,30 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmationEmail, setConfirmationEmail] = useState<string | null>(null);
 
   const onSubmit = async () => {
     setError(null);
+    if (!email.includes("@")) {
+      setError("Please enter a valid email address.");
+      return;
+    }
     if (password.length < 8) {
       setError("Password must be at least 8 characters.");
       return;
     }
     setIsSubmitting(true);
-    const { error: signUpError } = await signUp(email, password);
+    const { error: signUpError, needsEmailConfirmation } = await signUp(email, password);
     setIsSubmitting(false);
     if (signUpError) {
       setError(signUpError);
+      return;
+    }
+    if (needsEmailConfirmation) {
+      // Account was created but the project requires email verification. Tell the
+      // user to confirm instead of navigating into the app (which would bounce
+      // straight back here because there is no session yet).
+      setConfirmationEmail(email);
       return;
     }
     // New accounts default to the free tier (see the signup DB trigger in
@@ -28,6 +40,24 @@ export default function RegisterScreen() {
     // website-only action — this screen never offers to sell anything.
     router.replace("/(app)");
   };
+
+  if (confirmationEmail) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>Check your email</Text>
+        <Text style={styles.subtitle}>
+          We sent a confirmation link to {confirmationEmail}. Tap it to activate your
+          account, then come back and log in.
+        </Text>
+        <Pressable style={styles.button} onPress={() => router.replace("/(auth)/login")}>
+          <Text style={styles.buttonText}>Go to login</Text>
+        </Pressable>
+        <Pressable onPress={() => setConfirmationEmail(null)}>
+          <Text style={styles.link}>Use a different email</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

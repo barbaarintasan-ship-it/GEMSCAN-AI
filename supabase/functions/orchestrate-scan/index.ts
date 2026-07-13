@@ -35,6 +35,22 @@ import { runEnsemble } from "./ensemble.ts";
 const PROVIDER_TIMEOUT_MS = 25_000;
 const SIGNED_URL_TTL_SECONDS = 60 * 10; // long enough for every provider call
 
+// Auto Scan Lock threshold — the ensemble confidence at/above which the mobile
+// Live Scan auto-locks and stops sending further cloud requests. Backend-owned
+// and configurable (req: "threshold must be configurable from the backend")
+// via the SCAN_AUTOLOCK_THRESHOLD env/secret, so it can be tuned without an app
+// release. Returned on every response as `autoLockThreshold`; the app falls
+// back to 0.95 if it's ever absent.
+const DEFAULT_AUTOLOCK_THRESHOLD = 0.95;
+
+function autoLockThreshold(): number {
+  const raw = Deno.env.get("SCAN_AUTOLOCK_THRESHOLD");
+  if (!raw) return DEFAULT_AUTOLOCK_THRESHOLD;
+  const parsed = Number.parseFloat(raw);
+  if (Number.isNaN(parsed)) return DEFAULT_AUTOLOCK_THRESHOLD;
+  return Math.max(0, Math.min(1, parsed));
+}
+
 type ScanRow = { id: string; specimen_category: string | null; capture_location: unknown };
 type ImageRow = {
   angle: string;
@@ -225,6 +241,18 @@ export async function processScan(params: {
     applicableProviders.map((provider) => withTimeout(provider, input)),
   );
 
+  // Auto Scan Lock makes this endpoint re-entrant: the Live Scan may call it
+  // multiple times against the SAME scanId as it progressively collects more
+  // evidence, until confidence crosses the auto-lock threshold. Clear any prior
+  // AI rows for this scan before re-persisting so a re-evaluation replaces
+  // (rather than duplicates) the previous provider responses and candidates.
+  // A first-time scan simply deletes zero rows. Kept backward-compatible: the
+  // single-call flow behaves exactly as before.
+  await Promise.all([
+    serviceClient.from("scan_ai_responses").delete().eq("scan_id", scanId),
+    serviceClient.from("scan_candidates").delete().eq("scan_id", scanId),
+  ]);
+
   // Stage 7 (partial): persist every raw provider response, including
   // failures/timeouts, before computing the ensemble — so the audit trail
   // exists even if something goes wrong in the ensemble step itself.
@@ -291,6 +319,9 @@ export async function processScan(params: {
     status: "completed",
     finalResult,
     candidates: ensemble.candidates,
+    // Backend-owned Auto Scan Lock threshold, so the app can lock/stop-sending
+    // against the server's value rather than a hard-coded one.
+    autoLockThreshold: autoLockThreshold(),
   });
 }
 

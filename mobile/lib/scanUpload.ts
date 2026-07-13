@@ -110,6 +110,10 @@ export type OrchestrateScanResponse = {
     suggestions: string[];
   };
   candidates: EnsembleCandidateDTO[];
+  // Backend-owned Auto Scan Lock threshold (0-1). Optional for backward
+  // compatibility with any deployed function that predates the feature; the
+  // app falls back to its own default (0.95) when it's absent.
+  autoLockThreshold?: number;
 };
 
 export async function runOrchestration(

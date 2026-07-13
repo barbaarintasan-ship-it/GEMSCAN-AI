@@ -10,7 +10,9 @@ export default function ScanLayout() {
         contentStyle: { backgroundColor: "#0B0B0C" },
       }}
     >
-      <Stack.Screen name="capture" options={{ title: "New Scan" }} />
+      <Stack.Screen name="live" options={{ title: "Live Scan", headerShown: false }} />
+      <Stack.Screen name="upload" options={{ title: "Upload Images" }} />
+      <Stack.Screen name="capture" options={{ title: "Manual Capture" }} />
       <Stack.Screen name="results" options={{ title: "Scan Result" }} />
     </Stack>
   );

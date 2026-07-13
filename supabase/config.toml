@@ -15,6 +15,18 @@ additional_redirect_urls = ["https://gemscan.ai/auth/callback"]
 jwt_expiry = 3600
 enable_signup = true
 
+[auth.email]
+# Mobile sign-up must work without waiting on an email round-trip. The built-in
+# Supabase mailer is heavily rate-limited (429 over_email_send_rate_limit) and is
+# not meant for production delivery, so requiring confirmation made new accounts
+# appear to "not get created" (signUp returned no session → the app bounced back
+# to login). Disabling confirmation lets signUp return a session immediately.
+# NOTE: this must also be turned off on the hosted project (Dashboard →
+# Authentication → Sign In / Providers → Email → "Confirm email" OFF), or applied
+# via `supabase link` + `supabase config push`. config.toml alone only affects
+# the local `supabase start` stack.
+enable_confirmations = false
+
 [functions.verify-subscription]
 verify_jwt = true
 
