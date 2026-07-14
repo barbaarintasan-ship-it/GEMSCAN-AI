@@ -22,6 +22,7 @@ type AuthContextValue = {
 // the handle_new_user DB trigger (migration 0003) copies them into
 // public.profiles so they are queryable server-side.
 export type SignUpProfile = {
+  fullName?: string;
   phone?: string;
   country?: string;
   city?: string;
@@ -52,8 +53,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password,
       options: {
         // Trimmed here so downstream (metadata + the profiles trigger) never
-        // stores stray whitespace. Empty strings become null.
+        // stores stray whitespace. Empty strings become null. display_name is
+        // the member's full name, shown as the greeting on the home screen.
         data: {
+          display_name: profile?.fullName?.trim() || null,
           phone: profile?.phone?.trim() || null,
           country: profile?.country?.trim() || null,
           city: profile?.city?.trim() || null,

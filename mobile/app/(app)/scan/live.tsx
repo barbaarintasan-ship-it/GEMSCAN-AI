@@ -94,7 +94,6 @@ export default function LiveScanScreen() {
   };
 
   const [category, setCategory] = useState<SupportedCategory>("unknown");
-  const [rejectLabel, setRejectLabel] = useState("");
   const [guidance, setGuidance] = useState("");
   const [evidence, setEvidence] = useState<string[]>([]);
   const evidenceRef = useRef<string[]>([]);
@@ -192,7 +191,6 @@ export default function LiveScanScreen() {
     const verdict = await precheckObject(uri);
     diag.end("object_precheck", `supported=${verdict.supported} category=${verdict.category} available=${verdict.available}`);
     if (!verdict.supported) {
-      setRejectLabel("");
       setPhaseBoth("rejected");
       return;
     }
@@ -347,20 +345,30 @@ export default function LiveScanScreen() {
     return (
       <View style={styles.centered}>
         <ImageProcessorGL ref={imageProcessorRef} />
-        <Ionicons name="alert-circle-outline" size={48} color="#E4685D" />
-        <Text style={styles.rejectTitle}>
-          {L(
-            "This doesn't appear to be a gemstone, metal, jewelry, coin or artifact.",
-            "Waxani uma eka dhagax qaali ah, dahab, lacag, bir, qadaadiic ama shay taariikhi ah.",
-          )}
-        </Text>
-        {rejectLabel ? <Text style={styles.rejectSub}>{L("Detected", "La arkay")}: {rejectLabel}</Text> : null}
-        <Pressable style={styles.primaryButton} onPress={() => setPhaseBoth("ready")}>
-          <Text style={styles.primaryButtonText}>{L("Try again", "Isku day mar kale")}</Text>
-        </Pressable>
-        <Pressable style={styles.linkButton} onPress={() => router.back()}>
-          <Text style={styles.link}>{L("Back", "Dib u noqo")}</Text>
-        </Pressable>
+        <View style={styles.rejectCard}>
+          <View style={styles.rejectIconWrap}>
+            <Ionicons name="diamond-outline" size={38} color="#E4685D" />
+          </View>
+          <Text style={styles.rejectTitle}>
+            {L(
+              "That doesn't look like a gemstone",
+              "Taasi uma ekaanin dhagax qaali ah",
+            )}
+          </Text>
+          <Text style={styles.rejectHint}>
+            {L(
+              "Point the camera at a gemstone, gold item, coin or artifact — and make sure it fills the frame in good light.",
+              "Kamerada ku soo hoggaan dhagax qaali, dahab, lacag ama shay taariikhi ah — oo hubi inuu sawirka buuxiyo iftiin fiican.",
+            )}
+          </Text>
+          <Pressable style={styles.rejectButton} onPress={() => setPhaseBoth("ready")}>
+            <Ionicons name="scan-outline" size={18} color="#0B0B0C" />
+            <Text style={styles.primaryButtonText}>{L("Try again", "Isku day mar kale")}</Text>
+          </Pressable>
+          <Pressable style={styles.linkButton} onPress={() => router.back()}>
+            <Text style={styles.link}>{L("Back to home", "Ku noqo bogga hore")}</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -465,8 +473,40 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
   centered: { flex: 1, backgroundColor: "#0B0B0C", padding: 24, gap: 14, justifyContent: "center", alignItems: "center" },
   body: { fontSize: 14, color: "#C9C9CC", lineHeight: 20, textAlign: "center" },
-  rejectTitle: { fontSize: 18, fontWeight: "700", color: "#F5F1E8", textAlign: "center", lineHeight: 26 },
+  rejectCard: {
+    backgroundColor: "#141315",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#2a2325",
+    padding: 24,
+    alignItems: "center",
+    gap: 14,
+    width: "100%",
+    maxWidth: 380,
+  },
+  rejectIconWrap: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: "rgba(228,104,93,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rejectTitle: { fontSize: 20, fontWeight: "800", color: "#F5F1E8", textAlign: "center", lineHeight: 27 },
+  rejectHint: { fontSize: 14, color: "#A9A39A", textAlign: "center", lineHeight: 20 },
   rejectSub: { fontSize: 13, color: "#8A8A8E", textAlign: "center" },
+  rejectButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#C9A227",
+    borderRadius: 999,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    marginTop: 4,
+    alignSelf: "stretch",
+  },
 
   backButton: {
     position: "absolute", top: 48, left: 16, width: 44, height: 44, borderRadius: 22,

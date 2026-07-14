@@ -14,6 +14,7 @@ import { useAuth } from "../../lib/auth";
 
 export default function RegisterScreen() {
   const { signUp } = useAuth();
+  const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,6 +30,10 @@ export default function RegisterScreen() {
 
     // Validate every field before touching the network. Order matters: report
     // the first problem top-to-bottom so the message lines up with the form.
+    if (fullName.trim().split(/\s+/).filter(Boolean).length < 3) {
+      setError("Please enter your full name (three names).");
+      return;
+    }
     if (phone.trim().replace(/[^0-9]/g, "").length < 7) {
       setError("Please enter a valid phone number.");
       return;
@@ -56,6 +61,7 @@ export default function RegisterScreen() {
 
     setIsSubmitting(true);
     const { error: signUpError, needsEmailConfirmation } = await signUp(email, password, {
+      fullName,
       phone,
       country,
       city,
@@ -106,6 +112,17 @@ export default function RegisterScreen() {
         <Text style={styles.subtitle}>
           Free accounts get 5 scans/day. Upgrade anytime on our website.
         </Text>
+
+        <Text style={styles.label}>Full name (three names)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="e.g. Cabdi Xasan Cali"
+          placeholderTextColor="#8A8A8E"
+          autoCapitalize="words"
+          autoComplete="name"
+          value={fullName}
+          onChangeText={setFullName}
+        />
 
         <Text style={styles.label}>Phone number</Text>
         <TextInput
