@@ -34,6 +34,7 @@ type HistoryItem = {
   status: string;
   final_result: ScanFinalResult;
   created_at: string;
+  location: { lat: number; lng: number } | null;
   thumbnailUrl: string | null;
 };
 
@@ -59,7 +60,7 @@ export default function HistoryScreen() {
     setError(false);
     const { data, error: queryError } = await supabase
       .from("scans")
-      .select("id, status, final_result, created_at, scan_images(original_storage_path)")
+      .select("id, status, final_result, created_at, capture_location, scan_images(original_storage_path)")
       .eq("user_id", session.user.id)
       .order("created_at", { ascending: false })
       .limit(100);
@@ -89,11 +90,16 @@ export default function HistoryScreen() {
     setItems(
       data.map((row: any) => {
         const path = row.scan_images?.[0]?.original_storage_path as string | undefined;
+        const loc = row.capture_location as { lat?: number; lng?: number } | null;
         return {
           id: row.id,
           status: row.status,
           final_result: row.final_result as ScanFinalResult,
           created_at: row.created_at,
+          location:
+            loc && typeof loc.lat === "number" && typeof loc.lng === "number"
+              ? { lat: loc.lat, lng: loc.lng }
+              : null,
           thumbnailUrl: path ? signedByPath.get(path) ?? null : null,
         };
       }),
@@ -135,10 +141,15 @@ export default function HistoryScreen() {
     const line = resultLine(item);
     const fr = item.final_result;
     const showConfidence = !line.muted && fr;
-    const date = new Date(item.created_at).toLocaleDateString(undefined, {
+    const when = new Date(item.created_at);
+    const date = when.toLocaleDateString(undefined, {
       year: "numeric",
       month: "short",
       day: "numeric",
+    });
+    const time = when.toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
     });
 
     return (
@@ -166,7 +177,14 @@ export default function HistoryScreen() {
                 <Text style={styles.bandPillText}>{Math.round(fr.confidenceScore * 100)}%</Text>
               </View>
             )}
-            <Text style={styles.dateText}>{date}</Text>
+            <Text style={styles.dateText}>
+              {date} · {time}
+            </Text>
+            {item.location && (
+              <View style={styles.locChip}>
+                <Ionicons name="location" size={11} color="#2EE66E" />
+              </View>
+            )}
           </View>
         </View>
 
@@ -210,6 +228,8 @@ export default function HistoryScreen() {
     );
   }
 
+  const locatedCount = items.filter((i) => i.location).length;
+
   return (
     <FlatList
       style={styles.screen}
@@ -219,10 +239,24 @@ export default function HistoryScreen() {
       renderItem={renderItem}
       ListHeaderComponent={
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>💎 {so ? "Ururkeyga" : "My Collection"}</Text>
-          <Text style={styles.headerCount}>
-            {items.length} {so ? (items.length === 1 ? "baaris" : "baaris") : items.length === 1 ? "scan" : "scans"}
-          </Text>
+          <View style={styles.headerTop}>
+            <View>
+              <Text style={styles.headerTitle}>💎 {so ? "Ururkeyga" : "My Collection"}</Text>
+              <Text style={styles.headerCount}>
+                {items.length} {so ? "baaris" : items.length === 1 ? "scan" : "scans"}
+                {locatedCount > 0 ? ` · ${locatedCount} ${so ? "goobo la calaamadeeyay" : "mapped"}` : ""}
+              </Text>
+            </View>
+            {locatedCount > 0 && (
+              <Pressable
+                style={styles.mapButton}
+                onPress={() => router.push("/(app)/collection-map")}
+              >
+                <Ionicons name="map" size={16} color="#0B0B0C" />
+                <Text style={styles.mapButtonText}>{so ? "Khariidad" : "Map"}</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
       }
       refreshControl={
@@ -259,12 +293,24 @@ const styles = StyleSheet.create({
   itemTitle: { fontSize: 16, fontWeight: "600", color: "#F5F1E8" },
   itemTitleMuted: { color: "#8A8A8E", fontWeight: "500" },
   header: { paddingVertical: 8, paddingHorizontal: 4, marginBottom: 4 },
+  headerTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerTitle: { fontSize: 22, fontWeight: "800", color: "#C9A227" },
   headerCount: { fontSize: 13, color: "#8A8A8E", marginTop: 2 },
+  mapButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#C9A227",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  mapButtonText: { color: "#0B0B0C", fontWeight: "800", fontSize: 13 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   bandPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
   bandPillText: { fontSize: 11, color: "#0B0B0C", fontWeight: "800" },
   dateText: { fontSize: 12, color: "#8A8A8E" },
+  locChip: { flexDirection: "row", alignItems: "center" },
   primaryButton: {
     backgroundColor: "#C9A227",
     borderRadius: 999,

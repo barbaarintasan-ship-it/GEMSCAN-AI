@@ -13,6 +13,7 @@ import { submitScanFeedback } from "../../../lib/scanUpload";
 import { INSUFFICIENT_CONFIDENCE_MESSAGE_TEXT } from "../../../lib/constants";
 import { estimateValue, type Valuation } from "../../../lib/valuation";
 import { EXPERT_WHATSAPP, HIGH_VALUE_THRESHOLD_USD, hasExpertContact } from "../../../lib/expertConfig";
+import LocationMap from "../../../components/LocationMap";
 
 type ScanCandidate = {
   rank: number;
@@ -25,6 +26,8 @@ type ScanCandidate = {
 
 type ScanRow = {
   status: string;
+  created_at: string;
+  capture_location: { lat: number; lng: number } | null;
   final_result: {
     bestMatch: string | null;
     confidenceScore: number;
@@ -59,7 +62,11 @@ export default function ResultsScreen() {
     if (!scanId) return;
     (async () => {
       const [{ data: scanData }, { data: candidateData }] = await Promise.all([
-        supabase.from("scans").select("status, final_result").eq("id", scanId).maybeSingle(),
+        supabase
+          .from("scans")
+          .select("status, final_result, created_at, capture_location")
+          .eq("id", scanId)
+          .maybeSingle(),
         supabase
           .from("scan_candidates")
           .select("rank, label, weighted_confidence, confidence_band, rationale, rejected_reason")
@@ -114,6 +121,15 @@ export default function ResultsScreen() {
     }
     const text = encodeURIComponent(lines.join("\n"));
     Linking.openURL(`https://wa.me/${EXPERT_WHATSAPP}?text=${text}`).catch(() => {});
+  }
+
+  // Open the coarse capture location in the device's map app.
+  function openInMaps(lat: number, lng: number, label?: string) {
+    const q = label ? `${lat},${lng}(${encodeURIComponent(label)})` : `${lat},${lng}`;
+    const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    Linking.openURL(url).catch(() => {
+      Linking.openURL(`geo:${lat},${lng}?q=${q}`).catch(() => {});
+    });
   }
 
   async function handleFeedback(wasCorrect: boolean) {
@@ -278,6 +294,49 @@ export default function ResultsScreen() {
         </>
       )}
 
+      {/* ── Where it was found (coarse capture location) ─────────────────── */}
+      {scan.capture_location && (
+        <View style={styles.locCard}>
+          <Text style={styles.sectionTitle}>📍 {L("Where it was found", "Goobta laga helay")}</Text>
+          <LocationMap
+            markers={[
+              {
+                lat: scan.capture_location.lat,
+                lng: scan.capture_location.lng,
+                title: finalResult.bestMatch ?? undefined,
+              },
+            ]}
+            height={170}
+            zoom={12}
+          />
+          <View style={styles.locMetaRow}>
+            <Text style={styles.locCoords}>
+              {scan.capture_location.lat.toFixed(2)}, {scan.capture_location.lng.toFixed(2)}
+              {"  ·  "}
+              {new Date(scan.created_at).toLocaleString()}
+            </Text>
+            <Pressable
+              style={styles.mapsButton}
+              onPress={() =>
+                openInMaps(
+                  scan.capture_location!.lat,
+                  scan.capture_location!.lng,
+                  finalResult.bestMatch ?? undefined,
+                )
+              }
+            >
+              <Text style={styles.mapsButtonText}>{L("Open in Maps", "Fur Maps")}</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.disclaimer}>
+            {L(
+              "Location is approximate (~1km) to protect the exact find site.",
+              "Goobta waa qiyaas (~1km) si loo ilaaliyo meesha saxda ah ee laga helay.",
+            )}
+          </Text>
+        </View>
+      )}
+
       <Text style={[styles.label, { marginTop: 20 }]}>{L("Was this correct?", "Kani ma saxaa?")}</Text>
       {feedbackSent ? (
         <Text style={styles.body}>{L("Thanks — your feedback helps improve GemScan.", "Mahadsanid — jawaabtaadu waxay ka caawinaysaa hagaajinta GemScan.")}</Text>
@@ -373,4 +432,20 @@ const styles = StyleSheet.create({
   contactText: { color: "#0B0B0C", fontWeight: "800", fontSize: 15 },
   expertHint: { color: "#C9C9CC", fontSize: 13, marginTop: 6, fontWeight: "600" },
   expertBullet: { color: "#C9C9CC", fontSize: 13, lineHeight: 19 },
+  locCard: {
+    marginTop: 16,
+    backgroundColor: "#161618",
+    borderRadius: 14,
+    padding: 14,
+    gap: 8,
+  },
+  locMetaRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  locCoords: { flex: 1, color: "#8A8A8E", fontSize: 12 },
+  mapsButton: {
+    backgroundColor: "#C9A227",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  mapsButtonText: { color: "#0B0B0C", fontWeight: "800", fontSize: 13 },
 });
