@@ -39,7 +39,7 @@ import { getFuzzedLocation } from "../../../lib/location";
 import { createScan, uploadScanImage, runOrchestration, type CapturedAngleImage } from "../../../lib/scanUpload";
 import { captureException } from "../../../lib/monitoring";
 import { LIVE_ANGLE_SEQUENCE } from "../../../lib/liveScanEngine";
-import { classifyObject, categoryLabel, type ObjectCategory } from "../../../lib/objectClassifier";
+import { precheckObject, categoryLabel, type SupportedCategory } from "../../../lib/objectPrecheck";
 
 type Phase = "initializing" | "ready" | "classifying" | "rejected" | "capturing" | "analyzing";
 
@@ -92,7 +92,7 @@ export default function LiveScanScreen() {
     setPhase(p);
   };
 
-  const [category, setCategory] = useState<ObjectCategory>("unknown");
+  const [category, setCategory] = useState<SupportedCategory>("unknown");
   const [rejectLabel, setRejectLabel] = useState("");
   const [guidance, setGuidance] = useState("");
   const [evidence, setEvidence] = useState<string[]>([]);
@@ -172,13 +172,33 @@ export default function LiveScanScreen() {
       setPhaseBoth("ready");
       return;
     }
-    const result = await classifyObject(uri);
-    if (!result.supported) {
-      setRejectLabel(result.rawLabel);
+    // LEVEL 1 (on-device, best-effort): reject an empty/clutter scene cheaply
+    // before any cloud call. Fails open when GL analysis is unavailable.
+    try {
+      const frame = await imageProcessorRef.current?.analyzeFrame(uri);
+      if (frame && !frame.glUnavailable && !frame.detection.present) {
+        setErrorText(
+          L(
+            "Point the camera at a single object that fills the frame.",
+            "Kamerada ku soo hoggaan hal shay oo buuxiya sawirka.",
+          ),
+        );
+        setPhaseBoth("ready");
+        return;
+      }
+    } catch {
+      /* fail open to Level 2 */
+    }
+
+    // LEVEL 2 (cloud, Gemini only): one cheap category pre-check. Only a
+    // confident NOT_SUPPORTED rejects — OpenAI/Claude are never called here.
+    const verdict = await precheckObject(uri);
+    if (!verdict.supported) {
+      setRejectLabel("");
       setPhaseBoth("rejected");
       return;
     }
-    setCategory(result.category);
+    setCategory(verdict.category);
     // First good frame is already in hand — seed evidence with it if usable.
     startCapturing(uri);
   }
