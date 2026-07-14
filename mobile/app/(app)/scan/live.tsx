@@ -98,6 +98,9 @@ export default function LiveScanScreen() {
   const { width: screenW, height: screenH } = useWindowDimensions();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
+  // Android's takePictureAsync fails with "failed to capture image" if called
+  // before the preview surface is ready. onCameraReady flips this true.
+  const cameraReadyRef = useRef(false);
   const imageProcessorRef = useRef<ImageProcessorHandle>(null);
 
   // Loop/engine source-of-truth lives in refs (the interval closure must read
@@ -206,7 +209,12 @@ export default function LiveScanScreen() {
 
   async function tick() {
     if (!runningRef.current) return;
-    if (busyRef.current || !cameraRef.current || !imageProcessorRef.current) {
+    if (
+      busyRef.current ||
+      !cameraRef.current ||
+      !imageProcessorRef.current ||
+      !cameraReadyRef.current
+    ) {
       scheduleTick(SAMPLE_INTERVAL_MS);
       return;
     }
@@ -326,9 +334,40 @@ export default function LiveScanScreen() {
     }
   }
 
+  // Wait (bounded) for the camera preview to be ready before capturing.
+  function waitForCameraReady(timeoutMs = 5000): Promise<boolean> {
+    if (cameraReadyRef.current) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const check = () => {
+        if (cameraReadyRef.current) return resolve(true);
+        if (Date.now() - start > timeoutMs) return resolve(false);
+        setTimeout(check, 100);
+      };
+      check();
+    });
+  }
+
+  // Take a full-resolution photo, tolerant of Android's transient
+  // "failed to capture image": wait for readiness, then retry once.
+  async function takeFullPhoto(): Promise<{ uri: string } | null> {
+    const cam = cameraRef.current;
+    if (!cam) return null;
+    await waitForCameraReady();
+    try {
+      const p = await cam.takePictureAsync({ quality: 0.9 });
+      if (p?.uri) return { uri: p.uri };
+    } catch {
+      // fall through to a single retry
+    }
+    await new Promise((r) => setTimeout(r, 500));
+    const p2 = await cam.takePictureAsync({ quality: 0.9 });
+    return p2?.uri ? { uri: p2.uri } : null;
+  }
+
   async function captureFullFrame(angle: Angle) {
     if (!cameraRef.current || !imageProcessorRef.current) return;
-    const photo = await cameraRef.current.takePictureAsync({ quality: 0.9 });
+    const photo = await takeFullPhoto();
     if (!photo?.uri) return;
 
     const quality = await imageProcessorRef.current.assessQuality(photo.uri);
@@ -575,7 +614,14 @@ export default function LiveScanScreen() {
   return (
     <View style={styles.container}>
       <ImageProcessorGL ref={imageProcessorRef} />
-      <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
+      <CameraView
+        ref={cameraRef}
+        style={StyleSheet.absoluteFill}
+        facing="back"
+        onCameraReady={() => {
+          cameraReadyRef.current = true;
+        }}
+      />
 
       {/* Floating back control — the live screen has no header, so this is the
           explicit way out of the camera (the Android hardware back also works). */}

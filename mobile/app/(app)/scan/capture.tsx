@@ -60,7 +60,23 @@ export default function CaptureScreen() {
   useKeepAwake();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
+  const cameraReadyRef = useRef(false);
   const imageProcessorRef = useRef<ImageProcessorHandle>(null);
+
+  // Android's takePictureAsync fails with "failed to capture image" if the
+  // preview surface isn't ready yet; wait (bounded) for onCameraReady.
+  function waitForCameraReady(timeoutMs = 5000): Promise<boolean> {
+    if (cameraReadyRef.current) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const check = () => {
+        if (cameraReadyRef.current) return resolve(true);
+        if (Date.now() - start > timeoutMs) return resolve(false);
+        setTimeout(check, 100);
+      };
+      check();
+    });
+  }
 
   const [stepIndex, setStepIndex] = useState(0);
   const [capturedImages, setCapturedImages] = useState<CapturedAngleImage[]>([]);
@@ -94,8 +110,16 @@ export default function CaptureScreen() {
 
     try {
       setBusyLabel("Checking photo quality…");
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.9 });
-      if (!photo) throw new Error("Camera did not return a photo");
+      await waitForCameraReady();
+      let photo;
+      try {
+        photo = await cameraRef.current.takePictureAsync({ quality: 0.9 });
+      } catch {
+        // Android occasionally drops the first capture — retry once.
+        await new Promise((r) => setTimeout(r, 500));
+        photo = await cameraRef.current.takePictureAsync({ quality: 0.9 });
+      }
+      if (!photo?.uri) throw new Error("Camera did not return a photo");
 
       const quality = await imageProcessorRef.current.assessQuality(photo.uri);
 
@@ -199,7 +223,14 @@ export default function CaptureScreen() {
         <Text style={styles.body}>{currentStep.instructions}</Text>
 
         <View style={styles.cameraWrapper}>
-          <CameraView ref={cameraRef} style={styles.camera} facing="back" />
+          <CameraView
+            ref={cameraRef}
+            style={styles.camera}
+            facing="back"
+            onCameraReady={() => {
+              cameraReadyRef.current = true;
+            }}
+          />
         </View>
 
         {retakeReason && <Text style={styles.errorText}>{retakeReason}</Text>}
