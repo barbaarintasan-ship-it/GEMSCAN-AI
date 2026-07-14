@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { useTranslation } from "react-i18next";
 import { useKeepAwake } from "expo-keep-awake";
 import { ImageProcessorGL, type ImageProcessorHandle } from "../../../components/ImageProcessorGL";
 import { detectSpecimenBoundingBox, classifyCoarse } from "../../../lib/onDeviceDetection";
@@ -31,32 +32,41 @@ import { UpgradePrompt } from "../../../components/UpgradePrompt";
 type AngleStep = {
   key: CapturedAngleImage["angle"];
   label: string;
+  labelSo: string;
   instructions: string;
+  instructionsSo: string;
   optional?: boolean;
 };
 
 const ANGLE_STEPS: AngleStep[] = [
-  { key: "front", label: "Front", instructions: "Center the specimen, facing the camera." },
-  { key: "back", label: "Back", instructions: "Flip it around — capture the back." },
-  { key: "left", label: "Left side", instructions: "Rotate 90° left." },
-  { key: "right", label: "Right side", instructions: "Rotate 90° right." },
-  { key: "top", label: "Top", instructions: "Shoot straight down from above." },
-  { key: "bottom", label: "Bottom", instructions: "Shoot straight up from below." },
+  { key: "front", label: "Front", labelSo: "Hore", instructions: "Center the specimen, facing the camera.", instructionsSo: "Shayga dhexda dhig, kamerada u soo jeedi." },
+  { key: "back", label: "Back", labelSo: "Dambe", instructions: "Flip it around — capture the back.", instructionsSo: "Gadaal u rog — qaad dhabarka." },
+  { key: "left", label: "Left side", labelSo: "Dhinaca bidix", instructions: "Rotate 90° left.", instructionsSo: "90° bidix u rog." },
+  { key: "right", label: "Right side", labelSo: "Dhinaca midig", instructions: "Rotate 90° right.", instructionsSo: "90° midig u rog." },
+  { key: "top", label: "Top", labelSo: "Dusha", instructions: "Shoot straight down from above.", instructionsSo: "Kor ka soo sawir." },
+  { key: "bottom", label: "Bottom", labelSo: "Hoosta", instructions: "Shoot straight up from below.", instructionsSo: "Hoos ka soo sawir." },
   {
     key: "macro",
     label: "Macro close-up",
+    labelSo: "Dhow (macro)",
     instructions: "Get as close as your camera allows — this helps with fine detail and hallmarks.",
+    instructionsSo: "U soo dhawow inta kamerada ku ogolaato — tani waxay caawisaa faahfaahinta iyo calaamadaha.",
   },
   {
     key: "wet",
     label: "Wet (optional)",
+    labelSo: "Qoyan (ikhtiyaari)",
     instructions: "Wetting some specimens reveals truer color/luster. Optional — you can skip this.",
+    instructionsSo: "Qoyaanku wuxuu muujiyaa midab iyo dhalaal dhab ah. Ikhtiyaari — waad ka boodi kartaa.",
     optional: true,
   },
 ];
 
 export default function CaptureScreen() {
   const router = useRouter();
+  const { i18n } = useTranslation();
+  const so = i18n.language === "so";
+  const L = (en: string, soText: string) => (so ? soText : en);
   // Hold the screen on while the camera capture flow is open (the user lines up
   // angles without touching the screen; the OS timeout would otherwise dim it).
   useKeepAwake();
@@ -97,9 +107,9 @@ export default function CaptureScreen() {
   if (!permission.granted) {
     return (
       <View style={styles.container}>
-        <Text style={styles.body}>GemScan needs camera access to scan specimens.</Text>
+        <Text style={styles.body}>{L("GemScan needs camera access to scan specimens.", "GemScan wuxuu u baahan yahay kamerada si uu u baaro shayada.")}</Text>
         <Pressable style={styles.primaryButton} onPress={requestPermission}>
-          <Text style={styles.primaryButtonText}>Grant camera access</Text>
+          <Text style={styles.primaryButtonText}>{L("Grant camera access", "Ogolow kamerada")}</Text>
         </Pressable>
       </View>
     );
@@ -111,7 +121,7 @@ export default function CaptureScreen() {
     setRetakeReason(null);
 
     try {
-      setBusyLabel("Checking photo quality…");
+      setBusyLabel(L("Checking photo quality…", "Tayada sawirka waa la hubinayaa…"));
       await waitForCameraReady();
       let photo;
       try {
@@ -129,7 +139,7 @@ export default function CaptureScreen() {
       // quality check is unreliable on some devices (it can wrongly report a
       // well-lit, sharp photo as "blurry / too dark"), and a false block makes
       // the app unusable. We keep the photo; the cloud AI judges the real image.
-      setBusyLabel("Enhancing photo…");
+      setBusyLabel(L("Enhancing photo…", "Sawirka waa la wanaajinayaa…"));
       const [detectionBbox, enhanced] = await Promise.all([
         detectSpecimenBoundingBox(photo.uri),
         imageProcessorRef.current.enhance(photo.uri),
@@ -201,7 +211,7 @@ export default function CaptureScreen() {
       <View style={styles.container}>
         <ActivityIndicator color="#C9A227" size="large" />
         <Text style={styles.body}>
-          Identifying your specimen — this can take up to 30 seconds…
+          {L("Identifying your specimen — this can take up to 30 seconds…", "Waa la aqoonsanayaa tusaalahaaga — waxay qaadan kartaa ilaa 30 ilbiriqsi…")}
         </Text>
       </View>
     );
@@ -213,9 +223,9 @@ export default function CaptureScreen() {
 
       <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
         <Text style={styles.stepCounter}>
-          Step {stepIndex + 1} of {ANGLE_STEPS.length}: {currentStep.label}
+          {L("Step", "Tallaabo")} {stepIndex + 1} {L("of", "ee")} {ANGLE_STEPS.length}: {so ? currentStep.labelSo : currentStep.label}
         </Text>
-        <Text style={styles.body}>{currentStep.instructions}</Text>
+        <Text style={styles.body}>{so ? currentStep.instructionsSo : currentStep.instructions}</Text>
 
         <View style={styles.cameraWrapper}>
           <CameraView
@@ -243,24 +253,24 @@ export default function CaptureScreen() {
         ) : (
           <>
             <Pressable style={styles.primaryButton} onPress={handleCapture}>
-              <Text style={styles.primaryButtonText}>Capture {currentStep.label}</Text>
+              <Text style={styles.primaryButtonText}>{L("Capture", "Qaad")} {so ? currentStep.labelSo : currentStep.label}</Text>
             </Pressable>
 
             {currentStep.optional && !isLastStep && (
               <Pressable style={styles.secondaryButton} onPress={handleSkipOptional}>
-                <Text style={styles.secondaryButtonText}>Skip this angle</Text>
+                <Text style={styles.secondaryButtonText}>{L("Skip this angle", "Ka bood xagalkan")}</Text>
               </Pressable>
             )}
           </>
         )}
 
         <Text style={styles.progressSummary}>
-          Captured: {capturedImages.map((c) => c.angle).join(", ") || "none yet"}
+          {L("Captured", "La qaaday")}: {capturedImages.map((c) => c.angle).join(", ") || L("none yet", "weli midna")}
         </Text>
 
         {requiredStepsDone && (
           <Pressable style={styles.analyzeButton} onPress={handleAnalyze}>
-            <Text style={styles.primaryButtonText}>Analyze Specimen</Text>
+            <Text style={styles.primaryButtonText}>{L("Analyze Specimen", "Baar Shayga")}</Text>
           </Pressable>
         )}
       </ScrollView>

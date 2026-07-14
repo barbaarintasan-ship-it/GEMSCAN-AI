@@ -10,13 +10,20 @@ import {
   Platform,
 } from "react-native";
 import { router } from "expo-router";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../../lib/auth";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function RegisterScreen() {
   const { signUp } = useAuth();
+  const { i18n } = useTranslation();
+  const L = (en: string, so: string) => (i18n.language === "so" ? so : en);
+
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [confirmEmail, setConfirmEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [country, setCountry] = useState("");
@@ -28,39 +35,41 @@ export default function RegisterScreen() {
   const onSubmit = async () => {
     setError(null);
 
-    // Validate every field before touching the network. Order matters: report
-    // the first problem top-to-bottom so the message lines up with the form.
     if (fullName.trim().split(/\s+/).filter(Boolean).length < 3) {
-      setError("Please enter your full name (three names).");
+      setError(L("Please enter your full name (three names).", "Fadlan geli magacaaga oo saddexan."));
       return;
     }
     if (phone.trim().replace(/[^0-9]/g, "").length < 7) {
-      setError("Please enter a valid phone number.");
+      setError(L("Please enter a valid phone number.", "Fadlan geli lambar taleefan oo sax ah."));
       return;
     }
-    if (!email.includes("@")) {
-      setError("Please enter a valid email address.");
+    if (!EMAIL_RE.test(email.trim())) {
+      setError(L("Please enter a valid email address.", "Fadlan geli email sax ah."));
+      return;
+    }
+    if (email.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) {
+      setError(L("The two email addresses do not match.", "Labada email isku mid ma aha."));
       return;
     }
     if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
+      setError(L("Password must be at least 8 characters.", "Furaha sirtu waa inuu ugu yaraan 8 xaraf noqdaa."));
       return;
     }
     if (password !== confirmPassword) {
-      setError("The two passwords do not match.");
+      setError(L("The two passwords do not match.", "Labada fure isku mid ma aha."));
       return;
     }
     if (country.trim().length === 0) {
-      setError("Please enter your country.");
+      setError(L("Please enter your country.", "Fadlan geli wadankaaga."));
       return;
     }
     if (city.trim().length === 0) {
-      setError("Please enter your city.");
+      setError(L("Please enter your city.", "Fadlan geli magaaladaada."));
       return;
     }
 
     setIsSubmitting(true);
-    const { error: signUpError, needsEmailConfirmation } = await signUp(email, password, {
+    const { error: signUpError, needsEmailConfirmation } = await signUp(email.trim(), password, {
       fullName,
       phone,
       country,
@@ -72,130 +81,110 @@ export default function RegisterScreen() {
       return;
     }
     if (needsEmailConfirmation) {
-      // Account was created but the project requires email verification. Tell the
-      // user to confirm instead of navigating into the app (which would bounce
-      // straight back here because there is no session yet).
-      setConfirmationEmail(email);
+      setConfirmationEmail(email.trim());
       return;
     }
-    // New accounts default to the free tier (see the signup DB trigger in
-    // supabase/migrations/0001_init_auth_subscriptions.sql). Upgrading is a
-    // website-only action — this screen never offers to sell anything.
     router.replace("/(app)");
   };
 
   if (confirmationEmail) {
     return (
       <View style={styles.container}>
-        <Text style={styles.title}>Check your email</Text>
+        <Text style={styles.title}>{L("Check your email", "Fiiri email-kaaga")}</Text>
         <Text style={styles.subtitle}>
-          We sent a confirmation link to {confirmationEmail}. Tap it to activate your
-          account, then come back and log in.
+          {L(
+            `We sent a confirmation link to ${confirmationEmail}. Tap it to activate your account, then come back and log in.`,
+            `Waxaan u dirnay xiriiriye xaqiijin ${confirmationEmail}. Riix si aad akoonka u firfircooneyso, ka dibna ku noqo oo gal.`,
+          )}
         </Text>
         <Pressable style={styles.button} onPress={() => router.replace("/(auth)/login")}>
-          <Text style={styles.buttonText}>Go to login</Text>
+          <Text style={styles.buttonText}>{L("Go to login", "Aad galitaanka")}</Text>
         </Pressable>
         <Pressable onPress={() => setConfirmationEmail(null)}>
-          <Text style={styles.link}>Use a different email</Text>
+          <Text style={styles.link}>{L("Use a different email", "Isticmaal email kale")}</Text>
         </Pressable>
       </View>
     );
   }
 
+  const field = (
+    label: string,
+    value: string,
+    onChange: (v: string) => void,
+    opts: Partial<React.ComponentProps<typeof TextInput>> = {},
+  ) => (
+    <>
+      <Text style={styles.label}>{label}</Text>
+      <TextInput
+        style={styles.input}
+        placeholderTextColor="#8A8A8E"
+        value={value}
+        onChangeText={onChange}
+        {...opts}
+      />
+    </>
+  );
+
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
+    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>Create your account</Text>
+        <Text style={styles.title}>{L("Create your account", "Samee akoonkaaga")}</Text>
         <Text style={styles.subtitle}>
-          Free accounts get 5 scans/day. Upgrade anytime on our website.
+          {L(
+            "Free accounts get 5 scans a day. Upgrade any time on our website.",
+            "Akoonnada bilaashka ah waxay helaan 5 baaris maalintii. Waqti kasta ka cusboonaysii website-kayaga.",
+          )}
         </Text>
 
-        <Text style={styles.label}>Full name (three names)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. Cabdi Xasan Cali"
-          placeholderTextColor="#8A8A8E"
-          autoCapitalize="words"
-          autoComplete="name"
-          value={fullName}
-          onChangeText={setFullName}
-        />
-
-        <Text style={styles.label}>Phone number</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. +252 61 234 5678"
-          placeholderTextColor="#8A8A8E"
-          keyboardType="phone-pad"
-          autoComplete="tel"
-          value={phone}
-          onChangeText={setPhone}
-        />
-
-        <Text style={styles.label}>Email</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="you@example.com"
-          placeholderTextColor="#8A8A8E"
-          autoCapitalize="none"
-          autoComplete="email"
-          keyboardType="email-address"
-          value={email}
-          onChangeText={setEmail}
-        />
-
-        <Text style={styles.label}>Password</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Password (min. 8 characters)"
-          placeholderTextColor="#8A8A8E"
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-        />
-
-        <Text style={styles.label}>Confirm password</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Re-enter your password"
-          placeholderTextColor="#8A8A8E"
-          secureTextEntry
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-        />
-
-        <Text style={styles.label}>Country</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. Somalia"
-          placeholderTextColor="#8A8A8E"
-          autoCapitalize="words"
-          autoComplete="country"
-          value={country}
-          onChangeText={setCountry}
-        />
-
-        <Text style={styles.label}>City</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. Mogadishu"
-          placeholderTextColor="#8A8A8E"
-          autoCapitalize="words"
-          value={city}
-          onChangeText={setCity}
-        />
+        {field(L("Full name (three names)", "Magaca oo saddexan"), fullName, setFullName, {
+          placeholder: L("e.g. Cabdi Xasan Cali", "tusaale: Cabdi Xasan Cali"),
+          autoCapitalize: "words",
+          autoComplete: "name",
+        })}
+        {field(L("Phone number", "Lambarka taleefanka"), phone, setPhone, {
+          placeholder: "+252 61 234 5678",
+          keyboardType: "phone-pad",
+          autoComplete: "tel",
+        })}
+        {field(L("Email", "Email-ka"), email, setEmail, {
+          placeholder: "you@example.com",
+          autoCapitalize: "none",
+          autoComplete: "email",
+          keyboardType: "email-address",
+        })}
+        {field(L("Confirm email", "Xaqiiji email-ka"), confirmEmail, setConfirmEmail, {
+          placeholder: L("Re-enter your email", "Dib u geli email-kaaga"),
+          autoCapitalize: "none",
+          keyboardType: "email-address",
+        })}
+        {field(L("Password", "Furaha sirta"), password, setPassword, {
+          placeholder: L("At least 8 characters", "Ugu yaraan 8 xaraf"),
+          secureTextEntry: true,
+        })}
+        {field(L("Confirm password", "Xaqiiji furaha"), confirmPassword, setConfirmPassword, {
+          placeholder: L("Re-enter your password", "Dib u geli furahaaga"),
+          secureTextEntry: true,
+        })}
+        {field(L("Country", "Wadanka"), country, setCountry, {
+          placeholder: L("e.g. Somalia", "tusaale: Soomaaliya"),
+          autoCapitalize: "words",
+          autoComplete: "country",
+        })}
+        {field(L("City", "Magaalada"), city, setCity, {
+          placeholder: L("e.g. Mogadishu", "tusaale: Muqdisho"),
+          autoCapitalize: "words",
+        })}
 
         {error && <Text style={styles.error}>{error}</Text>}
 
         <Pressable style={styles.button} onPress={onSubmit} disabled={isSubmitting}>
-          <Text style={styles.buttonText}>{isSubmitting ? "Creating account…" : "Sign up"}</Text>
+          <Text style={styles.buttonText}>
+            {isSubmitting ? L("Creating account…", "Akoonka waa la abuurayaa…") : L("Sign up", "Is-diiwaangeli")}
+          </Text>
         </Pressable>
 
         <Pressable onPress={() => router.push("/(auth)/login")}>
-          <Text style={styles.link}>Already have an account? Log in</Text>
+          <Text style={styles.link}>{L("Already have an account? Log in", "Ma horeba akoon baa kuu jira? Gal")}</Text>
         </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>

@@ -12,6 +12,7 @@
 import React, { useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView, Image } from "react-native";
 import { useRouter } from "expo-router";
+import { useTranslation } from "react-i18next";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { ImageProcessorGL, type ImageProcessorHandle } from "../../../components/ImageProcessorGL";
@@ -29,6 +30,8 @@ const MAX_IMAGES = LIVE_ANGLE_SEQUENCE.length;
 
 export default function UploadScreen() {
   const router = useRouter();
+  const { i18n } = useTranslation();
+  const L = (en: string, so: string) => (i18n.language === "so" ? so : en);
   const imageProcessorRef = useRef<ImageProcessorHandle>(null);
   const [images, setImages] = useState<string[]>([]);
   const [phase, setPhase] = useState<"select" | "processing" | "analyzing">("select");
@@ -63,7 +66,7 @@ export default function UploadScreen() {
   async function handleSend() {
     if (images.length === 0) return;
     if (!imageProcessorRef.current) {
-      setErrorText("Image processor is still starting — try again in a moment.");
+      setErrorText(L("Image processor is still starting — try again in a moment.", "Qalabku wuu bilaabmayaa — daqiiqad ka dib isku day."));
       return;
     }
     setErrorText(null);
@@ -72,7 +75,7 @@ export default function UploadScreen() {
       const captured: CapturedAngleImage[] = [];
       for (let i = 0; i < images.length; i++) {
         const angle = LIVE_ANGLE_SEQUENCE[i].angle;
-        setStatusText(`Preparing image ${i + 1} of ${images.length}…`);
+        setStatusText(L(`Preparing image ${i + 1} of ${images.length}…`, `Diyaarinta sawir ${i + 1} ee ${images.length}…`));
         const uri = images[i];
         const quality = await imageProcessorRef.current.assessQuality(uri);
         const [detectionBbox, enhanced] = await Promise.all([
@@ -115,8 +118,8 @@ export default function UploadScreen() {
         <ActivityIndicator color="#C9A227" size="large" />
         <Text style={styles.body}>
           {phase === "analyzing"
-            ? "Identifying your specimen — this can take up to 30 seconds…"
-            : (statusText ?? "Preparing images…")}
+            ? L("Identifying your specimen — this can take up to 30 seconds…", "Waa la aqoonsanayaa tusaalahaaga — waxay qaadan kartaa ilaa 30 ilbiriqsi…")
+            : (statusText ?? L("Preparing images…", "Sawirrada waa la diyaarinayaa…"))}
         </Text>
       </View>
     );
@@ -125,10 +128,12 @@ export default function UploadScreen() {
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <ImageProcessorGL ref={imageProcessorRef} />
-      <Text style={styles.heading}>Upload images</Text>
+      <Text style={styles.heading}>{L("Upload images", "Sawiro geli")}</Text>
       <Text style={styles.body}>
-        Pick one or more photos of the same specimen — different angles improve accuracy. Review
-        them below, remove any you don’t want, then tap Send.
+        {L(
+          "Pick one or more photos of the same specimen — different angles improve accuracy. Review them below, remove any you don’t want, then tap Send.",
+          "Dooro hal ama in ka badan oo sawirro ah oo isku shay ah — xaglo kala duwan ayaa saxnaanta kordhiya. Hoos ka fiiri, kii aadan rabin ka saar, ka dibna riix Dir.",
+        )}
       </Text>
 
       {images.length > 0 && (
@@ -161,7 +166,7 @@ export default function UploadScreen() {
         <Pressable style={styles.secondaryButton} onPress={handleAddImages}>
           <Ionicons name="add" size={18} color="#C9A227" />
           <Text style={styles.secondaryButtonText}>
-            {images.length === 0 ? "Choose from gallery" : "Add more photos"}
+            {images.length === 0 ? L("Choose from gallery", "Ka dooro maktabadda") : L("Add more photos", "Ku dar sawiro dheeraad ah")}
           </Text>
         </Pressable>
       )}
@@ -169,13 +174,13 @@ export default function UploadScreen() {
       {images.length > 0 && (
         <Pressable style={styles.primaryButton} onPress={handleSend}>
           <Text style={styles.primaryButtonText}>
-            Send {images.length} {images.length === 1 ? "photo" : "photos"} for analysis
+            {L(`Send ${images.length} ${images.length === 1 ? "photo" : "photos"} for analysis`, `Dir ${images.length} sawir baaritaan`)}
           </Text>
         </Pressable>
       )}
 
       <Pressable style={styles.linkButton} onPress={() => router.replace("/(app)/scan/live")}>
-        <Text style={styles.link}>Use the live scanner instead</Text>
+        <Text style={styles.link}>{L("Use the live scanner instead", "Isticmaal baaraha tooska ah")}</Text>
       </Pressable>
     </ScrollView>
   );
