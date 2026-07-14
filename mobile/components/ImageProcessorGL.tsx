@@ -22,6 +22,7 @@ import React, { forwardRef, useImperativeHandle, useRef } from "react";
 import { GLView, type ExpoWebGLRenderingContext } from "expo-gl";
 import * as ImageManipulator from "expo-image-manipulator";
 import { computeDetectionFromPixels, type GemstoneDetection } from "../lib/gemstoneDetector";
+import { diag } from "../lib/diagnostics";
 
 const ANALYSIS_SIZE = 96; // small + cheap for blur/exposure sampling
 const ENHANCE_OUTPUT_SIZE = 1024; // final size sent onward to Stage 4 cloud AI
@@ -325,10 +326,16 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
   // fails must still be able to scan (the cloud AI is the real identifier). A
   // null result tells callers "couldn't analyse on-device — don't block".
   async function readAnalysisPixels(uri: string): Promise<Uint8Array | null> {
+    // Compatibility layer: once GL has failed on this device we never touch it
+    // again — CPU-only from here on. No retries.
+    if (diag.isGpuDisabled()) return null;
     try {
       const ready = await waitForGL(GL_READY_TIMEOUT_MS);
       const gl = glRef.current;
-      if (!ready || !gl || !passthroughProgramRef.current) return null;
+      if (!ready || !gl || !passthroughProgramRef.current) {
+        diag.markGpuDisabled("context never became ready");
+        return null;
+      }
 
       const resized = await ImageManipulator.manipulateAsync(
         uri,
@@ -367,10 +374,17 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
         sum += pixels[i] + pixels[i + 1] + pixels[i + 2];
       }
       const meanChannel = sum / (ANALYSIS_SIZE * ANALYSIS_SIZE * 3);
-      if (meanChannel < 2) return null; // effectively black → GL readback broken
+      if (meanChannel < 2) {
+        // readPixels "succeeded" but returned an all-black buffer — this GPU's
+        // readback is broken. Latch GL off for the session and fail open.
+        diag.markGpuDisabled("readPixels returned black");
+        return null;
+      }
 
+      diag.markGpuWorking();
       return pixels;
-    } catch {
+    } catch (err) {
+      diag.markGpuDisabled((err as Error).message || "gl exception");
       return null;
     }
   }

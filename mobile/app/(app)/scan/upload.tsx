@@ -21,6 +21,7 @@ import { getFuzzedLocation } from "../../../lib/location";
 import { createScan, uploadScanImage, runOrchestration, type CapturedAngleImage } from "../../../lib/scanUpload";
 import { captureException } from "../../../lib/monitoring";
 import { LIVE_ANGLE_SEQUENCE } from "../../../lib/liveScanEngine";
+import { diag } from "../../../lib/diagnostics";
 
 const MAX_IMAGES = LIVE_ANGLE_SEQUENCE.length;
 
@@ -85,12 +86,18 @@ export default function UploadScreen() {
       const front = captured.find((c) => c.angle === "front") ?? captured[0];
       const onDeviceHint = await classifyCoarse(front.processedUri);
 
+      diag.begin("upload");
       const scanId = await createScan({ specimenCategory: null, location });
       for (const image of captured) {
         const segmented = await segmentBackground(image.processedUri);
         await uploadScanImage(scanId, { ...image, processedUri: segmented.uri });
       }
+      diag.end("upload");
+      diag.begin("ensemble");
+      diag.setMetric("currentProvider", "Gemini → OpenAI → Claude (ensemble)");
       const orchestrated = await runOrchestration(scanId, onDeviceHint);
+      diag.end("ensemble");
+      diag.log("result_displayed");
       router.replace({ pathname: "/(app)/scan/results", params: { scanId: orchestrated.scanId } });
     } catch (err) {
       captureException(err, { where: "upload.handleSend" });

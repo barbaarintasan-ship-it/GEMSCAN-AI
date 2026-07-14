@@ -33,6 +33,17 @@ export default function SettingsScreen() {
   const [profileLoading, setProfileLoading] = useState(true);
   const [showDataUsage, setShowDataUsage] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [versionTaps, setVersionTaps] = useState(0);
+
+  // Hidden Debug/Diagnostics screen: tap the version number 5 times.
+  function onVersionTap() {
+    const next = versionTaps + 1;
+    setVersionTaps(next);
+    if (next >= 5) {
+      setVersionTaps(0);
+      router.push("/(app)/debug");
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -138,10 +149,10 @@ export default function SettingsScreen() {
       {/* App information */}
       <Text style={styles.sectionLabel}>{t("settings.aboutSection")}</Text>
       <View style={styles.card}>
-        <View style={styles.row}>
+        <Pressable style={styles.row} onPress={onVersionTap}>
           <Text style={styles.rowLabel}>{t("settings.version")}</Text>
           <Text style={styles.rowValue}>{appVersion}</Text>
-        </View>
+        </Pressable>
       </View>
 
       {/* Logout */}

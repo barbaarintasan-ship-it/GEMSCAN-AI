@@ -40,6 +40,7 @@ import { createScan, uploadScanImage, runOrchestration, type CapturedAngleImage 
 import { captureException } from "../../../lib/monitoring";
 import { LIVE_ANGLE_SEQUENCE } from "../../../lib/liveScanEngine";
 import { precheckObject, categoryLabel, type SupportedCategory } from "../../../lib/objectPrecheck";
+import { diag } from "../../../lib/diagnostics";
 
 type Phase = "initializing" | "ready" | "classifying" | "rejected" | "capturing" | "analyzing";
 
@@ -110,8 +111,10 @@ export default function LiveScanScreen() {
   // ── Camera lifecycle: only leave "initializing" once ready + stabilised ──
   function onCameraReady() {
     cameraReadyRef.current = true;
+    diag.log("camera_ready");
     if (stabilizeTimerRef.current) clearTimeout(stabilizeTimerRef.current);
     stabilizeTimerRef.current = setTimeout(() => {
+      diag.log("camera_stabilized");
       if (phaseRef.current === "initializing") setPhaseBoth("ready");
     }, STABILIZE_MS);
   }
@@ -148,7 +151,13 @@ export default function LiveScanScreen() {
     await waitForCameraReady();
     try {
       const p = await cam.takePictureAsync({ quality: 0.9 });
-      if (p?.uri) return p.uri;
+      if (p?.uri) {
+        if (p.width && p.height) {
+          diag.setMetric("imageDimensions", `${p.width}×${p.height}`);
+          diag.setMetric("cameraResolution", `${p.width}×${p.height}`);
+        }
+        return p.uri;
+      }
     } catch {
       /* retry once */
     }
@@ -179,7 +188,9 @@ export default function LiveScanScreen() {
 
     // LEVEL 2 (cloud, Gemini only): one cheap category pre-check. Only a
     // confident NOT_SUPPORTED rejects — OpenAI/Claude are never called here.
+    diag.begin("gemini_precheck");
     const verdict = await precheckObject(uri);
+    diag.end("gemini_precheck", `supported=${verdict.supported} category=${verdict.category} available=${verdict.available}`);
     if (!verdict.supported) {
       setRejectLabel("");
       setPhaseBoth("rejected");
@@ -199,6 +210,7 @@ export default function LiveScanScreen() {
     setErrorText(null);
     setManualOffer(false);
     setPhaseBoth("capturing");
+    diag.log("capture_started");
     setSecondsLeft(Math.round(CAPTURE_WINDOW_MS / 1000));
 
     countdownRef.current = setInterval(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000);
@@ -267,6 +279,9 @@ export default function LiveScanScreen() {
       return;
     }
     setPhaseBoth("analyzing");
+    diag.log("capture_completed", `${uris.length} frames`);
+    diag.setMetric("cpuFallbackActive", diag.isGpuDisabled());
+    const scanStart = Date.now();
     try {
       const captured: CapturedAngleImage[] = [];
       for (let i = 0; i < uris.length; i++) {
@@ -282,14 +297,22 @@ export default function LiveScanScreen() {
       const location = await getFuzzedLocation();
       const onDeviceHint =
         category !== "unknown" ? { label: category, confidence: 0.5 } : null;
+      diag.begin("upload");
       const scanId = await createScan({ specimenCategory: category === "unknown" ? null : category, location });
       for (const image of captured) {
         const segmented = await segmentBackground(image.processedUri);
         await uploadScanImage(scanId, { ...image, processedUri: segmented.uri });
       }
+      diag.end("upload");
+      diag.begin("ensemble");
+      diag.setMetric("currentProvider", "Gemini → OpenAI → Claude (ensemble)");
       const orchestrated = await runOrchestration(scanId, onDeviceHint);
+      diag.end("ensemble");
+      diag.setMetric("lastScanMs", Date.now() - scanStart);
+      diag.log("result_displayed");
       router.replace({ pathname: "/(app)/scan/results", params: { scanId: orchestrated.scanId } });
     } catch (err) {
+      diag.error("submit_failed", (err as Error).message);
       captureException(err, { where: "live.submitEvidence" });
       setErrorText((err as Error).message || L("Something went wrong.", "Wax baa qaldamay."));
       setPhaseBoth("ready");
