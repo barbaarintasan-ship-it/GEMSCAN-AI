@@ -25,6 +25,8 @@ import {
   runOrchestration,
   type CapturedAngleImage,
 } from "../../../lib/scanUpload";
+import { isScanLimitError } from "../../../lib/appLinks";
+import { UpgradePrompt } from "../../../components/UpgradePrompt";
 
 type AngleStep = {
   key: CapturedAngleImage["angle"];
@@ -226,7 +228,12 @@ export default function CaptureScreen() {
           />
         </View>
 
-        {retakeReason && <Text style={styles.errorText}>{retakeReason}</Text>}
+        {retakeReason &&
+          (isScanLimitError(retakeReason) ? (
+            <UpgradePrompt />
+          ) : (
+            <Text style={styles.errorText}>{retakeReason}</Text>
+          ))}
 
         {isBusy ? (
           <View style={styles.busyRow}>

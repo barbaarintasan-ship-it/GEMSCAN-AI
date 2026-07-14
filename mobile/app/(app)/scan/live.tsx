@@ -41,6 +41,8 @@ import { captureException } from "../../../lib/monitoring";
 import { LIVE_ANGLE_SEQUENCE } from "../../../lib/liveScanEngine";
 import { precheckObject, categoryLabel, type SupportedCategory } from "../../../lib/objectPrecheck";
 import { diag } from "../../../lib/diagnostics";
+import { isScanLimitError } from "../../../lib/appLinks";
+import { UpgradePrompt } from "../../../components/UpgradePrompt";
 
 type Phase = "initializing" | "ready" | "classifying" | "rejected" | "capturing" | "analyzing";
 
@@ -433,7 +435,12 @@ export default function LiveScanScreen() {
 
         {phase === "ready" && (
           <>
-            {errorText && <Text style={styles.errorText}>{errorText}</Text>}
+            {errorText &&
+              (isScanLimitError(errorText) ? (
+                <UpgradePrompt />
+              ) : (
+                <Text style={styles.errorText}>{errorText}</Text>
+              ))}
             {manualOffer && (
               <View style={styles.manualCard}>
                 <Text style={styles.manualText}>
