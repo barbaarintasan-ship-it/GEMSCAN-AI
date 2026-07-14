@@ -45,6 +45,11 @@ verify_jwt = true
 [functions.estimate-value]
 verify_jwt = true
 
+# Called server-to-server by the website payment plugin, authenticated with a
+# shared secret (ACTIVATION_SECRET) instead of a user JWT.
+[functions.activate-subscription]
+verify_jwt = false
+
 # Webhook endpoints verify authenticity via provider signature, not Supabase
 # JWT (the caller is Stripe/the mobile-money gateway, not a logged-in user).
 [functions.stripe-webhook]
