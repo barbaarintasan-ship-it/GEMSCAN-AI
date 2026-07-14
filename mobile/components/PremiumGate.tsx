@@ -9,7 +9,7 @@ import React from "react";
 import { View, Text, Pressable, Linking, StyleSheet } from "react-native";
 import { useSubscriptionStatus, SubscriptionTier } from "../lib/subscription";
 
-const WEBSITE_PRICING_URL = "https://gemscan.ai/pricing";
+const WEBSITE_PRICING_URL = "https://barbaarintasan.com/gemscanpayment";
 
 const TIER_RANK: Record<SubscriptionTier, number> = {
   free: 0,
@@ -44,16 +44,16 @@ export function PremiumGate({ requiredTier, children, featureName }: Props) {
         {featureName ? `${featureName} is a premium feature` : "This is a premium feature"}
       </Text>
       <Text style={styles.subtitle}>
-        Upgrade on the GemScan AI website to unlock this. Once you subscribe, come back and log
-        in — your account unlocks automatically.
+        Upgrade on the GemScan website to unlock this. Once you subscribe, your account unlocks
+        automatically.
       </Text>
       <Pressable
         style={styles.button}
         onPress={() => Linking.openURL(WEBSITE_PRICING_URL)}
         accessibilityRole="link"
-        accessibilityLabel="Open GemScan AI pricing page in browser"
+        accessibilityLabel="Open GemScan pricing page in browser"
       >
-        <Text style={styles.buttonText}>View plans on gemscan.ai</Text>
+        <Text style={styles.buttonText}>View plans &amp; upgrade</Text>
       </Pressable>
     </View>
   );

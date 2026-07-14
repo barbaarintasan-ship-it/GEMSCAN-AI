@@ -42,18 +42,39 @@ Deno.serve(async (req) => {
     }
 
     const email = String(body.email ?? "").trim().toLowerCase();
-    const planKey = String(body.plan ?? "").trim().toLowerCase();
-    const months = Number(body.months ?? 12) || 12;
-    const method = String(body.method ?? "").trim();
-    const reference = body.reference ? String(body.reference) : null;
-    const tier = PLAN_TIER[planKey];
-
-    if (!email || !tier) return json({ error: "email and a valid plan are required" }, 400);
+    const action = String(body.action ?? "").trim();
+    if (!email) return json({ error: "email is required" }, 400);
 
     const admin = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    // Read-only: return the account's current plan (for the website "account" area).
+    if (action === "status") {
+      const { data: p } = await admin.from("profiles").select("id").eq("email", email).maybeSingle();
+      if (!p) return json({ ok: true, account: false, tier: "free", active: false, expires: null });
+      const { data: sub } = await admin
+        .from("subscriptions")
+        .select("tier, status, current_period_end")
+        .eq("user_id", p.id)
+        .maybeSingle();
+      const active = sub?.status === "active";
+      return json({
+        ok: true,
+        account: true,
+        tier: active ? sub!.tier : "free",
+        active,
+        expires: sub?.current_period_end ?? null,
+      });
+    }
+
+    const planKey = String(body.plan ?? "").trim().toLowerCase();
+    const months = Number(body.months ?? 12) || 12;
+    const method = String(body.method ?? "").trim();
+    const reference = body.reference ? String(body.reference) : null;
+    const tier = PLAN_TIER[planKey];
+    if (!tier) return json({ error: "a valid plan is required" }, 400);
 
     // Resolve the account by email (profiles.id === auth user id).
     const { data: profile } = await admin

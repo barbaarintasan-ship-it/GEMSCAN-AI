@@ -42,7 +42,7 @@ export default function AccountScreen() {
 
       <Pressable
         style={styles.button}
-        onPress={() => Linking.openURL("https://gemscan.ai/account/subscription")}
+        onPress={() => Linking.openURL("https://barbaarintasan.com/gemscanpayment")}
       >
         <Text style={styles.buttonText}>Manage subscription on website</Text>
       </Pressable>
