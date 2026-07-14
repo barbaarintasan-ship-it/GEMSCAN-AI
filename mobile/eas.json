@@ -11,7 +11,10 @@
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://znqkzgswvhbkhxldbbld.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_tw-dAV4QosRuHR9WLWMelg_B-ZWw7ah",
-        "EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL": "https://znqkzgswvhbkhxldbbld.functions.supabase.co"
+        "EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL": "https://znqkzgswvhbkhxldbbld.functions.supabase.co",
+        "EXPO_PUBLIC_EXPERT_PHONE": "+252907790584",
+        "EXPO_PUBLIC_EXPERT_WHATSAPP": "252907790584",
+        "EXPO_PUBLIC_HIGH_VALUE_THRESHOLD_USD": "200"
       },
       "android": {
         "buildType": "apk"
@@ -32,7 +35,10 @@
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://znqkzgswvhbkhxldbbld.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_tw-dAV4QosRuHR9WLWMelg_B-ZWw7ah",
-        "EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL": "https://znqkzgswvhbkhxldbbld.functions.supabase.co"
+        "EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL": "https://znqkzgswvhbkhxldbbld.functions.supabase.co",
+        "EXPO_PUBLIC_EXPERT_PHONE": "+252907790584",
+        "EXPO_PUBLIC_EXPERT_WHATSAPP": "252907790584",
+        "EXPO_PUBLIC_HIGH_VALUE_THRESHOLD_USD": "200"
       },
       "android": {
         "buildType": "apk"
@@ -46,7 +52,10 @@
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://znqkzgswvhbkhxldbbld.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_tw-dAV4QosRuHR9WLWMelg_B-ZWw7ah",
-        "EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL": "https://znqkzgswvhbkhxldbbld.functions.supabase.co"
+        "EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL": "https://znqkzgswvhbkhxldbbld.functions.supabase.co",
+        "EXPO_PUBLIC_EXPERT_PHONE": "+252907790584",
+        "EXPO_PUBLIC_EXPERT_WHATSAPP": "252907790584",
+        "EXPO_PUBLIC_HIGH_VALUE_THRESHOLD_USD": "200"
       },
       "android": {
         "buildType": "app-bundle"
