@@ -261,10 +261,9 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
   const glRef = useRef<ExpoWebGLRenderingContext | null>(null);
   const passthroughProgramRef = useRef<WebGLProgram | null>(null);
   const enhanceProgramRef = useRef<WebGLProgram | null>(null);
-  // Offscreen render targets — see ensureRenderTarget. One 96x96 target for the
-  // analysis/proxy reads, one 1024x1024 for the final enhancement snapshot.
+  // Offscreen render target for the 96x96 analysis/detection readPixels — see
+  // ensureRenderTarget. (Enhancement no longer uses GL; it is a plain resize.)
   const analysisTargetRef = useRef<{ fbo: WebGLFramebuffer; tex: WebGLTexture } | null>(null);
-  const enhanceTargetRef = useRef<{ fbo: WebGLFramebuffer; tex: WebGLTexture } | null>(null);
 
   // Readiness gate. expo-gl's onContextCreate fires asynchronously after the
   // <GLView> mounts, so any method invoked before then would previously throw
@@ -402,125 +401,20 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
     },
 
     async enhance(uri: string) {
-      // Wait for GL, then produce a CPU-resized copy. That copy doubles as the
-      // graceful fallback: if the context never initializes we still return a
-      // correctly-sized (just un-enhanced) image so the scan can proceed rather
-      // than failing outright.
-      const ready = await waitForGL(GL_READY_TIMEOUT_MS);
-
+      // Send a faithful, aspect-preserving downscaled copy of the ORIGINAL
+      // photo to the cloud. We intentionally NO LONGER apply the on-device GL
+      // "enhancement" (white-balance/exposure/sharpen): it depended on the
+      // fragile GL path and, when that misbehaved on a device, produced a
+      // degraded image the AI then judged as "blurry / low light". Resizing by
+      // width ONLY preserves the aspect ratio — the old fixed 1024x1024 resize
+      // stretched non-square photos, another thing that hurt recognition. The
+      // vision ensemble identifies a clean, undistorted, true-to-life photo best.
       const resized = await ImageManipulator.manipulateAsync(
         uri,
-        [{ resize: { width: ENHANCE_OUTPUT_SIZE, height: ENHANCE_OUTPUT_SIZE } }],
-        { compress: 1, format: ImageManipulator.SaveFormat.PNG },
+        [{ resize: { width: ENHANCE_OUTPUT_SIZE } }],
+        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG },
       );
-
-      const gl = glRef.current;
-      if (!ready || !gl || !enhanceProgramRef.current || !passthroughProgramRef.current) {
-        // Graceful fallback: hand back the CPU-resized original unenhanced. The
-        // cloud ensemble still receives a valid, correctly-sized image.
-        return { uri: resized.uri };
-      }
-
-      // On-device GL enhancement is BEST-EFFORT. If ANY GL step fails on this
-      // device, fall back to the plain resized image below — a broken GL path
-      // must never break the scan; the cloud still receives a valid full image.
-      try {
-      // First, sample a small proxy of the source to compute gray-world
-      // white balance gains + an exposure gain, without doing that math on
-      // the full-resolution image.
-      const proxy = await ImageManipulator.manipulateAsync(
-        uri,
-        [{ resize: { width: ANALYSIS_SIZE, height: ANALYSIS_SIZE } }],
-        { compress: 1, format: ImageManipulator.SaveFormat.PNG },
-      );
-      const proxyTarget = ensureRenderTarget(gl, analysisTargetRef, ANALYSIS_SIZE);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, proxyTarget);
-      gl.viewport(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
-      gl.useProgram(passthroughProgramRef.current);
-      setupQuad(gl, passthroughProgramRef.current);
-      const proxyTexture = await loadTexture(gl, proxy.uri);
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, proxyTexture);
-      gl.uniform1i(gl.getUniformLocation(passthroughProgramRef.current, "uTexture"), 0);
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-      gl.flush();
-      const proxyPixels = new Uint8Array(ANALYSIS_SIZE * ANALYSIS_SIZE * 4);
-      gl.readPixels(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE, gl.RGBA, gl.UNSIGNED_BYTE, proxyPixels);
-      gl.deleteTexture(proxyTexture);
-
-      let rSum = 0;
-      let gSum = 0;
-      let bSum = 0;
-      const pixelCount = ANALYSIS_SIZE * ANALYSIS_SIZE;
-      for (let i = 0; i < pixelCount; i++) {
-        rSum += proxyPixels[i * 4];
-        gSum += proxyPixels[i * 4 + 1];
-        bSum += proxyPixels[i * 4 + 2];
-      }
-      const rMean = rSum / pixelCount / 255;
-      const gMean = gSum / pixelCount / 255;
-      const bMean = bSum / pixelCount / 255;
-      const grayMean = (rMean + gMean + bMean) / 3;
-
-      const clampGain = (g: number) => Math.max(0.7, Math.min(1.4, g));
-      const wbGain: [number, number, number] = [
-        clampGain(grayMean / Math.max(rMean, 0.01)),
-        clampGain(grayMean / Math.max(gMean, 0.01)),
-        clampGain(grayMean / Math.max(bMean, 0.01)),
-      ];
-
-      // Push overall brightness toward mid-gray (~0.45-0.5), clamped so we
-      // never wildly over/under-correct a single frame.
-      const targetBrightness = 0.47;
-      const exposureGain = Math.max(0.6, Math.min(1.6, targetBrightness / Math.max(grayMean, 0.05)));
-
-      // Now render the full-resolution enhancement pass into the 1024x1024
-      // offscreen framebuffer (NOT the 1x1 default one) and snapshot THAT.
-      const enhanceTarget = ensureRenderTarget(gl, enhanceTargetRef, ENHANCE_OUTPUT_SIZE);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, enhanceTarget);
-      gl.viewport(0, 0, ENHANCE_OUTPUT_SIZE, ENHANCE_OUTPUT_SIZE);
-      gl.useProgram(enhanceProgramRef.current);
-      setupQuad(gl, enhanceProgramRef.current);
-
-      const texture = await loadTexture(gl, resized.uri);
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, texture);
-      gl.uniform1i(gl.getUniformLocation(enhanceProgramRef.current, "uTexture"), 0);
-      gl.uniform3f(
-        gl.getUniformLocation(enhanceProgramRef.current, "uWBGain"),
-        wbGain[0],
-        wbGain[1],
-        wbGain[2],
-      );
-      gl.uniform1f(gl.getUniformLocation(enhanceProgramRef.current, "uExposureGain"), exposureGain);
-      gl.uniform2f(
-        gl.getUniformLocation(enhanceProgramRef.current, "uTexelSize"),
-        1 / ENHANCE_OUTPUT_SIZE,
-        1 / ENHANCE_OUTPUT_SIZE,
-      );
-      gl.uniform1f(gl.getUniformLocation(enhanceProgramRef.current, "uSharpenAmount"), 0.5);
-
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-      gl.endFrameEXP();
-      gl.deleteTexture(texture);
-
-      const snapshot = await GLView.takeSnapshotAsync(gl, {
-        framebuffer: enhanceTarget,
-        rect: { x: 0, y: 0, width: ENHANCE_OUTPUT_SIZE, height: ENHANCE_OUTPUT_SIZE },
-        format: "jpeg",
-        compress: 0.9,
-        flip: false,
-      });
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
-        if (!snapshot.uri || typeof snapshot.uri !== "string") {
-          return { uri: resized.uri };
-        }
-        return { uri: snapshot.uri };
-      } catch {
-        // Any GL failure → use the reliable CPU-resized image.
-        return { uri: resized.uri };
-      }
+      return { uri: resized.uri };
     },
   }));
 
