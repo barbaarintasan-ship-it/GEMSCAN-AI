@@ -511,11 +511,23 @@ export default function LiveScanScreen() {
 
         {(phase === "ready" || phase === "capturing") && (
           <View style={styles.secondaryRow}>
-            <Pressable onPress={() => router.replace("/(app)/scan/upload")}>
-              <Text style={styles.link}>{L("Upload photos", "Sawiro geli")}</Text>
+            <Pressable
+              style={({ pressed }) => [styles.altButton, pressed && styles.altButtonPressed]}
+              hitSlop={10}
+              android_ripple={{ color: "rgba(255,255,255,0.15)" }}
+              onPress={() => router.replace("/(app)/scan/upload")}
+            >
+              <Ionicons name="images-outline" size={18} color="#F5F1E8" />
+              <Text style={styles.altButtonText}>{L("Upload photos", "Sawiro soo geli")}</Text>
             </Pressable>
-            <Pressable onPress={() => router.replace("/(app)/scan/capture")}>
-              <Text style={styles.link}>{L("Manual capture", "Sawir gacan")}</Text>
+            <Pressable
+              style={({ pressed }) => [styles.altButton, pressed && styles.altButtonPressed]}
+              hitSlop={10}
+              android_ripple={{ color: "rgba(255,255,255,0.15)" }}
+              onPress={() => router.replace("/(app)/scan/capture")}
+            >
+              <Ionicons name="camera-outline" size={18} color="#F5F1E8" />
+              <Text style={styles.altButtonText}>{L("Take a photo", "Sawir toos ah qaad")}</Text>
             </Pressable>
           </View>
         )}
@@ -631,6 +643,20 @@ const styles = StyleSheet.create({
 
   errorText: { color: "#E4685D", fontSize: 13, textAlign: "center" },
   linkButton: { alignItems: "center", paddingVertical: 8 },
-  secondaryRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
+  secondaryRow: { flexDirection: "row", gap: 12, marginTop: 10 },
+  altButton: {
+    flex: 1,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#5A5A5E",
+    backgroundColor: "rgba(20,19,21,0.85)",
+  },
+  altButtonPressed: { backgroundColor: "rgba(201,162,39,0.25)", borderColor: "#C9A227" },
+  altButtonText: { color: "#F5F1E8", fontSize: 14, fontWeight: "700" },
   link: { color: "#C9C9CC", fontSize: 13, textDecorationLine: "underline" },
 });
