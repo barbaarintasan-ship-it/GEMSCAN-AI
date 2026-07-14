@@ -188,9 +188,9 @@ export default function LiveScanScreen() {
 
     // LEVEL 2 (cloud, Gemini only): one cheap category pre-check. Only a
     // confident NOT_SUPPORTED rejects — OpenAI/Claude are never called here.
-    diag.begin("gemini_precheck");
+    diag.begin("object_precheck");
     const verdict = await precheckObject(uri);
-    diag.end("gemini_precheck", `supported=${verdict.supported} category=${verdict.category} available=${verdict.available}`);
+    diag.end("object_precheck", `supported=${verdict.supported} category=${verdict.category} available=${verdict.available}`);
     if (!verdict.supported) {
       setRejectLabel("");
       setPhaseBoth("rejected");
@@ -304,10 +304,10 @@ export default function LiveScanScreen() {
         await uploadScanImage(scanId, { ...image, processedUri: segmented.uri });
       }
       diag.end("upload");
-      diag.begin("ensemble");
-      diag.setMetric("currentProvider", "Gemini → OpenAI → Claude (ensemble)");
+      diag.begin("cloud_analysis");
+      diag.setMetric("currentProvider", "Cloud analysis");
       const orchestrated = await runOrchestration(scanId, onDeviceHint);
-      diag.end("ensemble");
+      diag.end("cloud_analysis");
       diag.setMetric("lastScanMs", Date.now() - scanStart);
       diag.log("result_displayed");
       router.replace({ pathname: "/(app)/scan/results", params: { scanId: orchestrated.scanId } });
@@ -338,7 +338,7 @@ export default function LiveScanScreen() {
       <View style={styles.centered}>
         <ImageProcessorGL ref={imageProcessorRef} />
         <ActivityIndicator color="#C9A227" size="large" />
-        <Text style={styles.body}>{L("Sending to the AI and analyzing — up to 30 seconds…", "AI-ga loo dirayaa oo baaritaan socda — ilaa 30 ilbiriqsi…")}</Text>
+        <Text style={styles.body}>{L("Identifying your specimen — up to 30 seconds…", "Waa la aqoonsanayaa tusaalahaaga — ilaa 30 ilbiriqsi…")}</Text>
       </View>
     );
   }

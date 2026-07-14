@@ -24,7 +24,7 @@ export default function AppLayout() {
         contentStyle: { backgroundColor: "#0B0B0C" },
       }}
     >
-      <Stack.Screen name="index" options={{ title: "GemScan AI" }} />
+      <Stack.Screen name="index" options={{ title: "GemScan" }} />
       <Stack.Screen name="history" options={{ title: "My Collection" }} />
       <Stack.Screen name="settings" options={{ title: "Settings" }} />
       <Stack.Screen name="account" options={{ title: "Account" }} />

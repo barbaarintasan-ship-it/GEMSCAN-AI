@@ -135,14 +135,16 @@ export function runEnsemble(
   const candidates: EnsembleCandidate[] = ranked.map((entry, index) => {
     const rank = index + 1;
     const band = confidenceBand(entry.normalizedScore);
+    // Customer-facing wording — the identification method is a trade secret, so
+    // no provider names or internal technique are exposed here.
     const rationale =
       rank === 1
-        ? `Chosen as the best match with a weighted ensemble confidence of ${(entry.normalizedScore * 100).toFixed(0)}%, supported by: ${entry.providers.join(", ")}.`
-        : `Considered as an alternative, supported by: ${entry.providers.join(", ")}.`;
+        ? `Identified as the best match with ${(entry.normalizedScore * 100).toFixed(0)}% confidence from our expert gemstone analysis.`
+        : `Considered as a possible alternative.`;
     const rejectedReason =
       rank === 1
         ? null
-        : `Ranked below the top match — weighted ensemble confidence ${(entry.normalizedScore * 100).toFixed(0)}% vs ${(best.normalizedScore * 100).toFixed(0)}% for "${best.label}".`;
+        : `Ranked below the top match — ${(entry.normalizedScore * 100).toFixed(0)}% confidence vs ${(best.normalizedScore * 100).toFixed(0)}% for "${best.label}".`;
 
     return {
       rank,

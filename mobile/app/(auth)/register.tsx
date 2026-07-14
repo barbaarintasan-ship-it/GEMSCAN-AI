@@ -104,7 +104,7 @@ export default function RegisterScreen() {
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>Create your account</Text>
         <Text style={styles.subtitle}>
-          Free accounts get 5 scans/day. Upgrade anytime on gemscan.ai.
+          Free accounts get 5 scans/day. Upgrade anytime on our website.
         </Text>
 
         <Text style={styles.label}>Phone number</Text>

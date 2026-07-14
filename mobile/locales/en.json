@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "GemScan AI",
+    "appName": "GemScan",
     "back": "Back",
     "cancel": "Cancel",
     "loading": "Loading…",
@@ -8,7 +8,7 @@
     "close": "Close"
   },
   "home": {
-    "subtitle": "Identify gemstones, minerals and more with AI.",
+    "subtitle": "Identify gemstones, minerals and more with expert analysis.",
     "startLiveScan": "Start Live Scan",
     "uploadImages": "Upload Images",
     "myCollection": "My Collection",
@@ -16,7 +16,7 @@
     "currentPlan": "Current plan: {{tier}}",
     "scansPerDay": "{{count}} scans/day",
     "unlimitedScans": "unlimited scans",
-    "deepScanUnlocked": "Deep Scan is unlocked — every scan runs the full multi-model AI ensemble."
+    "deepScanUnlocked": "Deep Scan is unlocked — every scan gets our full expert analysis."
   },
   "settings": {
     "title": "Settings",
@@ -46,14 +46,14 @@
     "detected": "Gemstone detected",
     "capturing": "Capturing angles…",
     "analyzingSurface": "Analyzing surface…",
-    "preparingAi": "Preparing AI analysis…",
+    "preparingAi": "Preparing analysis…",
     "confidence": "Confidence",
     "progress": "Progress",
     "notChecked": "not yet checked",
     "verifying": "verifying…",
     "holdRotate": "Hold the gemstone steady, then rotate it slowly",
-    "analyzing": "Analyzing your specimen — running the AI ensemble. This can take up to 30 seconds…",
-    "cameraNeeded": "GemScan AI needs camera access to scan gemstones.",
+    "analyzing": "Identifying your specimen — this can take up to 30 seconds…",
+    "cameraNeeded": "GemScan needs camera access to scan gemstones.",
     "grantCamera": "Grant camera access",
     "analyzeNow": "Analyze now",
     "uploadInstead": "Upload gemstone photos",

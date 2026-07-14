@@ -95,7 +95,7 @@ export default function CaptureScreen() {
   if (!permission.granted) {
     return (
       <View style={styles.container}>
-        <Text style={styles.body}>GemScan AI needs camera access to scan specimens.</Text>
+        <Text style={styles.body}>GemScan needs camera access to scan specimens.</Text>
         <Pressable style={styles.primaryButton} onPress={requestPermission}>
           <Text style={styles.primaryButtonText}>Grant camera access</Text>
         </Pressable>
@@ -199,7 +199,7 @@ export default function CaptureScreen() {
       <View style={styles.container}>
         <ActivityIndicator color="#C9A227" size="large" />
         <Text style={styles.body}>
-          Analyzing your specimen — running the AI ensemble. This can take up to 30 seconds…
+          Identifying your specimen — this can take up to 30 seconds…
         </Text>
       </View>
     );

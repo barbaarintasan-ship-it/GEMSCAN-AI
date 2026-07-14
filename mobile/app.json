@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "GemScan AI",
+    "name": "GemScan",
     "slug": "gemestone",
     "owner": "gemestones-team",
     "version": "0.1.0",
@@ -25,13 +25,13 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "GemScan AI needs camera access to scan and identify gemstones, minerals, and jewelry."
+          "cameraPermission": "GemScan needs camera access to scan and identify gemstones, minerals, and jewelry."
         }
       ],
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "GemScan AI can use your approximate (never exact) location to improve identification accuracy using local geological data. This is optional."
+          "locationWhenInUsePermission": "GemScan can use your approximate (never exact) location to improve identification accuracy using local geological data. This is optional."
         }
       ]
     ],
@@ -39,7 +39,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "ai.gemscan.app",
       "infoPlist": {
-        "NSCameraUsageDescription": "GemScan AI needs camera access to scan and identify gemstones, minerals, and jewelry."
+        "NSCameraUsageDescription": "GemScan needs camera access to scan and identify gemstones, minerals, and jewelry."
       }
     },
     "android": {

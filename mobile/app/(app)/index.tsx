@@ -78,7 +78,7 @@ export default function HomeScreen() {
         orchestrate-scan (see providers/*.ts requiresEnsembleTier), not just
         gated here in the UI.
       */}
-      <PremiumGate requiredTier="premium" featureName="Deep Scan (multi-model AI ensemble)">
+      <PremiumGate requiredTier="premium" featureName="Deep Scan (advanced identification)">
         <Text style={styles.body}>{t("home.deepScanUnlocked")}</Text>
       </PremiumGate>
 

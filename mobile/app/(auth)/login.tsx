@@ -24,7 +24,7 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>GemScan AI</Text>
+      <Text style={styles.title}>GemScan</Text>
       <Text style={styles.subtitle}>Log in to your account</Text>
 
       <TextInput

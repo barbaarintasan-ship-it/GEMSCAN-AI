@@ -187,8 +187,8 @@ export default function ResultsScreen() {
           )}
           <Text style={styles.disclaimer}>
             {L(
-              "This valuation is only an AI estimate based on photographs and should not be considered a professional appraisal.",
-              "Qiimayntani waa qiyaas AI oo ku saleysan sawirro, lamana tirin karo qiimayn xirfadeed.",
+              "This valuation is only an estimate based on photographs and should not be considered a professional appraisal.",
+              "Qiimayntani waa qiyaas ku saleysan sawirro, lamana tirin karo qiimayn xirfadeed.",
             )}
           </Text>
         </View>
@@ -226,7 +226,7 @@ export default function ResultsScreen() {
             </Text>
             {[
               L("Original photos", "Sawirrada asalka ah"),
-              L("The AI report", "Warbixinta AI"),
+              L("The identification report", "Warbixinta aqoonsiga"),
               L("Additional close-up images", "Sawirro dhow oo dheeraad ah"),
               L("Weight (if known)", "Miisaanka (haddii la ogyahay)"),
               L("Dimensions (if known)", "Cabbirrada (haddii la ogyahay)"),
@@ -256,7 +256,7 @@ export default function ResultsScreen() {
 
       <Text style={[styles.label, { marginTop: 20 }]}>Was this correct?</Text>
       {feedbackSent ? (
-        <Text style={styles.body}>Thanks — your feedback helps improve GemScan AI.</Text>
+        <Text style={styles.body}>Thanks — your feedback helps improve GemScan.</Text>
       ) : (
         <View style={{ flexDirection: "row", gap: 12 }}>
           <Pressable style={styles.feedbackButton} onPress={() => handleFeedback(true)}>

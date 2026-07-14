@@ -25,7 +25,7 @@ export default function AccountScreen() {
           <Text style={styles.cardSubtext}>Renews/expires: {data.currentPeriodEnd}</Text>
         )}
         <Text style={styles.cardSubtext}>
-          Subscriptions are managed exclusively on the GemScan AI website. If you just upgraded
+          Subscriptions are managed exclusively on the GemScan website. If you just upgraded
           and don't see it reflected here, tap refresh below.
         </Text>
       </View>

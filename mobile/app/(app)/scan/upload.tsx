@@ -93,10 +93,10 @@ export default function UploadScreen() {
         await uploadScanImage(scanId, { ...image, processedUri: segmented.uri });
       }
       diag.end("upload");
-      diag.begin("ensemble");
-      diag.setMetric("currentProvider", "Gemini → OpenAI → Claude (ensemble)");
+      diag.begin("cloud_analysis");
+      diag.setMetric("currentProvider", "Cloud analysis");
       const orchestrated = await runOrchestration(scanId, onDeviceHint);
-      diag.end("ensemble");
+      diag.end("cloud_analysis");
       diag.log("result_displayed");
       router.replace({ pathname: "/(app)/scan/results", params: { scanId: orchestrated.scanId } });
     } catch (err) {
@@ -113,7 +113,7 @@ export default function UploadScreen() {
         <ActivityIndicator color="#C9A227" size="large" />
         <Text style={styles.body}>
           {phase === "analyzing"
-            ? "Sending to the AI and analyzing — this can take up to 30 seconds…"
+            ? "Identifying your specimen — this can take up to 30 seconds…"
             : (statusText ?? "Preparing images…")}
         </Text>
       </View>

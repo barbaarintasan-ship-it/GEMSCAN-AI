@@ -34,7 +34,7 @@ export default function DebugScreen() {
     ["Camera FPS", m.cameraFps ?? "—"],
     ["Image dimensions", m.imageDimensions ?? "—"],
     ["Upload size", m.uploadSizeKb != null ? `${m.uploadSizeKb} KB` : "—"],
-    ["Current AI provider", m.currentProvider ?? "—"],
+    ["Analysis engine", m.currentProvider ?? "—"],
     ["Last scan time", m.lastScanMs != null ? `${m.lastScanMs} ms` : "—"],
   ];
 

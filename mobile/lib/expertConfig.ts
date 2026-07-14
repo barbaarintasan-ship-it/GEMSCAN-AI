@@ -18,14 +18,14 @@ export function expertMessage(bestMatch: string | null, lang: "en" | "so"): stri
   if (lang === "so") {
     return (
       `Salaan,\n\n` +
-      `GemScan AI wuxuu qiyaasay inaan heli karo shay qiimo leh` +
+      `GemScan wuxuu calaamadeeyay shay laga yaabo inuu qiimo leeyahay` +
       (bestMatch ? ` (${bestMatch})` : "") +
       `.\n\nWaxaan jeclaan lahaa dib-u-eegis khibrad leh. Waxaan ku lifaaqi doonaa natiijada scan-ka iyo sawirrada.`
     );
   }
   return (
     `Hello,\n\n` +
-    `GemScan AI believes I may have found a valuable object` +
+    `GemScan flagged an item that may be valuable` +
     (bestMatch ? ` (${bestMatch})` : "") +
     `.\n\nI would like a professional review. I will attach my scan results and photographs.`
   );

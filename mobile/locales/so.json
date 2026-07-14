@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "GemScan AI",
+    "appName": "GemScan",
     "back": "Dib u noqo",
     "cancel": "Jooji",
     "loading": "Waa la soo rarayaa…",
@@ -8,7 +8,7 @@
     "close": "Xir"
   },
   "home": {
-    "subtitle": "Aqoonso dhagxaanta qaaliga ah, macdanta iyo wax kale adigoo isticmaalaya AI.",
+    "subtitle": "Aqoonso dhagxaanta qaaliga ah, macdanta iyo wax kale adigoo isticmaalaya baaris khibrad leh.",
     "startLiveScan": "Bilow Iskaanka Tooska ah",
     "uploadImages": "Soo Geli Sawirro",
     "myCollection": "Ururkeyga",
@@ -16,7 +16,7 @@
     "currentPlan": "Qorshaha hadda: {{tier}}",
     "scansPerDay": "{{count}} iskaan maalintii",
     "unlimitedScans": "iskaan aan xad lahayn",
-    "deepScanUnlocked": "Iskaanka Qoto-dheer waa la furay — iskaan kastaa wuxuu ku shaqeeyaa dhammaan moodooyinka AI-ga."
+    "deepScanUnlocked": "Iskaanka Qoto-dheer waa la furay — iskaan kastaa wuxuu helayaa baaris buuxda oo khibrad leh."
   },
   "settings": {
     "title": "Dejinta",
@@ -46,14 +46,14 @@
     "detected": "Dhagax qaali ah ayaa la helay",
     "capturing": "Waa la qabanayaa dhinacyada…",
     "analyzingSurface": "Waa la falanqaynayaa dusha…",
-    "preparingAi": "Waa la diyaarinayaa falanqaynta AI…",
+    "preparingAi": "Waa la diyaarinayaa falanqaynta…",
     "confidence": "Kalsooni",
     "progress": "Horumar",
     "notChecked": "wali lama hubin",
     "verifying": "waa la xaqiijinayaa…",
     "holdRotate": "Dhagaxa si adag u hay, ka dibna si tartiib ah u rogrog",
-    "analyzing": "Waa la falanqaynayaa tusaalahaaga — waxaa socda kooxda AI-ga. Tan waxay qaadan kartaa ilaa 30 ilbiriqsi…",
-    "cameraNeeded": "GemScan AI wuxuu u baahan yahay kamaradda si uu u iskaano dhagxaanta.",
+    "analyzing": "Waa la aqoonsanayaa tusaalahaaga — waxay qaadan kartaa ilaa 30 ilbiriqsi…",
+    "cameraNeeded": "GemScan wuxuu u baahan yahay kamaradda si uu u iskaano dhagxaanta.",
     "grantCamera": "Ogolow kamaradda",
     "analyzeNow": "Hadda falanqee",
     "uploadInstead": "Soo geli sawirro dhagax",
