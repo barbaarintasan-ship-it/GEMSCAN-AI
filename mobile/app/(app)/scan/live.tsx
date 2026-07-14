@@ -172,23 +172,10 @@ export default function LiveScanScreen() {
       setPhaseBoth("ready");
       return;
     }
-    // LEVEL 1 (on-device, best-effort): reject an empty/clutter scene cheaply
-    // before any cloud call. Fails open when GL analysis is unavailable.
-    try {
-      const frame = await imageProcessorRef.current?.analyzeFrame(uri);
-      if (frame && !frame.glUnavailable && !frame.detection.present) {
-        setErrorText(
-          L(
-            "Point the camera at a single object that fills the frame.",
-            "Kamerada ku soo hoggaan hal shay oo buuxiya sawirka.",
-          ),
-        );
-        setPhaseBoth("ready");
-        return;
-      }
-    } catch {
-      /* fail open to Level 2 */
-    }
+    // LEVEL 1 (on-device, best-effort) is intentionally NON-BLOCKING: the
+    // on-device GL heuristic is unreliable on some devices (it can report a real
+    // object as "not present"), so it must never stop a scan. Level 2 (Gemini)
+    // is the authoritative gate below.
 
     // LEVEL 2 (cloud, Gemini only): one cheap category pre-check. Only a
     // confident NOT_SUPPORTED rejects — OpenAI/Claude are never called here.

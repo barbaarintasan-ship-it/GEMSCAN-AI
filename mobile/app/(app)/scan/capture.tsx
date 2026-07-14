@@ -123,17 +123,10 @@ export default function CaptureScreen() {
 
       const quality = await imageProcessorRef.current.assessQuality(photo.uri);
 
-      const problems: string[] = [];
-      if (quality.blurry) problems.push("The photo looks blurry.");
-      if (quality.lowLight) problems.push("The photo is too dark.");
-      if (quality.overexposed) problems.push("The photo is overexposed.");
-
-      if (problems.length > 0) {
-        setRetakeReason(`${problems.join(" ")} Please retake this angle.`);
-        setIsBusy(false);
-        return;
-      }
-
+      // Quality is ADVISORY only — never block the capture. The on-device GL
+      // quality check is unreliable on some devices (it can wrongly report a
+      // well-lit, sharp photo as "blurry / too dark"), and a false block makes
+      // the app unusable. We keep the photo; the cloud AI judges the real image.
       setBusyLabel("Enhancing photo…");
       const [detectionBbox, enhanced] = await Promise.all([
         detectSpecimenBoundingBox(photo.uri),

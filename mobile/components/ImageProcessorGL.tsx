@@ -355,6 +355,20 @@ export const ImageProcessorGL = forwardRef<ImageProcessorHandle>((_props, ref) =
       gl.readPixels(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
       gl.deleteTexture(texture);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+      // On some devices readPixels "succeeds" but returns an all-(near-)zero
+      // buffer (the FBO read is broken). That black buffer is indistinguishable
+      // from a genuinely dark/empty frame and previously caused false
+      // "too dark / blurry / no object" verdicts. Detect it and report the GL
+      // path as UNAVAILABLE (null) so callers fail open instead of trusting
+      // garbage.
+      let sum = 0;
+      for (let i = 0; i < pixels.length; i += 4) {
+        sum += pixels[i] + pixels[i + 1] + pixels[i + 2];
+      }
+      const meanChannel = sum / (ANALYSIS_SIZE * ANALYSIS_SIZE * 3);
+      if (meanChannel < 2) return null; // effectively black → GL readback broken
+
       return pixels;
     } catch {
       return null;
