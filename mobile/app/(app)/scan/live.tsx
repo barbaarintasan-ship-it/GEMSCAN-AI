@@ -25,7 +25,8 @@ import {
   Pressable,
   StyleSheet,
   ActivityIndicator,
-  Image,
+  Animated,
+  Easing,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -54,26 +55,29 @@ const CAPTURE_GAP_MS = 1500;
 const MAX_EVIDENCE = LIVE_ANGLE_SEQUENCE.length; // 8
 const MIN_EVIDENCE = 3;
 
-// Rotating capture guidance (spec §6).
+// Size of the on-screen scanner target frame.
+const SCAN_FRAME = 280;
+
+// Rotating capture guidance shown over the scanner (advisory coaching text).
 const GUIDANCE_EN = [
-  "Hold the object centered",
-  "Move slowly left",
-  "Move slowly right",
-  "Tilt upward",
-  "Tilt downward",
-  "Rotate slowly",
-  "Show the top",
-  "Show an edge",
+  "Hold the object centered in the frame",
+  "Keep the camera steady and in focus",
+  "Move a little closer so it fills the frame",
+  "Slowly rotate to show different angles",
+  "Tilt gently up, then down",
+  "Make sure the lighting is good",
+  "Show the top and an edge",
+  "Almost done — hold steady",
 ];
 const GUIDANCE_SO = [
-  "Shayga dhexda ku hay",
-  "Tartiib u dhaqaaji bidix",
-  "Tartiib u dhaqaaji midig",
-  "Kor u jeedi",
-  "Hoos u jeedi",
-  "Tartiib u wareeji",
-  "Muuji dusha",
-  "Muuji cidhifka",
+  "Shayga dhexda sawirka ku hay",
+  "Kamerada si adag u hay oo focus samee",
+  "In yar u soo dhawow si uu sawirka u buuxiyo",
+  "Tartiib u wareeji si aad xaglo kala duwan u muujiso",
+  "Si tartiib ah kor u jeedi, ka dib hoos",
+  "Hubi in iftiinku fiican yahay",
+  "Muuji dusha iyo cidhifka",
+  "Ku dhow dhammaad — si adag u hay",
 ];
 
 export default function LiveScanScreen() {
@@ -82,6 +86,31 @@ export default function LiveScanScreen() {
   const lang: "en" | "so" = i18n.language === "so" ? "so" : "en";
   const L = (en: string, so: string) => (lang === "so" ? so : en);
   useKeepAwake();
+
+  // Scanner HUD animations (visual only — never touch the pipeline): a green
+  // line that sweeps up and down, and a soft pulse for the frame brackets.
+  const scanAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const sweep = Animated.loop(
+      Animated.sequence([
+        Animated.timing(scanAnim, { toValue: 1, duration: 1900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(scanAnim, { toValue: 0, duration: 1900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]),
+    );
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+    );
+    sweep.start();
+    pulse.start();
+    return () => {
+      sweep.stop();
+      pulse.stop();
+    };
+  }, [scanAnim, pulseAnim]);
 
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -381,6 +410,26 @@ export default function LiveScanScreen() {
       <ImageProcessorGL ref={imageProcessorRef} />
       <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" onCameraReady={onCameraReady} />
 
+      {/* Scanner HUD — animated green sweep + corner-bracket frame (visual only) */}
+      {(phase === "capturing" || phase === "classifying") && (
+        <View style={styles.scanArea} pointerEvents="none">
+          <Animated.View
+            style={[styles.scanFrame, { opacity: pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.55, 1] }) }]}
+          >
+            <View style={[styles.corner, styles.cornerTL]} />
+            <View style={[styles.corner, styles.cornerTR]} />
+            <View style={[styles.corner, styles.cornerBL]} />
+            <View style={[styles.corner, styles.cornerBR]} />
+            <Animated.View
+              style={[
+                styles.scanLine,
+                { transform: [{ translateY: scanAnim.interpolate({ inputRange: [0, 1], outputRange: [6, SCAN_FRAME - 8] }) }] },
+              ]}
+            />
+          </Animated.View>
+        </View>
+      )}
+
       <Pressable style={styles.backButton} onPress={() => router.back()} hitSlop={10} accessibilityLabel="Back">
         <Ionicons name="arrow-back" size={24} color="#F5F1E8" />
       </Pressable>
@@ -416,17 +465,16 @@ export default function LiveScanScreen() {
       <View style={styles.bottomBar}>
         {phase === "capturing" && (
           <>
-            <View style={styles.evidenceRow}>
-              {evidence.map((uri, i) => (
-                <View key={uri} style={styles.evidenceItem}>
-                  <Image source={{ uri }} style={styles.evidenceThumb} />
-                  <Text style={styles.evidenceCheck}>{`${L("Image", "Sawir")} ${i + 1} ✓`}</Text>
-                </View>
-              ))}
+            {/* Progress only — the captured photos are never shown to the user. */}
+            <Text style={styles.count}>{L("Scanning…", "Waa la baarayaa…")}</Text>
+            <View style={styles.progressTrack}>
+              <View
+                style={[
+                  styles.progressFill,
+                  { width: `${Math.min(100, Math.round((evidence.length / MAX_EVIDENCE) * 100))}%` },
+                ]}
+              />
             </View>
-            <Text style={styles.count}>
-              {evidence.length}/{MAX_EVIDENCE} {L("good photos", "sawir wanaagsan")}
-            </Text>
             <Pressable style={styles.primaryButton} onPress={finishCapturing}>
               <Text style={styles.primaryButtonText}>{L("Done — analyze", "Dhammaystir — baar")}</Text>
             </Pressable>
@@ -533,6 +581,30 @@ const styles = StyleSheet.create({
   categoryHint: { color: "#F5F1E8", fontSize: 13, backgroundColor: "rgba(46,125,50,0.8)", borderRadius: 999, paddingVertical: 4, paddingHorizontal: 12, overflow: "hidden" },
 
   centerOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+
+  // Scanner HUD
+  scanArea: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  scanFrame: { width: SCAN_FRAME, height: SCAN_FRAME, borderRadius: 24, overflow: "hidden" },
+  corner: { position: "absolute", width: 30, height: 30, borderColor: "#2EE66E" },
+  cornerTL: { top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: 24 },
+  cornerTR: { top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 24 },
+  cornerBL: { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 24 },
+  cornerBR: { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 24 },
+  scanLine: {
+    position: "absolute",
+    left: 8,
+    right: 8,
+    height: 2.5,
+    backgroundColor: "#2EE66E",
+    borderRadius: 2,
+    shadowColor: "#2EE66E",
+    shadowOpacity: 0.95,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 6,
+  },
+  progressTrack: { height: 8, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.18)", overflow: "hidden" },
+  progressFill: { height: 8, backgroundColor: "#2EE66E", borderRadius: 999 },
 
   bottomBar: {
     position: "absolute", bottom: 0, left: 0, right: 0, padding: 20, paddingBottom: 32, gap: 12,
