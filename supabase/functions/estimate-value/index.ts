@@ -25,13 +25,18 @@ Deno.serve(async (req) => {
     const apiKey = Deno.env.get("GEMINI_API_KEY");
     if (!apiKey) return jsonResponse({ available: false, reason: "no_key" });
 
-    const { label, confidence } = (await req.json().catch(() => ({}))) as {
+    const { label, confidence, lang } = (await req.json().catch(() => ({}))) as {
       label?: string;
       confidence?: number;
+      lang?: string;
     };
     if (!label || typeof label !== "string") {
       return jsonResponse({ error: "label is required" }, 400);
     }
+    const langLine =
+      lang === "so"
+        ? `Write the "qualityNote" field in clear, natural Somali.\n`
+        : `Write the "qualityNote" field in English.\n`;
 
     const prompt =
       `You are a gemstone/mineral/coin/precious-metal market-valuation assistant.\n` +
@@ -41,6 +46,7 @@ Deno.serve(async (req) => {
       `considering species, typical size/quality/clarity/color/rarity and overall condition. ` +
       `NEVER present exact prices as fact — these are photograph-based estimates only.\n` +
       `If this kind of object is genuinely too variable or you cannot reasonably estimate, set lowConfidence true.\n` +
+      langLine +
       `Respond with ONLY minified JSON of exactly this shape:\n` +
       `{"minUsd": number, "typicalUsd": number, "premiumUsd": number|null, ` +
       `"rarity": "common"|"uncommon"|"rare"|"very_rare", "collectible": boolean, ` +

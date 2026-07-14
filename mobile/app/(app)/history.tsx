@@ -44,7 +44,8 @@ const BAND_COLOR: Record<string, string> = {
 };
 
 export default function HistoryScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const so = i18n.language === "so";
   const router = useRouter();
   const { session } = useAuth();
 
@@ -159,17 +160,14 @@ export default function HistoryScreen() {
           <Text style={[styles.itemTitle, line.muted && styles.itemTitleMuted]} numberOfLines={1}>
             {line.text}
           </Text>
-          {showConfidence && fr && (
-            <View style={styles.metaRow}>
-              <View
-                style={[styles.bandDot, { backgroundColor: BAND_COLOR[fr.confidenceBand] }]}
-              />
-              <Text style={styles.metaText}>
-                {t("history.confidence", { value: Math.round(fr.confidenceScore * 100) })}
-              </Text>
-            </View>
-          )}
-          <Text style={styles.dateText}>{date}</Text>
+          <View style={styles.metaRow}>
+            {showConfidence && fr && (
+              <View style={[styles.bandPill, { backgroundColor: BAND_COLOR[fr.confidenceBand] }]}>
+                <Text style={styles.bandPillText}>{Math.round(fr.confidenceScore * 100)}%</Text>
+              </View>
+            )}
+            <Text style={styles.dateText}>{date}</Text>
+          </View>
         </View>
 
         <Ionicons name="chevron-forward" size={20} color="#8A8A8E" />
@@ -219,6 +217,14 @@ export default function HistoryScreen() {
       data={items}
       keyExtractor={(item) => item.id}
       renderItem={renderItem}
+      ListHeaderComponent={
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>💎 {so ? "Ururkeyga" : "My Collection"}</Text>
+          <Text style={styles.headerCount}>
+            {items.length} {so ? (items.length === 1 ? "baaris" : "baaris") : items.length === 1 ? "scan" : "scans"}
+          </Text>
+        </View>
+      }
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#C9A227" />
       }
@@ -252,9 +258,12 @@ const styles = StyleSheet.create({
   itemBody: { flex: 1, gap: 4 },
   itemTitle: { fontSize: 16, fontWeight: "600", color: "#F5F1E8" },
   itemTitleMuted: { color: "#8A8A8E", fontWeight: "500" },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  bandDot: { width: 8, height: 8, borderRadius: 4 },
-  metaText: { fontSize: 13, color: "#C9A227" },
+  header: { paddingVertical: 8, paddingHorizontal: 4, marginBottom: 4 },
+  headerTitle: { fontSize: 22, fontWeight: "800", color: "#C9A227" },
+  headerCount: { fontSize: 13, color: "#8A8A8E", marginTop: 2 },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  bandPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
+  bandPillText: { fontSize: 11, color: "#0B0B0C", fontWeight: "800" },
   dateText: { fontSize: 12, color: "#8A8A8E" },
   primaryButton: {
     backgroundColor: "#C9A227",

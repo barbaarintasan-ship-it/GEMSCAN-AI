@@ -17,7 +17,11 @@ export type Valuation = {
   lowConfidence: boolean;
 };
 
-export async function estimateValue(label: string, confidence?: number): Promise<Valuation | null> {
+export async function estimateValue(
+  label: string,
+  confidence?: number,
+  lang?: "en" | "so",
+): Promise<Valuation | null> {
   try {
     const {
       data: { session },
@@ -30,7 +34,7 @@ export async function estimateValue(label: string, confidence?: number): Promise
         Authorization: `Bearer ${session.access_token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ label, confidence }),
+      body: JSON.stringify({ label, confidence, lang: lang ?? "en" }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok || !body || body.available !== true) return null;

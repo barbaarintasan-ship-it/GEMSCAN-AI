@@ -12,13 +12,7 @@ import { supabase } from "../../../lib/supabase";
 import { submitScanFeedback } from "../../../lib/scanUpload";
 import { INSUFFICIENT_CONFIDENCE_MESSAGE_TEXT } from "../../../lib/constants";
 import { estimateValue, type Valuation } from "../../../lib/valuation";
-import {
-  EXPERT_PHONE,
-  EXPERT_WHATSAPP,
-  HIGH_VALUE_THRESHOLD_USD,
-  hasExpertContact,
-  expertMessage,
-} from "../../../lib/expertConfig";
+import { EXPERT_WHATSAPP, HIGH_VALUE_THRESHOLD_USD, hasExpertContact } from "../../../lib/expertConfig";
 
 type ScanCandidate = {
   rank: number;
@@ -85,22 +79,41 @@ export default function ResultsScreen() {
     if (!fr || fr.insufficientConfidence || !fr.bestMatch) return;
     let active = true;
     (async () => {
-      const v = await estimateValue(fr.bestMatch as string, fr.confidenceScore);
+      const v = await estimateValue(fr.bestMatch as string, fr.confidenceScore, lang);
       if (active) setValuation(v);
     })();
     return () => {
       active = false;
     };
-  }, [scan]);
+  }, [scan, lang]);
 
+  // Build a COMPLETE report (the data the app gathered) and open WhatsApp with
+  // it pre-filled. wa.me links can only carry text, so we include the full
+  // identification report and ask the user to attach their scan photos.
   function openWhatsApp() {
     if (!EXPERT_WHATSAPP) return;
-    const text = encodeURIComponent(expertMessage(scan?.final_result?.bestMatch ?? null, lang));
+    const fr = scan?.final_result;
+    const alts = candidates.filter((c) => c.rank > 1).map((c) => c.label);
+    const pct = Math.round((fr?.confidenceScore ?? 0) * 100);
+    const so = lang === "so";
+    const lines: string[] = [];
+    if (so) {
+      lines.push("Salaan, waa kan natiijada GemScan:", "");
+      if (fr?.bestMatch) lines.push(`• Aqoonsiga: ${fr.bestMatch}`);
+      lines.push(`• Kalsooni: ${pct}%`);
+      if (valuation?.typicalUsd) lines.push(`• Qiimo qiyaasi ah: ~USD ${Math.round(valuation.typicalUsd)}`);
+      if (alts.length) lines.push(`• Ikhtiyaarro kale: ${alts.join(", ")}`);
+      lines.push("", "Waxaan rabaa dib-u-eegis khibrad leh. Waxaan ku lifaaqi doonaa sawirradii scan-ka.");
+    } else {
+      lines.push("Hello, here is my GemScan result:", "");
+      if (fr?.bestMatch) lines.push(`• Identification: ${fr.bestMatch}`);
+      lines.push(`• Confidence: ${pct}%`);
+      if (valuation?.typicalUsd) lines.push(`• Estimated value: ~USD ${Math.round(valuation.typicalUsd)}`);
+      if (alts.length) lines.push(`• Alternatives: ${alts.join(", ")}`);
+      lines.push("", "I would like a professional review. I will attach my scan photos.");
+    }
+    const text = encodeURIComponent(lines.join("\n"));
     Linking.openURL(`https://wa.me/${EXPERT_WHATSAPP}?text=${text}`).catch(() => {});
-  }
-  function callExpert() {
-    if (!EXPERT_PHONE) return;
-    Linking.openURL(`tel:${EXPERT_PHONE}`).catch(() => {});
   }
 
   async function handleFeedback(wasCorrect: boolean) {
@@ -120,38 +133,55 @@ export default function ResultsScreen() {
   const finalResult = scan.final_result;
 
   if (!finalResult || finalResult.insufficientConfidence) {
+    const suggestions =
+      lang === "so"
+        ? [
+            "Ku dar sawir macro ah oo iftiin fiican leh.",
+            "Qaad xaglo dheeraad ah (dusha, hoosta, labada dhinac).",
+            "Haddii aad taqaan meesha laga helay, ku dar goobta.",
+            "Dahab/qadaadiic: hubi in calaamadaha la daabacay ay cad yihiin.",
+          ]
+        : finalResult?.suggestions ?? [];
     return (
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.insufficientTitle}>
-          {finalResult?.message ?? INSUFFICIENT_CONFIDENCE_MESSAGE_TEXT}
+          {lang === "so"
+            ? "Ma aqoonsan karno shaygan si kalsooni leh sawirrada la heli karo."
+            : finalResult?.message ?? INSUFFICIENT_CONFIDENCE_MESSAGE_TEXT}
         </Text>
-        <Text style={styles.body}>To improve your result, try:</Text>
-        {(finalResult?.suggestions ?? []).map((s) => (
+        <Text style={styles.body}>{L("To improve your result, try:", "Si aad natiijada u wanaajiso, isku day:")}</Text>
+        {suggestions.map((s) => (
           <Text key={s} style={styles.suggestion}>
             • {s}
           </Text>
         ))}
         <Pressable style={styles.primaryButton} onPress={() => router.replace("/(app)/scan/capture")}>
-          <Text style={styles.primaryButtonText}>Retake Photos</Text>
+          <Text style={styles.primaryButtonText}>{L("Retake Photos", "Dib u qaad sawirro")}</Text>
         </Pressable>
       </ScrollView>
     );
   }
 
-  const best = candidates.find((c) => c.rank === 1);
   const alternatives = candidates.filter((c) => c.rank > 1);
+  const pct = Math.round(finalResult.confidenceScore * 100);
+  const bandWord = (b: "low" | "medium" | "high") =>
+    lang === "so" ? { high: "SARE", medium: "DHEXE", low: "HOOSE" }[b] : b.toUpperCase();
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.label}>Best match</Text>
+      <Text style={styles.label}>{L("Best match", "Aqoonsiga ugu fiican")}</Text>
       <Text style={styles.bestMatch}>{finalResult.bestMatch}</Text>
       <View style={[styles.bandPill, { backgroundColor: BAND_COLOR[finalResult.confidenceBand] }]}>
         <Text style={styles.bandPillText}>
-          {finalResult.confidenceBand.toUpperCase()} CONFIDENCE ·{" "}
-          {(finalResult.confidenceScore * 100).toFixed(0)}%
+          {bandWord(finalResult.confidenceBand)} {L("CONFIDENCE", "KALSOONI")} · {pct}%
         </Text>
       </View>
-      {best?.rationale && <Text style={styles.body}>{best.rationale}</Text>}
+      <Text style={styles.body}>
+        {L(
+          `Identified as the best match with ${pct}% confidence from our expert gemstone analysis.`,
+          `Waxaa loo aqoonsaday inuu yahay aqoonsiga ugu fiican, kalsooni ${pct}%, iyada oo lagu saleeyay baaritaankayaga khibradda leh.`,
+        )}
+      </Text>
 
       {/* ── Estimated Market Value (additive AI estimate) ─────────────────── */}
       {valuation && (
@@ -215,11 +245,6 @@ export default function ResultsScreen() {
                 <Text style={styles.whatsappText}>💬 {L("Contact on WhatsApp", "La xiriir WhatsApp")}</Text>
               </Pressable>
             ) : null}
-            {EXPERT_PHONE ? (
-              <Pressable style={styles.contactButton} onPress={callExpert}>
-                <Text style={styles.contactText}>📱 {L("Contact Gemstone Expert", "La xiriir Khabiirka")}</Text>
-              </Pressable>
-            ) : null}
 
             <Text style={styles.expertHint}>
               {L("For a faster review, please send:", "Si loo dedejiyo, fadlan soo dir:")}
@@ -241,29 +266,28 @@ export default function ResultsScreen() {
 
       {alternatives.length > 0 && (
         <>
-          <Text style={[styles.label, { marginTop: 20 }]}>Other possibilities</Text>
+          <Text style={[styles.label, { marginTop: 20 }]}>{L("Other possibilities", "Ikhtiyaarro kale")}</Text>
           {alternatives.map((c) => (
             <View key={c.rank} style={styles.altCard}>
               <Text style={styles.altLabel}>{c.label}</Text>
               <Text style={styles.altConfidence}>
-                {(c.weighted_confidence * 100).toFixed(0)}% · {c.confidence_band}
+                {Math.round(c.weighted_confidence * 100)}% · {bandWord(c.confidence_band).toLowerCase()}
               </Text>
-              {c.rejected_reason && <Text style={styles.altReason}>{c.rejected_reason}</Text>}
             </View>
           ))}
         </>
       )}
 
-      <Text style={[styles.label, { marginTop: 20 }]}>Was this correct?</Text>
+      <Text style={[styles.label, { marginTop: 20 }]}>{L("Was this correct?", "Kani ma saxaa?")}</Text>
       {feedbackSent ? (
-        <Text style={styles.body}>Thanks — your feedback helps improve GemScan.</Text>
+        <Text style={styles.body}>{L("Thanks — your feedback helps improve GemScan.", "Mahadsanid — jawaabtaadu waxay ka caawinaysaa hagaajinta GemScan.")}</Text>
       ) : (
         <View style={{ flexDirection: "row", gap: 12 }}>
           <Pressable style={styles.feedbackButton} onPress={() => handleFeedback(true)}>
-            <Text style={styles.primaryButtonText}>Yes</Text>
+            <Text style={styles.primaryButtonText}>{L("Yes", "Haa")}</Text>
           </Pressable>
           <Pressable style={styles.feedbackButtonSecondary} onPress={() => handleFeedback(false)}>
-            <Text style={styles.secondaryButtonText}>No</Text>
+            <Text style={styles.secondaryButtonText}>{L("No", "Maya")}</Text>
           </Pressable>
         </View>
       )}
@@ -272,7 +296,7 @@ export default function ResultsScreen() {
         style={[styles.primaryButton, { marginTop: 24 }]}
         onPress={() => router.replace("/(app)/scan/capture")}
       >
-        <Text style={styles.primaryButtonText}>Scan Another Specimen</Text>
+        <Text style={styles.primaryButtonText}>{L("Scan Another Specimen", "Baar shay kale")}</Text>
       </Pressable>
     </ScrollView>
   );
