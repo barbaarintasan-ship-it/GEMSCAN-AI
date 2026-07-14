@@ -117,11 +117,10 @@ export default function HomeScreen() {
             </View>
           ))}
         </View>
-        {/* Honest scope: ~5,900 mineral species are recognised (IMA); vision
-            identification covers thousands of gemstone/mineral varieties, plus
-            metals, coins and artifacts. No fabricated numbers. */}
+        {/* Honest scope: the IMA recognises ~5,900 mineral species — the real,
+            citable figure. No fabricated numbers. */}
         <View style={styles.statRow}>
-          <Text style={styles.statNumber}>5,000+</Text>
+          <Text style={styles.statNumber}>5,900+</Text>
           <Text style={styles.statLabel}>
             {so ? "nooc dhagax & macdan" : "gemstone & mineral types"}
           </Text>
