@@ -111,7 +111,7 @@ android {
 
     namespace 'ai.gemscan.app'
     defaultConfig {
-        applicationId 'com.gemscan.ai'
+        applicationId 'ai.gemscan.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
