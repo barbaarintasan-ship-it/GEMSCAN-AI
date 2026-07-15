@@ -18,7 +18,7 @@ import * as ImagePicker from "expo-image-picker";
 import { ImageProcessorGL, type ImageProcessorHandle } from "../../../components/ImageProcessorGL";
 import { detectSpecimenBoundingBox, classifyCoarse } from "../../../lib/onDeviceDetection";
 import { segmentBackground } from "../../../lib/backgroundSegmentation";
-import { getFuzzedLocation } from "../../../lib/location";
+import { getPreciseLocation } from "../../../lib/location";
 import { createScan, uploadScanImage, runOrchestration, type CapturedAngleImage } from "../../../lib/scanUpload";
 import { captureException } from "../../../lib/monitoring";
 import { LIVE_ANGLE_SEQUENCE } from "../../../lib/liveScanEngine";
@@ -87,7 +87,7 @@ export default function UploadScreen() {
 
       setPhase("analyzing");
       setStatusText(null);
-      const location = await getFuzzedLocation();
+      const location = await getPreciseLocation();
       const front = captured.find((c) => c.angle === "front") ?? captured[0];
       const onDeviceHint = await classifyCoarse(front.processedUri);
 

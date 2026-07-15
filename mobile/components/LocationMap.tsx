@@ -5,8 +5,8 @@
 // requirement is a network connection for the tiles, which the app already has
 // when scanning.
 //
-// Coordinates shown are the COARSE, client-fuzzed capture location (~1km) that
-// the scan pipeline stored in scans.capture_location — never a precise address.
+// Coordinates shown are the exact GPS capture location stored by the scan
+// pipeline in scans.capture_location.
 import React, { useMemo } from "react";
 import { View, StyleSheet } from "react-native";
 import { WebView } from "react-native-webview";
@@ -76,7 +76,7 @@ export default function LocationMap({
   markers,
   height = 180,
   fill = false,
-  zoom = 11,
+  zoom = 16,
   interactive = false,
   onMarkerPress,
 }: Props) {

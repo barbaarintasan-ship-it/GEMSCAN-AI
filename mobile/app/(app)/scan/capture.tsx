@@ -20,7 +20,7 @@ import { useKeepAwake } from "expo-keep-awake";
 import { ImageProcessorGL, type ImageProcessorHandle } from "../../../components/ImageProcessorGL";
 import { detectSpecimenBoundingBox, classifyCoarse } from "../../../lib/onDeviceDetection";
 import { segmentBackground } from "../../../lib/backgroundSegmentation";
-import { getFuzzedLocation } from "../../../lib/location";
+import { getPreciseLocation } from "../../../lib/location";
 import {
   createScan,
   uploadScanImage,
@@ -190,7 +190,7 @@ export default function CaptureScreen() {
   async function handleAnalyze() {
     setIsAnalyzing(true);
     try {
-      const location = await getFuzzedLocation();
+      const location = await getPreciseLocation();
 
       const frontImage = capturedImages.find((c) => c.angle === "front");
       const onDeviceHint = frontImage ? await classifyCoarse(frontImage.processedUri) : null;

@@ -27,7 +27,7 @@ type ScanCandidate = {
 type ScanRow = {
   status: string;
   created_at: string;
-  capture_location: { lat: number; lng: number } | null;
+  capture_location: { lat: number; lng: number; acc?: number } | null;
   final_result: {
     bestMatch: string | null;
     confidenceScore: number;
@@ -294,7 +294,7 @@ export default function ResultsScreen() {
         </>
       )}
 
-      {/* ── Where it was found (coarse capture location) ─────────────────── */}
+      {/* ── Where it was found (exact GPS capture location) ──────────────── */}
       {scan.capture_location && (
         <View style={styles.locCard}>
           <Text style={styles.sectionTitle}>📍 {L("Where it was found", "Goobta laga helay")}</Text>
@@ -306,12 +306,15 @@ export default function ResultsScreen() {
                 title: finalResult.bestMatch ?? undefined,
               },
             ]}
-            height={170}
-            zoom={12}
+            height={200}
+            zoom={17}
           />
           <View style={styles.locMetaRow}>
             <Text style={styles.locCoords}>
-              {scan.capture_location.lat.toFixed(2)}, {scan.capture_location.lng.toFixed(2)}
+              {scan.capture_location.lat.toFixed(6)}, {scan.capture_location.lng.toFixed(6)}
+              {typeof scan.capture_location.acc === "number"
+                ? `  ·  ±${scan.capture_location.acc}m`
+                : ""}
               {"  ·  "}
               {new Date(scan.created_at).toLocaleString()}
             </Text>
@@ -330,8 +333,8 @@ export default function ResultsScreen() {
           </View>
           <Text style={styles.disclaimer}>
             {L(
-              "Location is approximate (~1km) to protect the exact find site.",
-              "Goobta waa qiyaas (~1km) si loo ilaaliyo meesha saxda ah ee laga helay.",
+              "This is the exact GPS location recorded when the specimen was scanned.",
+              "Tani waa goobta GPS-ka saxda ah ee la diiwaangeliyay markii shayga la baaray.",
             )}
           </Text>
         </View>

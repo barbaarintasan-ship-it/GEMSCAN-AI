@@ -36,7 +36,7 @@ import { useKeepAwake } from "expo-keep-awake";
 import { ImageProcessorGL, type ImageProcessorHandle } from "../../../components/ImageProcessorGL";
 import { detectSpecimenBoundingBox } from "../../../lib/onDeviceDetection";
 import { segmentBackground } from "../../../lib/backgroundSegmentation";
-import { getFuzzedLocation } from "../../../lib/location";
+import { getPreciseLocation } from "../../../lib/location";
 import { createScan, uploadScanImage, runOrchestration, type CapturedAngleImage } from "../../../lib/scanUpload";
 import { captureException } from "../../../lib/monitoring";
 import { LIVE_ANGLE_SEQUENCE } from "../../../lib/liveScanEngine";
@@ -337,7 +337,7 @@ export default function LiveScanScreen() {
         ]);
         captured.push({ angle, originalUri: uri, processedUri: enhanced.uri, quality, detectionBbox });
       }
-      const location = await getFuzzedLocation();
+      const location = await getPreciseLocation();
       const onDeviceHint =
         category !== "unknown" ? { label: category, confidence: 0.5 } : null;
       diag.begin("upload");

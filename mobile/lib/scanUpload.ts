@@ -22,7 +22,7 @@ export type CapturedAngleImage = {
   detectionBbox: BoundingBox | null;
 };
 
-export type ScanLocation = { lat: number; lng: number; label?: string };
+export type ScanLocation = { lat: number; lng: number; label?: string; acc?: number };
 
 export async function createScan(params: {
   specimenCategory: string | null;

@@ -31,7 +31,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "GemScan can use your approximate (never exact) location to improve identification accuracy using local geological data. This is optional."
+          "locationWhenInUsePermission": "GemScan records the location where you scan a specimen, so you can see your finds on a map. This is optional."
         }
       ]
     ],

@@ -109,8 +109,8 @@ export default function CollectionMapScreen() {
       />
       <Text style={styles.note}>
         {so
-          ? "Goobaha waa qiyaas (~1km) si aan meel sax ah loo muujin."
-          : "Locations are approximate (~1km) to protect exact find sites."}
+          ? "Calaamad kasta waa goobta GPS-ka saxda ah ee shayga laga baaray. Taabo si aad u aragto."
+          : "Each pin is the exact GPS spot where a specimen was scanned. Tap a pin to open it."}
       </Text>
     </View>
   );
