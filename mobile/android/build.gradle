@@ -15,7 +15,9 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath('com.android.tools.build:gradle')
+        // Pin AGP 8.6.0 (compatible with Gradle 8.8): compileSdk/targetSdk 35
+        // requires Android Gradle Plugin 8.6.0+, which Google Play now mandates.
+        classpath('com.android.tools.build:gradle:8.6.0')
         classpath('com.facebook.react:react-native-gradle-plugin')
         classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
     }
