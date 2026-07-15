@@ -127,7 +127,7 @@ export default function SettingsScreen() {
         <View style={styles.divider} />
         <Pressable
           style={styles.selectRow}
-          onPress={() => Linking.openURL("https://barbaarintasan.com/privacy")}
+          onPress={() => Linking.openURL("https://barbaarintasan.com/gemscanprivacy")}
         >
           <Text style={styles.rowValue}>{t("settings.privacyPolicy")}</Text>
           <Ionicons name="open-outline" size={18} color="#8A8A8E" />
