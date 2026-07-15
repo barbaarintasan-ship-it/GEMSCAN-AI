@@ -55,6 +55,7 @@
     },
     "production": {
       "channel": "production",
+      "credentialsSource": "local",
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://znqkzgswvhbkhxldbbld.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_tw-dAV4QosRuHR9WLWMelg_B-ZWw7ah",

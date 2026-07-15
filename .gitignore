@@ -88,3 +88,5 @@ Desktop.ini
 
 # ---- Claude Code local session data (not project source) ----
 .claude/
+mobile/credentials.json
+mobile/*.jks

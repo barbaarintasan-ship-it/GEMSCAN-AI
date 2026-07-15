@@ -43,7 +43,7 @@
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "ai.gemscan.app",
+      "bundleIdentifier": "com.gemscan.ai",
       "icon": "./assets/icon-ios.png",
       "infoPlist": {
         "NSCameraUsageDescription": "GemScan needs camera access to scan and identify gemstones, minerals, and jewelry.",
@@ -52,7 +52,7 @@
       }
     },
     "android": {
-      "package": "ai.gemscan.app",
+      "package": "com.gemscan.ai",
       "permissions": ["CAMERA"],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
