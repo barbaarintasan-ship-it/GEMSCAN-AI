@@ -15,7 +15,10 @@ type AuthContextValue = {
   ) => Promise<{ error: string | null; needsEmailConfirmation: boolean }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
+  deleteAccount: () => Promise<{ error: string | null }>;
 };
+
+const FUNCTIONS_URL = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL;
 
 // Extra profile fields collected at sign-up. Stored in the auth user's
 // metadata (options.data) so they persist immediately without a schema change;
@@ -81,8 +84,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut();
   };
 
+  // Permanently deletes the account + all data server-side (delete-account
+  // Edge Function), then clears the local session. Required by App Store
+  // Guideline 5.1.1(v) / Google Play.
+  const deleteAccount = async () => {
+    const {
+      data: { session: current },
+    } = await supabase.auth.getSession();
+    if (!current) return { error: "You are not signed in." };
+    if (!FUNCTIONS_URL) return { error: "Account deletion is not available right now." };
+    try {
+      const res = await fetch(`${FUNCTIONS_URL}/delete-account`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${current.access_token}`,
+          "Content-Type": "application/json",
+        },
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.success) {
+        return { error: body?.error ?? "Could not delete your account. Please try again." };
+      }
+      await supabase.auth.signOut();
+      return { error: null };
+    } catch (err) {
+      return { error: (err as Error).message };
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ session, isLoading, signUp, signIn, signOut }}>
+    <AuthContext.Provider value={{ session, isLoading, signUp, signIn, signOut, deleteAccount }}>
       {children}
     </AuthContext.Provider>
   );

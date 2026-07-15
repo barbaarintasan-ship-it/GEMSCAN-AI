@@ -54,10 +54,14 @@ const metrics: Metrics = {
 function push(entry: StageLog) {
   logs.push(entry);
   if (logs.length > MAX_LOGS) logs.shift();
-  // Also mirror to the JS console for `adb logcat`/Metro visibility.
-  const tag = entry.level === "error" ? "[GEMSCAN✗]" : "[GEMSCAN]";
-  // eslint-disable-next-line no-console
-  console.log(`${tag} ${entry.stage}${entry.detail ? ` — ${entry.detail}` : ""}`);
+  // Mirror to the JS console for `adb logcat`/Metro visibility during
+  // development only — production stays quiet (the Debug screen reads the
+  // in-memory `logs` array, not the console).
+  if (__DEV__) {
+    const tag = entry.level === "error" ? "[GEMSCAN✗]" : "[GEMSCAN]";
+    // eslint-disable-next-line no-console
+    console.log(`${tag} ${entry.stage}${entry.detail ? ` — ${entry.detail}` : ""}`);
+  }
 }
 
 export const diag = {

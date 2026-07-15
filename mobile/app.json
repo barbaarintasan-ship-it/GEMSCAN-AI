@@ -3,7 +3,7 @@
     "name": "GemScan",
     "slug": "gemestone",
     "owner": "gemestones-team",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "scheme": "gemscanai",
     "userInterfaceStyle": "dark",
     "orientation": "portrait",
@@ -13,7 +13,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#0B0B0C"
     },
-    "runtimeVersion": "0.1.0",
+    "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/d24307ed-5428-4bbc-97ba-efd4a426856b",
       "fallbackToCacheTimeout": 0
@@ -33,13 +33,22 @@
         {
           "locationWhenInUsePermission": "GemScan records the location where you scan a specimen, so you can see your finds on a map. This is optional."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "GemScan needs access to your photos so you can upload an existing picture of a gemstone, mineral, coin, or jewelry to identify it."
+        }
       ]
     ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "ai.gemscan.app",
+      "icon": "./assets/icon-ios.png",
       "infoPlist": {
-        "NSCameraUsageDescription": "GemScan needs camera access to scan and identify gemstones, minerals, and jewelry."
+        "NSCameraUsageDescription": "GemScan needs camera access to scan and identify gemstones, minerals, and jewelry.",
+        "NSPhotoLibraryUsageDescription": "GemScan needs access to your photos so you can upload an existing picture of a gemstone, mineral, coin, or jewelry to identify it.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

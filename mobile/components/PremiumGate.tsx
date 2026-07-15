@@ -8,6 +8,7 @@
 import React from "react";
 import { View, Text, Pressable, Linking, StyleSheet } from "react-native";
 import { useSubscriptionStatus, SubscriptionTier } from "../lib/subscription";
+import { EXTERNAL_PURCHASES_ENABLED } from "../lib/appLinks";
 
 const WEBSITE_PRICING_URL = "https://barbaarintasan.com/gemscanpayment";
 
@@ -36,6 +37,13 @@ export function PremiumGate({ requiredTier, children, featureName }: Props) {
 
   if (isEntitled) {
     return <>{children}</>;
+  }
+
+  // On iOS we cannot show an external-purchase call-to-action (Guideline
+  // 3.1.1), so a locked premium feature is simply hidden rather than teased
+  // with a "subscribe on our website" button.
+  if (!EXTERNAL_PURCHASES_ENABLED) {
+    return null;
   }
 
   return (

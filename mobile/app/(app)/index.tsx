@@ -43,20 +43,17 @@ export default function HomeScreen() {
   const firstName = fullName ? fullName.split(/\s+/)[0] : "";
   const greeting = so ? "Ku soo dhawoow" : "Welcome";
 
-  const handleExit = () => BackHandler.exitApp();
-  const toggleLang = () => setAppLanguage(so ? "en" : "so");
-
   // Header: language toggle (top-right) + exit + collection + settings.
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
         <View style={styles.headerActions}>
-          <Pressable onPress={toggleLang} hitSlop={8} style={styles.langPill} accessibilityLabel="Change language">
+          <Pressable onPress={() => setAppLanguage(so ? "en" : "so")} hitSlop={8} style={styles.langPill} accessibilityLabel="Change language">
             <Ionicons name="language-outline" size={15} color="#0B0B0C" />
             <Text style={styles.langText}>{so ? "SO" : "EN"}</Text>
           </Pressable>
           {Platform.OS === "android" && (
-            <Pressable onPress={handleExit} hitSlop={8} accessibilityLabel="Exit app">
+            <Pressable onPress={() => BackHandler.exitApp()} hitSlop={8} accessibilityLabel="Exit app">
               <Ionicons name="exit-outline" size={22} color="#E4685D" />
             </Pressable>
           )}

@@ -12,6 +12,7 @@ import {
 import { router } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../lib/auth";
+import { EXTERNAL_PURCHASES_ENABLED } from "../../lib/appLinks";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -130,10 +131,15 @@ export default function RegisterScreen() {
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>{L("Create your account", "Samee akoonkaaga")}</Text>
         <Text style={styles.subtitle}>
-          {L(
-            "Free accounts get 5 scans a day. Upgrade any time on our website.",
-            "Akoonnada bilaashka ah waxay helaan 5 baaris maalintii. Waqti kasta ka cusboonaysii website-kayaga.",
-          )}
+          {EXTERNAL_PURCHASES_ENABLED
+            ? L(
+                "Free accounts get 5 scans a day. Upgrade any time on our website.",
+                "Akoonnada bilaashka ah waxay helaan 5 baaris maalintii. Waqti kasta ka cusboonaysii website-kayaga.",
+              )
+            : L(
+                "Free accounts get 5 scans a day.",
+                "Akoonnada bilaashka ah waxay helaan 5 baaris maalintii.",
+              )}
         </Text>
 
         {field(L("Full name (three names)", "Magaca oo saddexan"), fullName, setFullName, {

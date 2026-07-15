@@ -5,11 +5,31 @@ import React from "react";
 import { View, Text, Pressable, Linking, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
-import { PAYMENT_URL } from "../lib/appLinks";
+import { PAYMENT_URL, EXTERNAL_PURCHASES_ENABLED } from "../lib/appLinks";
 
 export function UpgradePrompt() {
   const { i18n } = useTranslation();
   const so = i18n.language === "so";
+
+  // On iOS we cannot promote or link to the external website checkout (App
+  // Store Guideline 3.1.1), so the limit message stands on its own with no
+  // purchase call-to-action.
+  if (!EXTERNAL_PURCHASES_ENABLED) {
+    return (
+      <View style={styles.card}>
+        <Ionicons name="diamond" size={30} color="#C9A227" />
+        <Text style={styles.title}>
+          {so ? "Waxaad dhammaysay scan-yadaada maanta" : "You've used your free scans for today"}
+        </Text>
+        <Text style={styles.body}>
+          {so
+            ? "Fadlan ku soo laabo berri si aad u sii wadato baaritaanka."
+            : "Please come back tomorrow to continue scanning."}
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.card}>
       <Ionicons name="diamond" size={30} color="#C9A227" />
