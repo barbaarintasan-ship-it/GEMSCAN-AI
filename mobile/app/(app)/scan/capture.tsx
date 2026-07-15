@@ -3,7 +3,7 @@
 // Stage 2 (on-device detect/crop) and Stage 3 (on-device enhancement)
 // before handing off to Stage 4-7 (supabase/functions/orchestrate-scan) via
 // lib/scanUpload.ts.
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useTranslation } from "react-i18next";
 import { useKeepAwake } from "expo-keep-awake";
@@ -70,10 +71,20 @@ export default function CaptureScreen() {
   // Hold the screen on while the camera capture flow is open (the user lines up
   // angles without touching the screen; the OS timeout would otherwise dim it).
   useKeepAwake();
+  // Only mount the camera while this screen is focused, so the camera hardware
+  // is released for (and acquired cleanly from) the live-scan screen during the
+  // handoff. Prevents a black preview when arriving from the live scanner.
+  const isFocused = useIsFocused();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
   const cameraReadyRef = useRef(false);
   const imageProcessorRef = useRef<ImageProcessorHandle>(null);
+
+  // When the screen is unfocused its CameraView unmounts; clear the ready flag
+  // so the next focus waits for a fresh onCameraReady before capturing.
+  useEffect(() => {
+    if (!isFocused) cameraReadyRef.current = false;
+  }, [isFocused]);
 
   // Android's takePictureAsync fails with "failed to capture image" if the
   // preview surface isn't ready yet; wait (bounded) for onCameraReady.
@@ -228,14 +239,20 @@ export default function CaptureScreen() {
         <Text style={styles.body}>{so ? currentStep.instructionsSo : currentStep.instructions}</Text>
 
         <View style={styles.cameraWrapper}>
-          <CameraView
-            ref={cameraRef}
-            style={styles.camera}
-            facing="back"
-            onCameraReady={() => {
-              cameraReadyRef.current = true;
-            }}
-          />
+          {isFocused ? (
+            <CameraView
+              ref={cameraRef}
+              style={styles.camera}
+              facing="back"
+              onCameraReady={() => {
+                cameraReadyRef.current = true;
+              }}
+            />
+          ) : (
+            <View style={[styles.camera, styles.cameraPlaceholder]}>
+              <ActivityIndicator color="#C9A227" />
+            </View>
+          )}
         </View>
 
         {retakeReason &&
@@ -289,6 +306,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#000",
   },
   camera: { flex: 1 },
+  cameraPlaceholder: { alignItems: "center", justifyContent: "center", backgroundColor: "#000" },
   errorText: { color: "#E4685D", fontSize: 13 },
   busyRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   primaryButton: {

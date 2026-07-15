@@ -131,6 +131,11 @@ export default function LiveScanScreen() {
   const [secondsLeft, setSecondsLeft] = useState(Math.round(CAPTURE_WINDOW_MS / 1000));
   const [errorText, setErrorText] = useState<string | null>(null);
   const [manualOffer, setManualOffer] = useState(false);
+  // When navigating to the manual capture / upload screens (which open their
+  // own camera), first UNMOUNT this screen's CameraView so Android releases the
+  // camera hardware, then navigate. Otherwise the next screen's camera can come
+  // up black because two CameraViews fight over the single camera device.
+  const [leaving, setLeaving] = useState(false);
 
   const capturingRef = useRef(false);
   const captureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -153,6 +158,15 @@ export default function LiveScanScreen() {
     return () => stopTimers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Release the camera, then navigate on the next frames so the hardware is
+  // free before the destination screen's camera mounts.
+  function leaveTo(path: "/(app)/scan/capture" | "/(app)/scan/upload") {
+    stopTimers();
+    cameraReadyRef.current = false;
+    setLeaving(true);
+    setTimeout(() => router.replace(path), 350);
+  }
 
   function stopTimers() {
     capturingRef.current = false;
@@ -404,6 +418,16 @@ export default function LiveScanScreen() {
     );
   }
 
+  // While handing the camera off to another screen, unmount the camera and show
+  // a brief spinner so the hardware is released before we navigate.
+  if (leaving) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator color="#C9A227" size="large" />
+      </View>
+    );
+  }
+
   // Camera-backed phases (initializing / ready / classifying / capturing)
   return (
     <View style={styles.container}>
@@ -497,7 +521,7 @@ export default function LiveScanScreen() {
                     "Sawir-qaadista otomaatiga ah way fashilantay. Ma rabtaa inaad u wareegto habka gacanta?",
                   )}
                 </Text>
-                <Pressable style={styles.secondaryButton} onPress={() => router.replace("/(app)/scan/capture")}>
+                <Pressable style={styles.secondaryButton} onPress={() => leaveTo("/(app)/scan/capture")}>
                   <Text style={styles.secondaryButtonText}>{L("Manual Mode", "Habka Gacanta")}</Text>
                 </Pressable>
               </View>
@@ -515,7 +539,7 @@ export default function LiveScanScreen() {
               style={({ pressed }) => [styles.altButton, pressed && styles.altButtonPressed]}
               hitSlop={10}
               android_ripple={{ color: "rgba(255,255,255,0.15)" }}
-              onPress={() => router.replace("/(app)/scan/upload")}
+              onPress={() => leaveTo("/(app)/scan/upload")}
             >
               <Ionicons name="images-outline" size={18} color="#F5F1E8" />
               <Text style={styles.altButtonText}>{L("Upload photos", "Sawiro soo geli")}</Text>
@@ -524,7 +548,7 @@ export default function LiveScanScreen() {
               style={({ pressed }) => [styles.altButton, pressed && styles.altButtonPressed]}
               hitSlop={10}
               android_ripple={{ color: "rgba(255,255,255,0.15)" }}
-              onPress={() => router.replace("/(app)/scan/capture")}
+              onPress={() => leaveTo("/(app)/scan/capture")}
             >
               <Ionicons name="camera-outline" size={18} color="#F5F1E8" />
               <Text style={styles.altButtonText}>{L("Take a photo", "Sawir toos ah qaad")}</Text>
