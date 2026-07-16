@@ -45,3 +45,17 @@ allprojects {
 def expoCameraMavenPath = new File(["node", "--print", "require.resolve('expo-camera/package.json')"].execute(null, rootDir).text.trim(), "../android/maven")
 allprojects { repositories { maven { url(expoCameraMavenPath) } } }
 // @generated end expo-camera-import
+
+// Resolve `com.google.android:cameraview:1.0.0` ONLY from expo-camera's bundled
+// local Maven repo (it ships the .aar there) and never from oss.sonatype.org.
+// Sonatype has sunset that snapshots server, so it intermittently returns 504s
+// and would otherwise break production builds. exclusiveContent removes this
+// module from every other repository, so the flaky external server is never hit.
+allprojects {
+    repositories {
+        exclusiveContent {
+            forRepository { maven { url(expoCameraMavenPath) } }
+            filter { includeModule("com.google.android", "cameraview") }
+        }
+    }
+}
