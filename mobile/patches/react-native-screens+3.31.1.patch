@@ -1,0 +1,19 @@
+diff --git a/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStack.kt b/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStack.kt
+index 458465c..8f917b9 100644
+--- a/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStack.kt
++++ b/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStack.kt
+@@ -316,7 +316,13 @@ class ScreenStack(context: Context?) : ScreenContainer(context) {
+     }
+ 
+     private fun obtainDrawingOp(): DrawingOp =
+-        if (drawingOpPool.isEmpty()) DrawingOp() else drawingOpPool.removeLast()
++        // NOTE: the Kotlin MutableList removeLast extension collides with the
++        // java.util.List method added in Android 15 (API 35). Compiled against
++        // compileSdk 35 it binds to the platform method and throws
++        // NoSuchMethodError on Android 14 and below. removeAt(lastIndex) is the
++        // safe equivalent. (Google Play misattributes it to expo-camera's
++        // ExpoCameraView via R8 synthetic outlining.)
++        if (drawingOpPool.isEmpty()) DrawingOp() else drawingOpPool.removeAt(drawingOpPool.lastIndex)
+ 
+     private inner class DrawingOp {
+         var canvas: Canvas? = null
