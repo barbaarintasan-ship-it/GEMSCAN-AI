@@ -1,4 +1,4 @@
-package ai.gemscan.app
+package com.gemscan.ai
 
 import android.os.Build
 import android.os.Bundle

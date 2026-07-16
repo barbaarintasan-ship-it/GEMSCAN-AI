@@ -17,6 +17,9 @@ import { submitScanFeedback } from "../../../lib/scanUpload";
 import { INSUFFICIENT_CONFIDENCE_MESSAGE_TEXT } from "../../../lib/constants";
 import { estimateValue, type Valuation } from "../../../lib/valuation";
 import { EXPERT_WHATSAPP, HIGH_VALUE_THRESHOLD_USD, hasExpertContact } from "../../../lib/expertConfig";
+import { useSubscriptionStatus } from "../../../lib/subscription";
+import { generateAndSharePdf, type PdfReportData } from "../../../lib/pdfReport";
+import { EXTERNAL_PURCHASES_ENABLED, PAYMENT_URL } from "../../../lib/appLinks";
 import LocationMap from "../../../components/LocationMap";
 
 type ScanCandidate = {
@@ -67,6 +70,14 @@ export default function ResultsScreen() {
   const [sharing, setSharing] = useState(false);
   const shareCardRef = React.useRef<ViewShot>(null);
 
+  // Professional PDF report (Pro / "Gem Collector" tier only).
+  const { data: sub } = useSubscriptionStatus();
+  const canPdf = sub?.features?.pdfReports ?? false;
+  const [hallmark, setHallmark] = useState<
+    { marks: string[]; matchedLabel: string | null; note: string | null } | null
+  >(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+
   useEffect(() => {
     if (!scanId) return;
     (async () => {
@@ -101,6 +112,28 @@ export default function ResultsScreen() {
           .from("scan-images")
           .createSignedUrl(path, 3600);
         if (signed?.signedUrl) setPhotoUrl(signed.signedUrl);
+      }
+
+      // Hallmark data (jewelry/coins) for the PDF report — only present when the
+      // hallmark OCR provider actually transcribed a mark. RLS-scoped to own scan.
+      const { data: hm } = await supabase
+        .from("scan_ai_responses")
+        .select("candidate_label, reasoning, raw_response")
+        .eq("scan_id", scanId)
+        .eq("provider", "hallmark_ocr")
+        .limit(1)
+        .maybeSingle();
+      if (hm) {
+        const raw = (hm as { raw_response?: { marks?: unknown } }).raw_response;
+        const marks = Array.isArray(raw?.marks) ? (raw!.marks as string[]) : [];
+        const matchedLabel = (hm as { candidate_label?: string | null }).candidate_label ?? null;
+        if (marks.length > 0 || matchedLabel) {
+          setHallmark({
+            marks,
+            matchedLabel,
+            note: (hm as { reasoning?: string | null }).reasoning ?? null,
+          });
+        }
       }
     })();
   }, [scanId]);
@@ -174,6 +207,47 @@ export default function ResultsScreen() {
       /* capture/share failed or was dismissed — no-op */
     } finally {
       setSharing(false);
+    }
+  }
+
+  // Generate a professional PDF report and open the native share sheet
+  // (WhatsApp, Email, Messages, Save to Files = download). Pro tier only —
+  // the button that calls this is not rendered for other tiers.
+  async function downloadPdf() {
+    const fr = scan?.final_result;
+    if (!scanId || !fr || fr.insufficientConfidence || !fr.bestMatch || pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      const alts = candidates.filter((c) => c.rank > 1);
+      const data: PdfReportData = {
+        scanId,
+        createdAt: scan!.created_at,
+        bestMatch: fr.bestMatch,
+        confidencePct: Math.round(fr.confidenceScore * 100),
+        confidenceBand: fr.confidenceBand,
+        reasoning: fr.reasoning,
+        alternatives: alts.map((c) => ({
+          label: c.label,
+          confidencePct: Math.round(c.weighted_confidence * 100),
+          band: c.confidence_band,
+        })),
+        valuation: valuation
+          ? {
+              minUsd: valuation.minUsd,
+              typicalUsd: valuation.typicalUsd,
+              premiumUsd: valuation.premiumUsd,
+              note: valuation.qualityNote,
+              lowConfidence: valuation.lowConfidence,
+            }
+          : null,
+        hallmark,
+        images: photoUrl ? [{ uri: photoUrl, caption: L("Specimen photo", "Sawirka shayga") }] : [],
+      };
+      await generateAndSharePdf(data, lang);
+    } catch {
+      /* generation/share failed or was dismissed — no-op */
+    } finally {
+      setPdfBusy(false);
     }
   }
 
@@ -276,6 +350,54 @@ export default function ResultsScreen() {
           </>
         )}
       </Pressable>
+
+      {/* ── Professional PDF Report (Pro / Gem Collector only) ───────────── */}
+      {canPdf ? (
+        <Pressable
+          style={[styles.pdfButton, pdfBusy && styles.shareButtonDisabled]}
+          onPress={downloadPdf}
+          disabled={pdfBusy}
+          accessibilityRole="button"
+          accessibilityLabel={L("Generate professional PDF report", "Samee warbixin PDF xirfadeed")}
+        >
+          {pdfBusy ? (
+            <ActivityIndicator color="#C9A227" />
+          ) : (
+            <>
+              <Ionicons name="document-text-outline" size={18} color="#C9A227" />
+              <Text style={styles.pdfButtonText}>
+                {L("Download / Share PDF Report", "Soo deji / Wadaag Warbixin PDF")}
+              </Text>
+            </>
+          )}
+        </Pressable>
+      ) : EXTERNAL_PURCHASES_ENABLED ? (
+        // Locked for Free/Explorer (Android/web only — iOS hides the CTA per
+        // App Store Guideline 3.1.1).
+        <View style={styles.pdfLockedCard}>
+          <View style={styles.pdfLockedHeader}>
+            <Ionicons name="lock-closed" size={15} color="#C9A227" />
+            <Text style={styles.pdfLockedTitle}>{L("Professional PDF Report", "Warbixin PDF Xirfadeed")}</Text>
+            <View style={styles.proTag}>
+              <Text style={styles.proTagText}>PRO</Text>
+            </View>
+          </View>
+          <Text style={styles.body}>
+            {L(
+              "Generate a branded, shareable PDF report of this identification — available on GemScan Pro (Gem Collector).",
+              "Samee warbixin PDF ah oo summad leh oo la wadaagi karo — waxaa lagu heli karaa GemScan Pro (Gem Collector).",
+            )}
+          </Text>
+          <Pressable
+            style={styles.pdfUpgradeButton}
+            onPress={() => Linking.openURL(PAYMENT_URL)}
+            accessibilityRole="link"
+            accessibilityLabel={L("Open GemScan pricing page", "Fur bogga qiimaha GemScan")}
+          >
+            <Text style={styles.pdfUpgradeText}>{L("Upgrade to Pro", "U kordhi Pro")}</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {/* ── Estimated Market Value (additive AI estimate) ─────────────────── */}
       {valuation && (
@@ -507,6 +629,47 @@ const styles = StyleSheet.create({
   },
   shareButtonText: { color: "#0B0B0C", fontWeight: "800", fontSize: 15 },
   shareButtonDisabled: { opacity: 0.6 },
+  // Professional PDF report — outlined gold to distinguish it from the primary
+  // gold Share button.
+  pdfButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#161618",
+    borderWidth: 1,
+    borderColor: "#C9A227",
+    borderRadius: 999,
+    paddingVertical: 13,
+    marginTop: 8,
+  },
+  pdfButtonText: { color: "#C9A227", fontWeight: "800", fontSize: 15 },
+  pdfLockedCard: {
+    marginTop: 8,
+    backgroundColor: "#161618",
+    borderWidth: 1,
+    borderColor: "#2A2A2C",
+    borderRadius: 14,
+    padding: 14,
+    gap: 8,
+  },
+  pdfLockedHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  pdfLockedTitle: { color: "#F5F1E8", fontWeight: "700", fontSize: 15, flex: 1 },
+  proTag: {
+    backgroundColor: "#C9A227",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  proTagText: { color: "#0B0B0C", fontWeight: "900", fontSize: 11, letterSpacing: 0.5 },
+  pdfUpgradeButton: {
+    backgroundColor: "#C9A227",
+    borderRadius: 999,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 4,
+  },
+  pdfUpgradeText: { color: "#0B0B0C", fontWeight: "800", fontSize: 14 },
   // Off-screen container: rendered (so it can be captured) but never visible.
   offscreen: { position: "absolute", left: -10000, top: 0 },
   shareCard: {

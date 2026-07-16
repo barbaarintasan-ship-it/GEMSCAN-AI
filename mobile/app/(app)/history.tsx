@@ -22,6 +22,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth";
+import { useSubscriptionStatus } from "../../lib/subscription";
+import { generatePdfForScan } from "../../lib/scanReport";
 
 type ScanFinalResult = {
   bestMatch: string | null;
@@ -56,6 +58,23 @@ export default function HistoryScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);
+
+  // Professional PDF report — Pro / "Gem Collector" tier only.
+  const { data: sub } = useSubscriptionStatus();
+  const canPdf = sub?.features?.pdfReports ?? false;
+  const [pdfBusyId, setPdfBusyId] = useState<string | null>(null);
+
+  async function onGeneratePdf(id: string) {
+    if (pdfBusyId) return;
+    setPdfBusyId(id);
+    try {
+      await generatePdfForScan(id, so ? "so" : "en");
+    } catch {
+      /* generation/share failed or was dismissed — no-op */
+    } finally {
+      setPdfBusyId(null);
+    }
+  }
 
   const load = useCallback(async () => {
     if (!session?.user.id) return;
@@ -190,6 +209,25 @@ export default function HistoryScreen() {
           </View>
         </View>
 
+        {/* Pro-only: generate the same professional PDF report for this saved
+            scan (loads the latest data at generation time). */}
+        {canPdf && !line.muted && (
+          <Pressable
+            style={styles.rowPdfBtn}
+            onPress={() => onGeneratePdf(item.id)}
+            disabled={pdfBusyId === item.id}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={so ? "Samee warbixin PDF" : "Generate PDF report"}
+          >
+            {pdfBusyId === item.id ? (
+              <ActivityIndicator color="#C9A227" size="small" />
+            ) : (
+              <Ionicons name="document-text-outline" size={20} color="#C9A227" />
+            )}
+          </Pressable>
+        )}
+
         <Ionicons name="chevron-forward" size={20} color="#8A8A8E" />
       </Pressable>
     );
@@ -291,6 +329,16 @@ const styles = StyleSheet.create({
   },
   thumb: { width: 56, height: 56, borderRadius: 10, backgroundColor: "#2A2A2C" },
   thumbPlaceholder: { alignItems: "center", justifyContent: "center" },
+  rowPdfBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#C9A227",
+    backgroundColor: "#161618",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   itemBody: { flex: 1, gap: 4 },
   itemTitle: { fontSize: 16, fontWeight: "600", color: "#F5F1E8" },
   itemTitleMuted: { color: "#8A8A8E", fontWeight: "500" },
