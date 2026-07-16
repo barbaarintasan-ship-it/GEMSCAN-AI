@@ -46,16 +46,18 @@ def expoCameraMavenPath = new File(["node", "--print", "require.resolve('expo-ca
 allprojects { repositories { maven { url(expoCameraMavenPath) } } }
 // @generated end expo-camera-import
 
-// Resolve `com.google.android:cameraview:1.0.0` ONLY from expo-camera's bundled
-// local Maven repo (it ships the .aar there) and never from oss.sonatype.org.
-// Sonatype has sunset that snapshots server, so it intermittently returns 504s
-// and would otherwise break production builds. exclusiveContent removes this
-// module from every other repository, so the flaky external server is never hit.
+// Sonatype has sunset oss.sonatype.org; its snapshots server now returns 504s.
+// The React Native / Expo Gradle tooling still registers it as a repository, so
+// Gradle times out querying it for any dependency not found in an earlier repo
+// (cameraview, Android-Image-Cropper, ...), breaking production builds. Exclude
+// ALL content from that repo so Gradle never contacts it. The artifacts it used
+// to serve resolve from other declared repos: cameraview from expo-camera's
+// bundled local Maven repo (above) and Android-Image-Cropper from JitPack.
 allprojects {
-    repositories {
-        exclusiveContent {
-            forRepository { maven { url(expoCameraMavenPath) } }
-            filter { includeModule("com.google.android", "cameraview") }
+    repositories.all { repo ->
+        def u = repo.hasProperty("url") ? repo.url?.toString() : null
+        if (u != null && u.contains("oss.sonatype.org")) {
+            repo.content { excludeGroupByRegex ".*" }
         }
     }
 }
