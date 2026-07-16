@@ -10,6 +10,7 @@ import {
   Platform,
 } from "react-native";
 import { router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../lib/auth";
 import { EXTERNAL_PURCHASES_ENABLED } from "../../lib/appLinks";
@@ -19,6 +20,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export default function RegisterScreen() {
   const { signUp } = useAuth();
   const { i18n } = useTranslation();
+  const insets = useSafeAreaInsets();
   const L = (en: string, so: string) => (i18n.language === "so" ? so : en);
 
   const [fullName, setFullName] = useState("");
@@ -128,7 +130,16 @@ export default function RegisterScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={[
+          styles.container,
+          { paddingTop: 24 + insets.top, paddingBottom: 24 + insets.bottom },
+        ]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.title}>{L("Create your account", "Samee akoonkaaga")}</Text>
         <Text style={styles.subtitle}>
           {EXTERNAL_PURCHASES_ENABLED

@@ -29,6 +29,7 @@ import {
   Easing,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -82,6 +83,7 @@ const GUIDANCE_SO = [
 
 export default function LiveScanScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { i18n } = useTranslation();
   const lang: "en" | "so" = i18n.language === "so" ? "so" : "en";
   const L = (en: string, so: string) => (lang === "so" ? so : en);
@@ -454,12 +456,17 @@ export default function LiveScanScreen() {
         </View>
       )}
 
-      <Pressable style={styles.backButton} onPress={() => router.back()} hitSlop={10} accessibilityLabel="Back">
+      <Pressable
+        style={[styles.backButton, { top: insets.top + 8 }]}
+        onPress={() => router.back()}
+        hitSlop={10}
+        accessibilityLabel="Back"
+      >
         <Ionicons name="arrow-back" size={24} color="#F5F1E8" />
       </Pressable>
 
       {/* Top status */}
-      <View style={styles.topBar} pointerEvents="none">
+      <View style={[styles.topBar, { top: insets.top + 8 }]} pointerEvents="none">
         <View style={styles.statusPill}>
           <View style={[styles.statusDot, { backgroundColor: phase === "capturing" ? "#2E7D32" : "#C9A227" }]} />
           <Text style={styles.statusText}>
@@ -486,7 +493,7 @@ export default function LiveScanScreen() {
       )}
 
       {/* Bottom controls */}
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { paddingBottom: 20 + insets.bottom }]}>
         {phase === "capturing" && (
           <>
             {/* Progress only — the captured photos are never shown to the user. */}

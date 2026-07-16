@@ -1,6 +1,8 @@
 import React from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Slot } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "../lib/auth";
 import { captureException, initMonitoring } from "../lib/monitoring";
@@ -70,11 +72,14 @@ const styles = StyleSheet.create({
 export default function RootLayout() {
   return (
     <RootErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <Slot />
-        </AuthProvider>
-      </QueryClientProvider>
+      <SafeAreaProvider>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <StatusBar style="light" />
+            <Slot />
+          </AuthProvider>
+        </QueryClientProvider>
+      </SafeAreaProvider>
     </RootErrorBoundary>
   );
 }

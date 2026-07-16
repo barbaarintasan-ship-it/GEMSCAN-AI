@@ -11,7 +11,7 @@
     "subtitle": "Aqoonso dhagxaanta qaaliga ah, macdanta iyo wax kale adigoo isticmaalaya baaris khibrad leh.",
     "startLiveScan": "Bilow Iskaanka Tooska ah",
     "uploadImages": "Soo Geli Sawirro",
-    "myCollection": "Ururkeyga",
+    "myCollection": "Kaydkaaga",
     "settings": "Dejinta",
     "currentPlan": "Qorshaha hadda: {{tier}}",
     "scansPerDay": "{{count}} iskaan maalintii",
@@ -63,9 +63,9 @@
     "captured": "La qabtay"
   },
   "history": {
-    "title": "Ururkeyga",
+    "title": "Kaydkaaga",
     "emptyTitle": "Wali iskaan ma jiro",
-    "emptyHint": "Iskaan dhagaxaaga ugu horreeya si aad u bilowdo ururkaaga.",
+    "emptyHint": "Iskaan dhagaxaaga ugu horreeya si aad u bilowdo kaydkaaga.",
     "startScanning": "Bilow iskaanka",
     "confidence": "{{value}}% kalsooni",
     "processing": "Waa la falanqaynayaa…",

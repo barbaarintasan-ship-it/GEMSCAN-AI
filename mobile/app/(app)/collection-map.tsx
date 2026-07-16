@@ -24,7 +24,7 @@ export default function CollectionMapScreen() {
   const [loading, setLoading] = useState(true);
 
   useLayoutEffect(() => {
-    navigation.setOptions({ title: so ? "Khariidadda Ururka" : "Collection Map" });
+    navigation.setOptions({ title: so ? "Khariidadda Kaydka" : "Collection Map" });
   }, [navigation, so]);
 
   const load = useCallback(async () => {

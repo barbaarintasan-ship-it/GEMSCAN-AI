@@ -6,6 +6,7 @@
 // SDK — that would violate the payment-separation decision.
 import React, { useState } from "react";
 import { View, Text, Pressable, Linking, Alert, StyleSheet } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../lib/auth";
 import { useSubscriptionStatus } from "../../lib/subscription";
 import { PAYMENT_URL, EXTERNAL_PURCHASES_ENABLED } from "../../lib/appLinks";
@@ -13,6 +14,7 @@ import { PAYMENT_URL, EXTERNAL_PURCHASES_ENABLED } from "../../lib/appLinks";
 export default function AccountScreen() {
   const { session, signOut, deleteAccount } = useAuth();
   const { data, isLoading, refetch, isRefetching } = useSubscriptionStatus();
+  const insets = useSafeAreaInsets();
   const [deleting, setDeleting] = useState(false);
 
   const confirmDelete = () => {
@@ -37,7 +39,7 @@ export default function AccountScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingBottom: 24 + insets.bottom }]}>
       <Text style={styles.heading}>Account</Text>
       <Text style={styles.email}>{session?.user.email}</Text>
 

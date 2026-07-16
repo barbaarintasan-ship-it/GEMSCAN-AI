@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { useTranslation } from "react-i18next";
@@ -26,6 +27,7 @@ import { setAppLanguage, type AppLanguage } from "../../lib/i18n";
 export default function SettingsScreen() {
   const { t, i18n } = useTranslation();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { session, signOut } = useAuth();
   const { data: subscription } = useSubscriptionStatus();
 
@@ -63,6 +65,14 @@ export default function SettingsScreen() {
     };
   }, [session?.user.id]);
 
+  // The name is stored in auth user_metadata at sign-up (always present) and is
+  // ALSO copied into the profiles table by a DB trigger. Prefer user_metadata so
+  // the name shows even if the profiles row wasn't populated; fall back to the
+  // profiles query. This fixes the "name not displayed" case.
+  const metaName =
+    ((session?.user?.user_metadata?.display_name as string | undefined) ?? "").trim();
+  const shownName = metaName || displayName;
+
   const currentLang = i18n.language === "so" ? "so" : "en";
 
   async function handleLanguage(lang: AppLanguage) {
@@ -79,7 +89,7 @@ export default function SettingsScreen() {
   const appVersion = Constants.expoConfig?.version ?? "0.1.0";
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.screen} contentContainerStyle={[styles.content, { paddingBottom: 40 + insets.bottom }]}>
       {/* Profile */}
       <Text style={styles.sectionLabel}>{t("settings.profileSection")}</Text>
       <View style={styles.card}>
@@ -91,7 +101,7 @@ export default function SettingsScreen() {
         <View style={styles.row}>
           <Text style={styles.rowLabel}>{t("settings.displayName")}</Text>
           <Text style={styles.rowValue}>
-            {profileLoading ? "…" : displayName || t("settings.notSet")}
+            {shownName || (profileLoading ? "…" : t("settings.notSet"))}
           </Text>
         </View>
       </View>

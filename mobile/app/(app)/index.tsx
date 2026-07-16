@@ -1,6 +1,7 @@
 import React, { useLayoutEffect } from "react";
 import { View, Text, Pressable, StyleSheet, BackHandler, Platform, ScrollView } from "react-native";
 import { useRouter, useNavigation } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { useSubscriptionStatus } from "../../lib/subscription";
@@ -36,6 +37,7 @@ export default function HomeScreen() {
   const navigation = useNavigation();
   const { t, i18n } = useTranslation();
   const { session } = useAuth();
+  const insets = useSafeAreaInsets();
   const so = i18n.language === "so";
 
   const fullName =
@@ -69,7 +71,10 @@ export default function HomeScreen() {
   }, [navigation, router, t, so]);
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.container}>
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={[styles.container, { paddingBottom: 40 + insets.bottom }]}
+    >
       <Text style={styles.logo}>💎 GemScan</Text>
       {firstName ? (
         <Text style={styles.greeting}>

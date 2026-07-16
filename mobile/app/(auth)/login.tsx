@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet } from "react-native";
+import { View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
 import { router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../lib/auth";
@@ -9,6 +10,7 @@ import { setAppLanguage } from "../../lib/i18n";
 export default function LoginScreen() {
   const { signIn } = useAuth();
   const { i18n } = useTranslation();
+  const insets = useSafeAreaInsets();
   const so = i18n.language === "so";
   const L = (en: string, soText: string) => (so ? soText : en);
 
@@ -30,8 +32,16 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Pressable style={styles.langPill} onPress={() => setAppLanguage(so ? "en" : "so")} accessibilityLabel="Change language">
+    <KeyboardAvoidingView
+      style={styles.flex}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <View style={styles.container}>
+      <Pressable
+        style={[styles.langPill, { top: insets.top + 12 }]}
+        onPress={() => setAppLanguage(so ? "en" : "so")}
+        accessibilityLabel="Change language"
+      >
         <Ionicons name="language-outline" size={15} color="#0B0B0C" />
         <Text style={styles.langText}>{so ? "SO" : "EN"}</Text>
       </Pressable>
@@ -68,11 +78,13 @@ export default function LoginScreen() {
       <Pressable onPress={() => router.push("/(auth)/register")}>
         <Text style={styles.link}>{L("Don't have an account? Sign up", "Akoon ma lihid? Is-diiwaangeli")}</Text>
       </Pressable>
-    </View>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1, backgroundColor: "#0B0B0C" },
   container: { flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#0B0B0C", gap: 12 },
   langPill: {
     position: "absolute",

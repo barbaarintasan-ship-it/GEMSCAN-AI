@@ -17,6 +17,7 @@ import {
   RefreshControl,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { supabase } from "../../lib/supabase";
@@ -48,6 +49,7 @@ export default function HistoryScreen() {
   const { t, i18n } = useTranslation();
   const so = i18n.language === "so";
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { session } = useAuth();
 
   const [items, setItems] = useState<HistoryItem[]>([]);
@@ -233,7 +235,7 @@ export default function HistoryScreen() {
   return (
     <FlatList
       style={styles.screen}
-      contentContainerStyle={styles.listContent}
+      contentContainerStyle={[styles.listContent, { paddingBottom: 16 + insets.bottom }]}
       data={items}
       keyExtractor={(item) => item.id}
       renderItem={renderItem}
@@ -241,7 +243,7 @@ export default function HistoryScreen() {
         <View style={styles.header}>
           <View style={styles.headerTop}>
             <View>
-              <Text style={styles.headerTitle}>💎 {so ? "Ururkeyga" : "My Collection"}</Text>
+              <Text style={styles.headerTitle}>💎 {so ? "Kaydkaaga" : "My Collection"}</Text>
               <Text style={styles.headerCount}>
                 {items.length} {so ? "baaris" : items.length === 1 ? "scan" : "scans"}
                 {locatedCount > 0 ? ` · ${locatedCount} ${so ? "goobo la calaamadeeyay" : "mapped"}` : ""}

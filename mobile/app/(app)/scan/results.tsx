@@ -5,8 +5,10 @@
 // navigation params, so this screen also works if the user re-opens a past
 // scan from history later.
 import React, { useEffect, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView, Linking } from "react-native";
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView, Linking, Share } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { supabase } from "../../../lib/supabase";
 import { submitScanFeedback } from "../../../lib/scanUpload";
@@ -48,6 +50,7 @@ const BAND_COLOR: Record<string, string> = {
 export default function ResultsScreen() {
   const { scanId } = useLocalSearchParams<{ scanId: string }>();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { i18n } = useTranslation();
   const lang: "en" | "so" = i18n.language === "so" ? "so" : "en";
   const L = (en: string, so: string) => (lang === "so" ? so : en);
@@ -94,32 +97,59 @@ export default function ResultsScreen() {
     };
   }, [scan, lang]);
 
-  // Build a COMPLETE report (the data the app gathered) and open WhatsApp with
-  // it pre-filled. wa.me links can only carry text, so we include the full
-  // identification report and ask the user to attach their scan photos.
-  function openWhatsApp() {
-    if (!EXPERT_WHATSAPP) return;
+  // Build a COMPLETE, professionally formatted report from everything the app
+  // gathered. Reused by the native Share sheet and the WhatsApp expert contact.
+  function buildReport(opts: { expertRequest?: boolean } = {}): string {
     const fr = scan?.final_result;
     const alts = candidates.filter((c) => c.rank > 1).map((c) => c.label);
     const pct = Math.round((fr?.confidenceScore ?? 0) * 100);
     const so = lang === "so";
+    const when = scan?.created_at ? new Date(scan.created_at).toLocaleString() : "";
+    const loc = scan?.capture_location;
+    const val = valuation;
     const lines: string[] = [];
-    if (so) {
-      lines.push("Salaan, waa kan natiijada GemScan:", "");
-      if (fr?.bestMatch) lines.push(`• Aqoonsiga: ${fr.bestMatch}`);
-      lines.push(`• Kalsooni: ${pct}%`);
-      if (valuation?.typicalUsd) lines.push(`• Qiimo qiyaasi ah: ~USD ${Math.round(valuation.typicalUsd)}`);
-      if (alts.length) lines.push(`• Ikhtiyaarro kale: ${alts.join(", ")}`);
-      lines.push("", "Waxaan rabaa dib-u-eegis khibrad leh. Waxaan ku lifaaqi doonaa sawirradii scan-ka.");
-    } else {
-      lines.push("Hello, here is my GemScan result:", "");
-      if (fr?.bestMatch) lines.push(`• Identification: ${fr.bestMatch}`);
-      lines.push(`• Confidence: ${pct}%`);
-      if (valuation?.typicalUsd) lines.push(`• Estimated value: ~USD ${Math.round(valuation.typicalUsd)}`);
-      if (alts.length) lines.push(`• Alternatives: ${alts.join(", ")}`);
-      lines.push("", "I would like a professional review. I will attach my scan photos.");
+
+    lines.push(so ? "💎 GemScan — Natiijada baaritaanka" : "💎 GemScan — Scan Result", "");
+    if (fr?.bestMatch) lines.push(`${so ? "Aqoonsiga" : "Identification"}: ${fr.bestMatch}`);
+    lines.push(`${so ? "Kalsooni" : "Confidence"}: ${pct}%`);
+    if (val && !val.lowConfidence && (val.minUsd != null || val.typicalUsd != null)) {
+      if (val.minUsd != null && val.premiumUsd != null) {
+        lines.push(`${so ? "Qiimaha suuqa (qiyaas)" : "Estimated value"}: USD ${Math.round(val.minUsd)}–${Math.round(val.premiumUsd)}`);
+      } else if (val.typicalUsd != null) {
+        lines.push(`${so ? "Qiimaha suuqa (qiyaas)" : "Estimated value"}: ~USD ${Math.round(val.typicalUsd)}`);
+      }
     }
-    const text = encodeURIComponent(lines.join("\n"));
+    if (alts.length) lines.push(`${so ? "Ikhtiyaarro kale" : "Other possibilities"}: ${alts.join(", ")}`);
+    if (loc) lines.push(`${so ? "Goobta (qiyaas)" : "Found near"}: ${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}`);
+    if (when) lines.push(`${so ? "Waqtiga" : "Scanned"}: ${when}`);
+
+    if (opts.expertRequest) {
+      lines.push("", so
+        ? "Waxaan rabaa dib-u-eegis khibrad leh. Waxaan ku lifaaqi doonaa sawirradii scan-ka."
+        : "I would like a professional review. I will attach my scan photos.");
+    } else {
+      lines.push("", so
+        ? "La aqoonsaday GemScan — aqoonsi khibrad leh oo dhagxaan, dahab & qadaadiic."
+        : "Identified with GemScan — expert gemstone, gold & coin identification.");
+    }
+    return lines.join("\n");
+  }
+
+  // Native share sheet → WhatsApp, Email, Messages, and any installed app.
+  async function shareResult() {
+    try {
+      await Share.share({
+        message: buildReport(),
+        title: lang === "so" ? "Natiijada GemScan" : "GemScan Scan Result",
+      });
+    } catch {
+      /* user dismissed the sheet — no-op */
+    }
+  }
+
+  function openWhatsApp() {
+    if (!EXPERT_WHATSAPP) return;
+    const text = encodeURIComponent(buildReport({ expertRequest: true }));
     Linking.openURL(`https://wa.me/${EXPERT_WHATSAPP}?text=${text}`).catch(() => {});
   }
 
@@ -159,7 +189,7 @@ export default function ResultsScreen() {
           ]
         : finalResult?.suggestions ?? [];
     return (
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView contentContainerStyle={[styles.container, { paddingBottom: 32 + insets.bottom }]}>
         <Text style={styles.insufficientTitle}>
           {lang === "so"
             ? "Ma aqoonsan karno shaygan si kalsooni leh sawirrada la heli karo."
@@ -184,7 +214,7 @@ export default function ResultsScreen() {
     lang === "so" ? { high: "SARE", medium: "DHEXE", low: "HOOSE" }[b] : b.toUpperCase();
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={[styles.container, { paddingBottom: 32 + insets.bottom }]}>
       <Text style={styles.label}>{L("Best match", "Aqoonsiga ugu fiican")}</Text>
       <Text style={styles.bestMatch}>{finalResult.bestMatch}</Text>
       <View style={[styles.bandPill, { backgroundColor: BAND_COLOR[finalResult.confidenceBand] }]}>
@@ -198,6 +228,12 @@ export default function ResultsScreen() {
           `Waxaa loo aqoonsaday inuu yahay aqoonsiga ugu fiican, kalsooni ${pct}%, iyada oo lagu saleeyay baaritaankayaga khibradda leh.`,
         )}
       </Text>
+
+      {/* Native share sheet — WhatsApp, Email, Messages, etc. */}
+      <Pressable style={styles.shareButton} onPress={shareResult} accessibilityRole="button">
+        <Ionicons name="share-social-outline" size={18} color="#0B0B0C" />
+        <Text style={styles.shareButtonText}>{L("Share result", "La wadaag natiijada")}</Text>
+      </Pressable>
 
       {/* ── Estimated Market Value (additive AI estimate) ─────────────────── */}
       {valuation && (
@@ -371,6 +407,17 @@ const styles = StyleSheet.create({
   bestMatch: { fontSize: 26, fontWeight: "700", color: "#F5F1E8" },
   bandPill: { alignSelf: "flex-start", paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999 },
   bandPillText: { color: "#0B0B0C", fontWeight: "700", fontSize: 11 },
+  shareButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#C9A227",
+    borderRadius: 999,
+    paddingVertical: 13,
+    marginTop: 6,
+  },
+  shareButtonText: { color: "#0B0B0C", fontWeight: "800", fontSize: 15 },
   insufficientTitle: { fontSize: 18, fontWeight: "700", color: "#F5F1E8" },
   suggestion: { color: "#C9C9CC", fontSize: 13 },
   altCard: {
