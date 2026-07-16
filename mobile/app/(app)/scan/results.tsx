@@ -5,10 +5,12 @@
 // navigation params, so this screen also works if the user re-opens a past
 // scan from history later.
 import React, { useEffect, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView, Linking, Share } from "react-native";
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView, Linking, Image } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import ViewShot from "react-native-view-shot";
+import * as Sharing from "expo-sharing";
 import { useTranslation } from "react-i18next";
 import { supabase } from "../../../lib/supabase";
 import { submitScanFeedback } from "../../../lib/scanUpload";
@@ -60,6 +62,10 @@ export default function ResultsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [valuation, setValuation] = useState<Valuation | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoReady, setPhotoReady] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const shareCardRef = React.useRef<ViewShot>(null);
 
   useEffect(() => {
     if (!scanId) return;
@@ -79,6 +85,23 @@ export default function ResultsScreen() {
       setScan(scanData as ScanRow | null);
       setCandidates((candidateData as ScanCandidate[]) ?? []);
       setIsLoading(false);
+
+      // Load one specimen photo (the front/original of the first image) for the
+      // shareable card. The bucket is private, so sign the path.
+      const { data: img } = await supabase
+        .from("scan_images")
+        .select("original_storage_path")
+        .eq("scan_id", scanId)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      const path = (img as { original_storage_path?: string } | null)?.original_storage_path;
+      if (path) {
+        const { data: signed } = await supabase.storage
+          .from("scan-images")
+          .createSignedUrl(path, 3600);
+        if (signed?.signedUrl) setPhotoUrl(signed.signedUrl);
+      }
     })();
   }, [scanId]);
 
@@ -105,7 +128,6 @@ export default function ResultsScreen() {
     const pct = Math.round((fr?.confidenceScore ?? 0) * 100);
     const so = lang === "so";
     const when = scan?.created_at ? new Date(scan.created_at).toLocaleString() : "";
-    const loc = scan?.capture_location;
     const val = valuation;
     const lines: string[] = [];
 
@@ -120,7 +142,6 @@ export default function ResultsScreen() {
       }
     }
     if (alts.length) lines.push(`${so ? "Ikhtiyaarro kale" : "Other possibilities"}: ${alts.join(", ")}`);
-    if (loc) lines.push(`${so ? "Goobta (qiyaas)" : "Found near"}: ${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}`);
     if (when) lines.push(`${so ? "Waqtiga" : "Scanned"}: ${when}`);
 
     if (opts.expertRequest) {
@@ -135,15 +156,24 @@ export default function ResultsScreen() {
     return lines.join("\n");
   }
 
-  // Native share sheet → WhatsApp, Email, Messages, and any installed app.
+  // Share ONE professional image (the result card = specimen photo + the data,
+  // with NO location) to WhatsApp, Email, Messages, or any installed app.
   async function shareResult() {
+    if (sharing) return;
+    setSharing(true);
     try {
-      await Share.share({
-        message: buildReport(),
-        title: lang === "so" ? "Natiijada GemScan" : "GemScan Scan Result",
+      if (!(await Sharing.isAvailableAsync())) return;
+      const node = shareCardRef.current;
+      if (!node?.capture) return;
+      const uri = await node.capture();
+      await Sharing.shareAsync(uri, {
+        mimeType: "image/png",
+        dialogTitle: lang === "so" ? "La wadaag natiijada GemScan" : "Share your GemScan result",
       });
     } catch {
-      /* user dismissed the sheet — no-op */
+      /* capture/share failed or was dismissed — no-op */
+    } finally {
+      setSharing(false);
     }
   }
 
@@ -214,6 +244,7 @@ export default function ResultsScreen() {
     lang === "so" ? { high: "SARE", medium: "DHEXE", low: "HOOSE" }[b] : b.toUpperCase();
 
   return (
+    <>
     <ScrollView contentContainerStyle={[styles.container, { paddingBottom: 32 + insets.bottom }]}>
       <Text style={styles.label}>{L("Best match", "Aqoonsiga ugu fiican")}</Text>
       <Text style={styles.bestMatch}>{finalResult.bestMatch}</Text>
@@ -229,10 +260,21 @@ export default function ResultsScreen() {
         )}
       </Text>
 
-      {/* Native share sheet — WhatsApp, Email, Messages, etc. */}
-      <Pressable style={styles.shareButton} onPress={shareResult} accessibilityRole="button">
-        <Ionicons name="share-social-outline" size={18} color="#0B0B0C" />
-        <Text style={styles.shareButtonText}>{L("Share result", "La wadaag natiijada")}</Text>
+      {/* Share the result as one image (photo + data, no location). */}
+      <Pressable
+        style={[styles.shareButton, (sharing || (photoUrl != null && !photoReady)) && styles.shareButtonDisabled]}
+        onPress={shareResult}
+        disabled={sharing || (photoUrl != null && !photoReady)}
+        accessibilityRole="button"
+      >
+        {sharing ? (
+          <ActivityIndicator color="#0B0B0C" />
+        ) : (
+          <>
+            <Ionicons name="share-social-outline" size={18} color="#0B0B0C" />
+            <Text style={styles.shareButtonText}>{L("Share result", "La wadaag natiijada")}</Text>
+          </>
+        )}
       </Pressable>
 
       {/* ── Estimated Market Value (additive AI estimate) ─────────────────── */}
@@ -397,6 +439,52 @@ export default function ResultsScreen() {
         <Text style={styles.primaryButtonText}>{L("Scan Another Specimen", "Baar shay kale")}</Text>
       </Pressable>
     </ScrollView>
+
+    {/* Off-screen card captured to a single image for sharing (photo + data,
+        no location). Rendered off-screen so it never affects the visible layout. */}
+    <View style={styles.offscreen} pointerEvents="none">
+      <ViewShot ref={shareCardRef} options={{ format: "png", quality: 0.95 }}>
+        <View style={styles.shareCard} collapsable={false}>
+          <Text style={styles.scLogo}>💎 GemScan</Text>
+          {photoUrl && (
+            <Image
+              source={{ uri: photoUrl }}
+              style={styles.scPhoto}
+              resizeMode="cover"
+              onLoad={() => setPhotoReady(true)}
+              onError={() => setPhotoReady(true)}
+            />
+          )}
+          <Text style={styles.scLabel}>{L("Identification", "Aqoonsiga")}</Text>
+          <Text style={styles.scMatch}>{finalResult.bestMatch}</Text>
+          <View style={[styles.scBand, { backgroundColor: BAND_COLOR[finalResult.confidenceBand] }]}>
+            <Text style={styles.scBandText}>
+              {bandWord(finalResult.confidenceBand)} {L("CONFIDENCE", "KALSOONI")} · {pct}%
+            </Text>
+          </View>
+          {valuation && !valuation.lowConfidence && (valuation.minUsd != null || valuation.typicalUsd != null) && (
+            <Text style={styles.scValue}>
+              {L("Estimated value", "Qiimaha suuqa (qiyaas)")}:{" "}
+              {valuation.minUsd != null && valuation.premiumUsd != null
+                ? `USD ${Math.round(valuation.minUsd)}–${Math.round(valuation.premiumUsd)}`
+                : `~USD ${Math.round(valuation.typicalUsd ?? 0)}`}
+            </Text>
+          )}
+          {alternatives.length > 0 && (
+            <Text style={styles.scAlts}>
+              {L("Other possibilities", "Ikhtiyaarro kale")}: {alternatives.map((c) => c.label).join(", ")}
+            </Text>
+          )}
+          <Text style={styles.scFooter}>
+            {L(
+              "Identified with GemScan — expert gemstone, gold & coin identification.",
+              "La aqoonsaday GemScan — aqoonsi khibrad leh oo dhagxaan, dahab & qadaadiic.",
+            )}
+          </Text>
+        </View>
+      </ViewShot>
+    </View>
+    </>
   );
 }
 
@@ -418,6 +506,24 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   shareButtonText: { color: "#0B0B0C", fontWeight: "800", fontSize: 15 },
+  shareButtonDisabled: { opacity: 0.6 },
+  // Off-screen container: rendered (so it can be captured) but never visible.
+  offscreen: { position: "absolute", left: -10000, top: 0 },
+  shareCard: {
+    width: 380,
+    backgroundColor: "#0B0B0C",
+    padding: 22,
+    gap: 10,
+  },
+  scLogo: { fontSize: 24, fontWeight: "900", color: "#C9A227" },
+  scPhoto: { width: "100%", height: 300, borderRadius: 14, backgroundColor: "#1A1A1D", marginVertical: 4 },
+  scLabel: { fontSize: 12, color: "#8A8A8E", textTransform: "uppercase", letterSpacing: 0.5 },
+  scMatch: { fontSize: 26, fontWeight: "800", color: "#F5F1E8" },
+  scBand: { alignSelf: "flex-start", paddingVertical: 5, paddingHorizontal: 12, borderRadius: 999 },
+  scBandText: { color: "#0B0B0C", fontWeight: "800", fontSize: 12 },
+  scValue: { fontSize: 16, color: "#C9A227", fontWeight: "700", marginTop: 4 },
+  scAlts: { fontSize: 13, color: "#C9C9CC", lineHeight: 19 },
+  scFooter: { fontSize: 12, color: "#8A8A8E", fontStyle: "italic", marginTop: 8, lineHeight: 17 },
   insufficientTitle: { fontSize: 18, fontWeight: "700", color: "#F5F1E8" },
   suggestion: { color: "#C9C9CC", fontSize: 13 },
   altCard: {
