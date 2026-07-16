@@ -14,25 +14,7 @@ buildscript {
         google()
         mavenCentral()
     }
-    // Guarantee the R8 override below actually wins over the R8 that AGP 8.6.0
-    // pulls in transitively (a plain classpath entry can otherwise lose the
-    // version conflict). Without this, Google Play keeps flagging the
-    // `$$ExternalSyntheticApiModelOutline` removeFirst()/removeLast() synthetic.
-    configurations.classpath {
-        resolutionStrategy {
-            force('com.android.tools:r8:8.7.18')
-        }
-    }
     dependencies {
-        // Override R8 to a newer build than the one bundled with AGP 8.6.0.
-        // AGP 8.6.0's R8 emits a `$$ExternalSyntheticApiModelOutline` synthetic
-        // whose bytecode Google Play's static analysis reports as a Kotlin
-        // removeFirst()/removeLast() usage (e.g. in expo.modules.camera.
-        // ExpoCameraView) and BLOCKS the release for review — even though no
-        // source in the app or its dependencies actually calls those functions.
-        // Newer R8 no longer emits that pattern. Declared BEFORE the AGP classpath
-        // so this version wins over AGP's transitive R8.
-        classpath('com.android.tools:r8:8.7.18')
         // Pin AGP 8.6.0 (compatible with Gradle 8.8): compileSdk/targetSdk 35
         // requires Android Gradle Plugin 8.6.0+, which Google Play now mandates.
         classpath('com.android.tools.build:gradle:8.6.0')
