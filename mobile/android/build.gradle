@@ -14,6 +14,15 @@ buildscript {
         google()
         mavenCentral()
     }
+    // Guarantee the R8 override below actually wins over the R8 that AGP 8.6.0
+    // pulls in transitively (a plain classpath entry can otherwise lose the
+    // version conflict). Without this, Google Play keeps flagging the
+    // `$$ExternalSyntheticApiModelOutline` removeFirst()/removeLast() synthetic.
+    configurations.classpath {
+        resolutionStrategy {
+            force('com.android.tools:r8:8.7.18')
+        }
+    }
     dependencies {
         // Override R8 to a newer build than the one bundled with AGP 8.6.0.
         // AGP 8.6.0's R8 emits a `$$ExternalSyntheticApiModelOutline` synthetic
