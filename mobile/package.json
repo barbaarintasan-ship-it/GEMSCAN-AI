@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "check:no-billing-deps": "node scripts/check-no-billing-deps.js",
     "preinstall": "node scripts/check-no-billing-deps.js",
+    "postinstall": "patch-package",
     "prestart": "node scripts/check-no-billing-deps.js",
     "lint": "eslint .",
     "test": "jest"
@@ -55,6 +56,8 @@
     "eslint-config-expo": "~7.1.2",
     "jest": "^29.7.0",
     "jest-expo": "~51.0.0",
+    "patch-package": "^8.0.1",
+    "postinstall-postinstall": "^2.1.0",
     "react-test-renderer": "^18.2.0",
     "typescript": "~5.3.3"
   },
