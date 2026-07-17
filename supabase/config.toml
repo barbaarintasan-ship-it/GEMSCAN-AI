@@ -50,6 +50,12 @@ verify_jwt = true
 [functions.activate-subscription]
 verify_jwt = false
 
+# Read-only business analytics for the WordPress dashboard. Called
+# server-to-server by the payment plugin with the same shared secret
+# (ACTIVATION_SECRET), so it must skip Supabase JWT verification.
+[functions.gemscan-analytics]
+verify_jwt = false
+
 # Webhook endpoints verify authenticity via provider signature, not Supabase
 # JWT (the caller is Stripe/the mobile-money gateway, not a logged-in user).
 [functions.stripe-webhook]

@@ -104,7 +104,7 @@ class GSA_Bridge {
 				'txn_id'      => $txn,
 				'status'      => 'paid',
 				'start_date'  => current_time( 'Y-m-d' ),
-				'expiry_date' => gmdate( 'Y-m-d', strtotime( '+1 year', current_time( 'timestamp' ) ) ), // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp
+				'expiry_date' => gmdate( 'Y-m-d', strtotime( '+6 months', current_time( 'timestamp' ) ) ), // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp
 				'notes'       => 'Auto-recorded on account activation (GemScan Payments).',
 			)
 		);
