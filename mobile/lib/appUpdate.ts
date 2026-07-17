@@ -1,65 +1,53 @@
 // App-update check. On launch the app reads the single `app_config` row from
-// Supabase and compares its own version (app.json "version" / versionName) with
-// the newest published version. If it is behind, the UpdateGate shows a prompt
-// linking to the Play Store. Fails open: any error (offline, table missing)
-// simply shows nothing.
+// Supabase and compares its own Android versionCode (the build number that EAS
+// auto-increments on every production build) with the newest published build.
+// If it is behind, the UpdateGate shows a prompt linking to the Play Store.
+// Fails open: any error (offline, table missing) simply shows nothing.
 //
-// IMPORTANT: this compares versionName (e.g. 1.0.0), NOT the Android versionCode.
-// So bump app.json "version" on each release you want to prompt users about
-// (e.g. 1.0.0 → 1.0.1), then set app_config.latest_version to the same value.
-import Constants from "expo-constants";
+// Using versionCode (not versionName) means you NEVER edit app.json for this —
+// EAS bumps the build number automatically. After publishing a release you only
+// set app_config.latest_build to that build's number (shown in EAS / Play).
+import * as Application from "expo-application";
 import { supabase } from "./supabase";
 
 export type AppUpdateInfo = {
   updateAvailable: boolean;
-  forced: boolean; // true when below min_version → no "Later" option.
+  forced: boolean; // true when below min_build → no "Later" option.
   message: { en: string; so: string };
   storeUrl: string;
 };
 
-/** Split "1.2.3" → [1,2,3] (non-numeric segments become 0). */
-function parseVersion(v: string): number[] {
-  return String(v || "0")
-    .split(".")
-    .map((n) => parseInt(n, 10) || 0);
-}
-
-/** -1 if a<b, 0 if equal, 1 if a>b (semver-ish, numeric segments). */
-export function compareVersions(a: string, b: string): number {
-  const pa = parseVersion(a);
-  const pb = parseVersion(b);
-  const len = Math.max(pa.length, pb.length);
-  for (let i = 0; i < len; i++) {
-    const x = pa[i] || 0;
-    const y = pb[i] || 0;
-    if (x < y) return -1;
-    if (x > y) return 1;
-  }
-  return 0;
-}
-
-/** The installed app's versionName, e.g. "1.0.0". */
-export function currentVersion(): string {
-  return (Constants.expoConfig?.version as string) || "0.0.0";
+/**
+ * The installed app's build number (Android versionCode / iOS build number).
+ * Returns 0 when it cannot be read, which disables the gate (fail open).
+ */
+export function currentBuild(): number {
+  const raw = Application.nativeBuildVersion; // e.g. "17" on Android.
+  const n = parseInt(String(raw ?? ""), 10);
+  return Number.isFinite(n) ? n : 0;
 }
 
 /**
- * Returns update info when the installed version is behind, else null.
+ * Returns update info when the installed build is behind, else null.
  */
 export async function checkForUpdate(): Promise<AppUpdateInfo | null> {
   try {
+    const build = currentBuild();
+    if (!build) return null; // Unknown build → never prompt.
+
     const { data, error } = await supabase
       .from("app_config")
-      .select("latest_version, min_version, update_message_en, update_message_so, store_url")
+      .select("latest_build, min_build, update_message_en, update_message_so, store_url")
       .limit(1)
       .maybeSingle();
 
     if (error || !data) return null;
 
-    const cur          = currentVersion();
-    const behindLatest = compareVersions(cur, data.latest_version) < 0;
-    const belowMin     = compareVersions(cur, data.min_version) < 0;
+    const latest = Number(data.latest_build) || 0;
+    const min = Number(data.min_build) || 0;
 
+    const behindLatest = build < latest;
+    const belowMin = build < min;
     if (!behindLatest && !belowMin) return null;
 
     return {
