@@ -1,6 +1,6 @@
-import React, { useLayoutEffect } from "react";
+import React, { useLayoutEffect, useCallback } from "react";
 import { View, Text, Pressable, StyleSheet, BackHandler, Platform, ScrollView } from "react-native";
-import { useRouter, useNavigation } from "expo-router";
+import { useRouter, useNavigation, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
@@ -32,11 +32,20 @@ const GEMS: Gem[] = [
 ];
 
 export default function HomeScreen() {
-  const { data, isLoading } = useSubscriptionStatus();
+  const { data, isLoading, refetch } = useSubscriptionStatus();
   const router = useRouter();
   const navigation = useNavigation();
   const { t, i18n } = useTranslation();
   const { session } = useAuth();
+
+  // Refresh the Deep Scan credit balance every time the home screen is focused
+  // (e.g. returning from a scan), so a just-used Deep Scan shows 99 immediately
+  // instead of the cached 100.
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch]),
+  );
   const insets = useSafeAreaInsets();
   const so = i18n.language === "so";
 
@@ -86,8 +95,12 @@ export default function HomeScreen() {
       {!isLoading && (
         <Text style={styles.tierBadge}>
           {t("home.currentPlan", { tier: data?.tier ?? "free" })}
-          {" — "}
-          {data ? `${data.deepScan.remaining} Deep Scan credits` : ""}
+        </Text>
+      )}
+      {!isLoading && data && (
+        <Text style={styles.deepBadge}>
+          💎 {data.deepScan.remaining}{" "}
+          {i18n.language === "so" ? "Deep Scan ayaa kuu hadhay" : "Deep Scans left"}
         </Text>
       )}
 
@@ -160,6 +173,7 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 15, color: "#C9C9CC", lineHeight: 21 },
   body: { fontSize: 14, color: "#C9C9CC", lineHeight: 20 },
   tierBadge: { color: "#C9A227", fontWeight: "600", fontSize: 13 },
+  deepBadge: { color: "#F5F1E8", fontWeight: "800", fontSize: 15, marginTop: 2 },
 
   scanButton: {
     flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8,
