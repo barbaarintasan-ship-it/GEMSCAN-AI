@@ -18,7 +18,13 @@ import { logError } from "../_shared/logger.ts";
 // the multi-model ensemble at scan time, not just to render a UI hint), so
 // the mobile app never has to encode "what does premium unlock" logic
 // itself — it just renders whatever the backend says is unlocked.
-import { featuresForTier, isOwnerEmail, resolveEffectiveTier } from "../_shared/entitlements.ts";
+import {
+  deepScanAllowanceFor,
+  featuresForTier,
+  isOwnerEmail,
+  resolveEffectiveTier,
+} from "../_shared/entitlements.ts";
+import { getDeepScanStatus, periodStartFor } from "../_shared/deepScanCredits.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -58,7 +64,7 @@ Deno.serve(async (req) => {
 
     const { data: subscription, error: subError } = await supabase
       .from("subscriptions")
-      .select("tier, status, current_period_end, source")
+      .select("tier, status, current_period_end, current_period_start, source")
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -76,6 +82,29 @@ Deno.serve(async (req) => {
     const owner = isOwnerEmail(user.email);
     const tier = resolveEffectiveTier(user.email, subscription);
 
+    // Deep Scan balance so the app can show "Deep Scan Credits: X/Y remaining".
+    // Read with the caller's own JWT — RLS scopes scan_usage / deep_scan_credits
+    // to this user's rows only. Fails soft to zeros so a hiccup never blocks the
+    // subscription check.
+    let deepScan = { allowance: 0, used: 0, purchased: 0, remaining: 0 };
+    try {
+      const allowance = deepScanAllowanceFor(user.email, tier);
+      const status = await getDeepScanStatus(
+        supabase,
+        user.id,
+        allowance,
+        periodStartFor(subscription),
+      );
+      deepScan = {
+        allowance: status.allowance,
+        used: status.used,
+        purchased: status.purchased,
+        remaining: status.remaining,
+      };
+    } catch (_e) {
+      /* leave zeros */
+    }
+
     return new Response(
       JSON.stringify({
         tier,
@@ -83,6 +112,7 @@ Deno.serve(async (req) => {
         currentPeriodEnd: owner ? null : (subscription?.current_period_end ?? null),
         source: owner ? "owner" : (subscription?.source ?? null),
         features: featuresForTier(tier),
+        deepScan,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

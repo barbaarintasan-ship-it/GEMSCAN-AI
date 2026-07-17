@@ -27,7 +27,13 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders } from "../_shared/cors.ts";
 import { log, logError } from "../_shared/logger.ts";
-import { featuresForTier, resolveEffectiveTier } from "../_shared/entitlements.ts";
+import { deepScanAllowanceFor, featuresForTier, resolveEffectiveTier } from "../_shared/entitlements.ts";
+import {
+  consumeDeepScan,
+  getDeepScanStatus,
+  periodStartFor,
+  recordStandardScan,
+} from "../_shared/deepScanCredits.ts";
 import { providerRegistry } from "./providers/providerRegistry.ts";
 import type { ProviderInput, ProviderResult, VisionProvider } from "./providers/types.ts";
 import { runEnsemble } from "./ensemble.ts";
@@ -78,11 +84,16 @@ export async function handleRequest(req: Request): Promise<Response> {
     const requestBody = await req.json().catch(() => ({}));
     const scanId = requestBody?.scanId;
     const onDeviceHint = (requestBody?.onDeviceHint ?? null) as ProviderInput["onDeviceHint"];
+    // Scan type decides cost: "standard" = one cheap model, "deep" = the full
+    // 3-AI ensemble (metered with credits). Default to standard so a missing/
+    // malformed field can NEVER accidentally trigger the expensive path.
+    const scanType: "standard" | "deep" = requestBody?.scanType === "deep" ? "deep" : "standard";
     if (!scanId || typeof scanId !== "string") {
       return jsonResponse({ error: "Missing or invalid scanId" }, 400);
     }
     log("info", "orchestrate-scan", "scan requested", {
       scanId,
+      scanType,
       hasOnDeviceHint: onDeviceHint !== null,
     });
 
@@ -126,41 +137,90 @@ export async function handleRequest(req: Request): Promise<Response> {
     // product restrictions rather than UI suggestions.
     const { data: subscription } = await callerClient
       .from("subscriptions")
-      .select("tier, status")
+      .select("tier, status, current_period_start")
       .eq("user_id", user.id)
       .maybeSingle();
-    // Owner accounts resolve to "professional" (unlimited) regardless of any
-    // subscriptions row; everyone else gets their active tier or "free".
+    // Owner accounts resolve to "professional" regardless of any subscriptions
+    // row; everyone else gets their active tier or "free".
     const tier = resolveEffectiveTier(user.email, subscription);
     const features = featuresForTier(tier);
 
-    if (features.dailyScanLimit !== null) {
-      const startOfToday = new Date();
-      startOfToday.setUTCHours(0, 0, 0, 0);
-      const { count } = await callerClient
-        .from("scans")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", user.id)
-        .neq("status", "failed")
-        .gte("created_at", startOfToday.toISOString());
-      if ((count ?? 0) > features.dailyScanLimit) {
-        return jsonResponse(
-          {
-            error: "Daily scan limit reached for the free tier.",
-            dailyScanLimit: features.dailyScanLimit,
-          },
-          403,
-        );
-      }
-    }
-
-    // service_role client for everything from here on: signed URL generation
-    // (works regardless of the private bucket's RLS) and every write to the
-    // AI-result tables, which have no client-write policy at all by design.
+    // service_role client for everything from here on: usage/credit writes,
+    // signed URLs, and the AI-result tables (no client-write policy by design).
     const serviceClient = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    // Entitlement + cost gate, enforced HERE (server-side), before any AI call.
+    let ensembleScansEnabled = false;
+
+    if (scanType === "deep") {
+      // Deep Scan = expensive ensemble → must be paid for with a credit.
+      const allowance = deepScanAllowanceFor(user.email, tier);
+      const periodStartISO = periodStartFor(subscription);
+      const status = await getDeepScanStatus(serviceClient, user.id, allowance, periodStartISO);
+
+      if (status.remaining <= 0) {
+        return jsonResponse(
+          {
+            error: "Your Deep Scan credits are finished.",
+            code: "deep_credits_exhausted",
+            deepScan: { allowance: status.allowance, used: status.used, purchased: status.purchased, remaining: 0 },
+          },
+          402, // Payment Required.
+        );
+      }
+
+      // Pre-authorize: consume the credit BEFORE the expensive AI calls so a
+      // Deep Scan can never run without being paid for.
+      const source = await consumeDeepScan(serviceClient, {
+        userId: user.id,
+        scanId,
+        plan: tier,
+        periodStartISO,
+        status,
+        aiModels: ["gemini", "openai", "claude"],
+      });
+      if (!source) {
+        return jsonResponse(
+          { error: "Your Deep Scan credits are finished.", code: "deep_credits_exhausted" },
+          402,
+        );
+      }
+      log("info", "orchestrate-scan", "deep scan authorized", { scanId, source, remaining: status.remaining - 1 });
+      ensembleScansEnabled = true;
+    } else {
+      // Standard Scan = one cheap model. No credit; a daily cap only guards
+      // against abuse.
+      if (features.standardScanDailyLimit !== null) {
+        const startOfToday = new Date();
+        startOfToday.setUTCHours(0, 0, 0, 0);
+        const { count } = await serviceClient
+          .from("scan_usage")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .eq("scan_type", "standard")
+          .gte("created_at", startOfToday.toISOString());
+        if ((count ?? 0) >= features.standardScanDailyLimit) {
+          return jsonResponse(
+            {
+              error: "Daily Standard Scan limit reached. Please try again tomorrow.",
+              code: "standard_limit_reached",
+              standardScanDailyLimit: features.standardScanDailyLimit,
+            },
+            429, // Too Many Requests.
+          );
+        }
+      }
+      await recordStandardScan(serviceClient, {
+        userId: user.id,
+        scanId,
+        plan: tier,
+        aiModels: ["gemini"],
+      });
+      ensembleScansEnabled = false;
+    }
 
     try {
       return await processScan({
@@ -169,7 +229,7 @@ export async function handleRequest(req: Request): Promise<Response> {
         images,
         onDeviceHint,
         serviceClient,
-        ensembleScansEnabled: features.ensembleScans,
+        ensembleScansEnabled,
       });
     } catch (err) {
       logError("orchestrate-scan", err, { scanId, stage: "processScan" });

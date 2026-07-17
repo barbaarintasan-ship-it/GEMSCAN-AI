@@ -3,54 +3,59 @@
 // orchestrate-scan.
 // Run with: deno test supabase/functions/_shared/entitlements.test.ts
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { featuresForTier, isOwnerEmail, resolveEffectiveTier } from "./entitlements.ts";
+import {
+  deepScanAllowanceFor,
+  featuresForTier,
+  isOwnerEmail,
+  OWNER_DEEP_SCAN_ALLOWANCE,
+  resolveEffectiveTier,
+} from "./entitlements.ts";
 
-Deno.test("featuresForTier: professional tier unlocks everything with unlimited scans", () => {
+Deno.test("featuresForTier: professional (Gem Collector) — 50 Deep Scans, no unlimited ensemble", () => {
   const features = featuresForTier("professional");
-  assertEquals(features.dailyScanLimit, null);
-  assertEquals(features.ensembleScans, true);
+  assertEquals(features.standardScanDailyLimit, 100);
+  assertEquals(features.deepScanAllowance, 50);
   assertEquals(features.askAGemologist, true);
   assertEquals(features.inventoryManagement, true);
   assertEquals(features.pdfReports, true);
   assertEquals(features.batchScanning, true);
+  // The unlimited-ensemble flag must NOT exist any more.
+  assertEquals((features as Record<string, unknown>).ensembleScans, undefined);
 });
 
-Deno.test("featuresForTier: lifetime tier unlocks unlimited scans + ensemble/ask-a-gemologist but not the professional-only features", () => {
-  const features = featuresForTier("lifetime");
-  assertEquals(features.dailyScanLimit, null);
-  assertEquals(features.ensembleScans, true);
-  assertEquals(features.askAGemologist, true);
+Deno.test("featuresForTier: premium (Explorer) — 10 Deep Scans", () => {
+  const features = featuresForTier("premium");
+  assertEquals(features.standardScanDailyLimit, 30);
+  assertEquals(features.deepScanAllowance, 10);
   assertEquals(features.inventoryManagement, false);
-  assertEquals(features.pdfReports, false);
-  assertEquals(features.batchScanning, false);
 });
 
-Deno.test("featuresForTier: premium tier is treated identically to lifetime", () => {
-  const lifetime = featuresForTier("lifetime");
-  const premium = featuresForTier("premium");
-  assertEquals(premium, lifetime);
+Deno.test("featuresForTier: lifetime is treated identically to premium", () => {
+  assertEquals(featuresForTier("lifetime"), featuresForTier("premium"));
 });
 
-Deno.test("featuresForTier: free tier is limited to 5 scans/day with no premium features", () => {
+Deno.test("featuresForTier: free — 5 Standard/day, 0 Deep Scans", () => {
   const features = featuresForTier("free");
-  assertEquals(features.dailyScanLimit, 5);
-  assertEquals(features.ensembleScans, false);
-  assertEquals(features.askAGemologist, false);
-  assertEquals(features.inventoryManagement, false);
+  assertEquals(features.standardScanDailyLimit, 5);
+  assertEquals(features.deepScanAllowance, 0);
   assertEquals(features.pdfReports, false);
-  assertEquals(features.batchScanning, false);
 });
 
-Deno.test("featuresForTier: unknown/unrecognized tier strings fall back to the free tier, not an unlocked one", () => {
-  const unknown = featuresForTier("some_unrecognized_tier");
-  const free = featuresForTier("free");
-  assertEquals(unknown, free);
+Deno.test("featuresForTier: unknown tier falls back to free", () => {
+  assertEquals(featuresForTier("some_unrecognized_tier"), featuresForTier("free"));
 });
 
-Deno.test("featuresForTier: empty string tier falls back to free (fail-closed, not fail-open)", () => {
+Deno.test("featuresForTier: empty string tier falls back to free (fail-closed)", () => {
   const features = featuresForTier("");
-  assertEquals(features.dailyScanLimit, 5);
-  assertEquals(features.ensembleScans, false);
+  assertEquals(features.standardScanDailyLimit, 5);
+  assertEquals(features.deepScanAllowance, 0);
+});
+
+Deno.test("deepScanAllowanceFor: owner is effectively unlimited; others get their tier allowance", () => {
+  assertEquals(deepScanAllowanceFor("awmusse.musse@gmail.com", "professional"), OWNER_DEEP_SCAN_ALLOWANCE);
+  assertEquals(deepScanAllowanceFor("user@example.com", "professional"), 50);
+  assertEquals(deepScanAllowanceFor("user@example.com", "premium"), 10);
+  assertEquals(deepScanAllowanceFor("user@example.com", "free"), 0);
 });
 
 Deno.test("isOwnerEmail: owner email matches, case- and whitespace-insensitively", () => {
@@ -72,8 +77,11 @@ Deno.test("resolveEffectiveTier: owner is always professional, even with no/canc
     resolveEffectiveTier("awmusse.musse@gmail.com", { tier: "free", status: "canceled" }),
     "professional",
   );
-  // And that professional resolves to fully unlimited via featuresForTier.
-  assertEquals(featuresForTier(resolveEffectiveTier("awmusse.musse@gmail.com", null)).dailyScanLimit, null);
+  // And owner's Deep Scan allowance is effectively unlimited.
+  assertEquals(
+    deepScanAllowanceFor("awmusse.musse@gmail.com", resolveEffectiveTier("awmusse.musse@gmail.com", null)),
+    OWNER_DEEP_SCAN_ALLOWANCE,
+  );
 });
 
 Deno.test("resolveEffectiveTier: non-owner gets active tier, or free when inactive/absent", () => {

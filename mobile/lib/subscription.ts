@@ -13,12 +13,23 @@ import { useAuth } from "./auth";
 export type SubscriptionTier = "free" | "premium" | "lifetime" | "professional";
 
 export type SubscriptionFeatures = {
-  dailyScanLimit: number | null;
-  ensembleScans: boolean;
+  // Standard Scan = one cheap AI model; capped per day only to stop abuse.
+  standardScanDailyLimit: number | null;
+  // Deep Scan = the expensive 3-AI ensemble, included per period (metered).
+  deepScanAllowance: number;
   askAGemologist: boolean;
   inventoryManagement: boolean;
   pdfReports: boolean;
   batchScanning: boolean;
+};
+
+// Deep Scan balance the app DISPLAYS (read-only). Purchases happen on the
+// website only — the app never mutates these numbers.
+export type DeepScanBalance = {
+  allowance: number; // included this period
+  used: number; // allowance-covered Deep Scans used this period
+  purchased: number; // rolled-over purchased credits
+  remaining: number; // allowance-remaining + purchased
 };
 
 export type SubscriptionStatus = {
@@ -27,7 +38,10 @@ export type SubscriptionStatus = {
   currentPeriodEnd: string | null;
   source: string | null;
   features: SubscriptionFeatures;
+  deepScan: DeepScanBalance;
 };
+
+const EMPTY_DEEP_SCAN: DeepScanBalance = { allowance: 0, used: 0, purchased: 0, remaining: 0 };
 
 const FUNCTIONS_URL = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL!;
 
@@ -42,7 +56,9 @@ async function fetchSubscriptionStatus(accessToken: string): Promise<Subscriptio
     throw new Error(body.error ?? `verify-subscription failed with status ${res.status}`);
   }
 
-  return res.json();
+  const json = (await res.json()) as SubscriptionStatus;
+  // Default the balance so older backends (pre-credits) never crash the app.
+  return { ...json, deepScan: json.deepScan ?? EMPTY_DEEP_SCAN };
 }
 
 export function useSubscriptionStatus() {

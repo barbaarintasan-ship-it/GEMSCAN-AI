@@ -87,9 +87,7 @@ export default function HomeScreen() {
         <Text style={styles.tierBadge}>
           {t("home.currentPlan", { tier: data?.tier ?? "free" })}
           {" — "}
-          {data?.features.dailyScanLimit != null
-            ? t("home.scansPerDay", { count: data.features.dailyScanLimit })
-            : t("home.unlimitedScans")}
+          {data ? `${data.deepScan.remaining} Deep Scan credits` : ""}
         </Text>
       )}
 

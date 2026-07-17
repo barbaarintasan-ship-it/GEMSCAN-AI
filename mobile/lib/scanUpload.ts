@@ -116,9 +116,28 @@ export type OrchestrateScanResponse = {
   autoLockThreshold?: number;
 };
 
+export type ScanType = "standard" | "deep";
+
+/**
+ * Error thrown by runOrchestration that carries the backend's machine-readable
+ * `code` (e.g. "deep_credits_exhausted", "standard_limit_reached") so the UI can
+ * react — show the out-of-credits sheet, etc. — instead of a generic message.
+ */
+export class OrchestrationError extends Error {
+  code?: string;
+  info?: unknown;
+  constructor(message: string, code?: string, info?: unknown) {
+    super(message);
+    this.name = "OrchestrationError";
+    this.code = code;
+    this.info = info;
+  }
+}
+
 export async function runOrchestration(
   scanId: string,
   onDeviceHint: CoarseClassification | null,
+  scanType: ScanType = "standard",
 ): Promise<OrchestrateScanResponse> {
   const {
     data: { session },
@@ -131,12 +150,18 @@ export async function runOrchestration(
       Authorization: `Bearer ${session.access_token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ scanId, onDeviceHint }),
+    // scanType decides cost server-side: "standard" = one cheap model,
+    // "deep" = the metered 3-AI ensemble (spends a Deep Scan credit).
+    body: JSON.stringify({ scanId, onDeviceHint, scanType }),
   });
 
   const body = await res.json();
   if (!res.ok) {
-    throw new Error(body?.error ?? `orchestrate-scan failed with status ${res.status}`);
+    throw new OrchestrationError(
+      body?.error ?? `orchestrate-scan failed with status ${res.status}`,
+      body?.code,
+      body,
+    );
   }
   return body as OrchestrateScanResponse;
 }

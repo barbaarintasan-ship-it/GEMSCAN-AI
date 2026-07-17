@@ -25,9 +25,22 @@ import {
   createScan,
   uploadScanImage,
   runOrchestration,
+  OrchestrationError,
   type CapturedAngleImage,
+  type ScanType,
 } from "../../../lib/scanUpload";
 import { isScanLimitError } from "../../../lib/appLinks";
+import { useSubscriptionStatus } from "../../../lib/subscription";
+import ScanTypeChooser from "../../../components/ScanTypeChooser";
+import type { CoarseClassification } from "../../../lib/onDeviceDetection";
+
+// Heuristic for the smart Deep Scan recommendation: does the on-device hint
+// look like a high-value material worth the 3-AI ensemble?
+const HIGH_VALUE = ["diamond", "ruby", "sapphire", "emerald", "gold", "jade", "opal", "topaz"];
+function isHighValueHint(hint: CoarseClassification | null): boolean {
+  const label = (hint?.label ?? "").toLowerCase();
+  return HIGH_VALUE.some((k) => label.includes(k));
+}
 import { UpgradePrompt } from "../../../components/UpgradePrompt";
 
 type AngleStep = {
@@ -108,6 +121,15 @@ export default function CaptureScreen() {
   const [retakeReason, setRetakeReason] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
+  // Scan-type chooser (Standard vs Deep). Credits are read-only from the
+  // backend; the app never sells anything in-app.
+  const { data: sub } = useSubscriptionStatus();
+  const [chooserVisible, setChooserVisible] = useState(false);
+  const [recommendDeep, setRecommendDeep] = useState(false);
+  const [creditsExhausted, setCreditsExhausted] = useState(false);
+  const pendingHintRef = useRef<CoarseClassification | null>(null);
+  const deepRemaining = creditsExhausted ? 0 : (sub?.deepScan.remaining ?? 0);
+
   const currentStep = ANGLE_STEPS[stepIndex];
   const isLastStep = stepIndex === ANGLE_STEPS.length - 1;
 
@@ -187,13 +209,26 @@ export default function CaptureScreen() {
     capturedImages.some((c) => c.angle === s.key),
   );
 
-  async function handleAnalyze() {
+  // Tapping "Analyze" first opens the scan-type chooser. We compute the
+  // on-device hint now so we can smart-recommend Deep Scan for likely-valuable
+  // items, and reuse it for the actual scan.
+  async function openScanChooser() {
+    const frontImage = capturedImages.find((c) => c.angle === "front");
+    try {
+      pendingHintRef.current = frontImage ? await classifyCoarse(frontImage.processedUri) : null;
+    } catch {
+      pendingHintRef.current = null;
+    }
+    setRecommendDeep(isHighValueHint(pendingHintRef.current));
+    setChooserVisible(true);
+  }
+
+  async function handleAnalyze(scanType: ScanType) {
+    setChooserVisible(false);
     setIsAnalyzing(true);
     try {
       const location = await getPreciseLocation();
-
-      const frontImage = capturedImages.find((c) => c.angle === "front");
-      const onDeviceHint = frontImage ? await classifyCoarse(frontImage.processedUri) : null;
+      const onDeviceHint = pendingHintRef.current;
 
       const scanId = await createScan({ specimenCategory: null, location });
 
@@ -206,14 +241,21 @@ export default function CaptureScreen() {
         await uploadScanImage(scanId, { ...image, processedUri: segmented.uri });
       }
 
-      const result = await runOrchestration(scanId, onDeviceHint);
+      const result = await runOrchestration(scanId, onDeviceHint, scanType);
       router.replace({
         pathname: "/(app)/scan/results",
         params: { scanId: result.scanId },
       });
     } catch (err) {
-      setRetakeReason((err as Error).message);
       setIsAnalyzing(false);
+      // Deep Scan credits ran out server-side → reopen the chooser showing 0
+      // credits so the user can run a Standard Scan or buy more on the website.
+      if (err instanceof OrchestrationError && err.code === "deep_credits_exhausted") {
+        setCreditsExhausted(true);
+        setChooserVisible(true);
+      } else {
+        setRetakeReason((err as Error).message);
+      }
     }
   }
 
@@ -286,11 +328,19 @@ export default function CaptureScreen() {
         </Text>
 
         {requiredStepsDone && (
-          <Pressable style={styles.analyzeButton} onPress={handleAnalyze}>
+          <Pressable style={styles.analyzeButton} onPress={openScanChooser}>
             <Text style={styles.primaryButtonText}>{L("Analyze Specimen", "Baar Shayga")}</Text>
           </Pressable>
         )}
       </ScrollView>
+
+      <ScanTypeChooser
+        visible={chooserVisible}
+        remaining={deepRemaining}
+        recommendDeep={recommendDeep}
+        onChoose={handleAnalyze}
+        onClose={() => setChooserVisible(false)}
+      />
     </View>
   );
 }

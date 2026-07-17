@@ -1,16 +1,30 @@
 // Shared entitlement derivation, used by verify-subscription (so the app can
-// display what's unlocked) AND orchestrate-scan (so scan-time enforcement of
-// daily limits / ensemble access is server-side, not just a UI hint). Single
-// source of truth for "what does each tier unlock" — see 05-Monetization-
-// Legal-Payments.md for the pricing this maps to.
+// display what's unlocked) AND orchestrate-scan (so scan-time enforcement is
+// server-side, not just a UI hint). Single source of truth for "what does each
+// tier unlock" — see 05-Monetization-Legal-Payments.md for the pricing.
+//
+// COST MODEL (why this shape):
+//   - Standard Scan  = ONE cost-efficient AI model (Gemini). Cheap → allowed
+//     generously, capped only to stop abuse (standardScanDailyLimit).
+//   - Deep Scan      = the full 3-AI ensemble (Gemini + OpenAI + Claude). This
+//     is the expensive path, so it is METERED with credits, never unlimited.
+//       * deepScanAllowance = Deep Scans included per subscription period.
+//       * beyond that, users spend PURCHASED credits (deep_scan_credits table).
+//   There is intentionally NO "ensembleScans: true" flag any more — nothing
+//   grants unlimited ensemble access.
 export type SubscriptionFeatures = {
-  dailyScanLimit: number | null;
-  ensembleScans: boolean;
+  standardScanDailyLimit: number | null; // null = unlimited (abuse guard only)
+  deepScanAllowance: number; // included Deep Scans per subscription period
   askAGemologist: boolean;
   inventoryManagement: boolean;
   pdfReports: boolean;
   batchScanning: boolean;
 };
+
+// Practically-unlimited Deep Scan allowance for owner/operator accounts (still
+// tracked in scan_usage, just never blocked). Kept finite so all the counting
+// code paths stay identical.
+export const OWNER_DEEP_SCAN_ALLOWANCE = 1_000_000;
 
 // Owner / admin accounts. These are the app operators' OWN accounts: always
 // fully entitled ("professional"), never billed, and never expiring. The grant
@@ -40,20 +54,20 @@ export function resolveEffectiveTier(
 
 export function featuresForTier(tier: string): SubscriptionFeatures {
   switch (tier) {
-    case "professional":
+    case "professional": // Gem Collector — $14.99 / 6 months
       return {
-        dailyScanLimit: null, // unlimited
-        ensembleScans: true,
+        standardScanDailyLimit: 100, // generous; abuse guard only
+        deepScanAllowance: 50, // included Deep Scans per period
         askAGemologist: true,
         inventoryManagement: true,
         pdfReports: true,
         batchScanning: true,
       };
     case "lifetime":
-    case "premium":
+    case "premium": // Explorer — $4.99 / 6 months
       return {
-        dailyScanLimit: null,
-        ensembleScans: true,
+        standardScanDailyLimit: 30,
+        deepScanAllowance: 10,
         askAGemologist: true,
         inventoryManagement: false,
         pdfReports: false,
@@ -62,12 +76,25 @@ export function featuresForTier(tier: string): SubscriptionFeatures {
     case "free":
     default:
       return {
-        dailyScanLimit: 5,
-        ensembleScans: false,
+        standardScanDailyLimit: 5, // 5 Standard scans/day
+        deepScanAllowance: 0, // no included Deep Scans (can buy credits)
         askAGemologist: false,
         inventoryManagement: false,
         pdfReports: false,
         batchScanning: false,
       };
   }
+}
+
+/**
+ * Deep Scan allowance for a caller, applying the owner override. Owners are
+ * effectively unlimited (still logged), everyone else gets their tier's
+ * included allowance.
+ */
+export function deepScanAllowanceFor(
+  email: string | null | undefined,
+  tier: string,
+): number {
+  if (isOwnerEmail(email)) return OWNER_DEEP_SCAN_ALLOWANCE;
+  return featuresForTier(tier).deepScanAllowance;
 }
