@@ -1,5 +1,5 @@
 === GemScan Payments ===
-Version: 1.8.0
+Version: 1.9.0
 Requires: WordPress 5.5+
 License: GPL-2.0+
 
@@ -56,7 +56,7 @@ a member's account after payment. It does NOT touch the mobile app.
   switcher at the top toggles to English.
 
 == Changelog ==
-= 1.8.0 =
+= 1.9.0 =
 * Monetization sync with the app's Deep Scan credit model:
   - Subscriptions billed per 6 MONTHS (was per year). Explorer $4.99, Gem
     Collector $14.99. Activation sets a 6-month period.

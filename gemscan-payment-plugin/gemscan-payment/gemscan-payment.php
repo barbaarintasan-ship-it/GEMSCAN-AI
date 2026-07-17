@@ -3,7 +3,7 @@
  * Plugin Name: GemScan Payments
  * Plugin URI:  https://barbaarintasan.com/gemscanpayment
  * Description: GemScan landing + pricing + payment page, and the bridge that upgrades a member's account after payment. Adds the [gemscan_payment] shortcode. Configure everything under Settings → GemScan.
- * Version:     1.8.0
+ * Version:     1.9.0
  * Author:      GemScan
  * License:     GPL-2.0+
  * Text Domain: gemscan-payment
@@ -14,8 +14,32 @@ if (!defined('ABSPATH')) {
 }
 
 define('GEMSCAN_OPT', 'gemscan_payment_options');
-define('GEMSCAN_VER', '1.8.0');
+define('GEMSCAN_VER', '1.9.0');
 define('GEMSCAN_TPL', 'gemscan-fullpage.php'); // standalone page template slug
+define('GEMSCAN_URL', plugin_dir_url(__FILE__));
+define('GEMSCAN_DIR', plugin_dir_path(__FILE__));
+
+/* -------------------------------------------------------------------------
+ * Business analytics & accounting dashboard (modular, additive — does not
+ * change the payment page or any existing behaviour).
+ * ---------------------------------------------------------------------- */
+require_once GEMSCAN_DIR . 'includes/class-gemscan-data.php';
+require_once GEMSCAN_DIR . 'includes/class-gemscan-analytics-admin.php';
+
+add_action('plugins_loaded', array('GemScan_Data', 'maybe_install'));
+add_action('plugins_loaded', array('GemScan_Analytics_Admin', 'init'));
+add_action('gemscan_refresh_analytics', array('GemScan_Data', 'cron_refresh'));
+add_action('init', function () {
+    if (!wp_next_scheduled('gemscan_refresh_analytics')) {
+        wp_schedule_event(time() + 300, 'hourly', 'gemscan_refresh_analytics');
+    }
+});
+register_deactivation_hook(__FILE__, function () {
+    $ts = wp_next_scheduled('gemscan_refresh_analytics');
+    if ($ts) {
+        wp_unschedule_event($ts, 'gemscan_refresh_analytics');
+    }
+});
 
 /* -------------------------------------------------------------------------
  * Full-page template — renders ONLY the GemScan page, with no theme header or
@@ -346,6 +370,18 @@ function gemscan_settings_page() {
         $method = isset($_POST['act_method']) ? sanitize_text_field(wp_unslash($_POST['act_method'])) : '';
         $r = gemscan_activate($o, $email, $plan, $method);
         $activation_notice = '<div class="notice ' . ($r['ok'] ? 'notice-success' : 'notice-error') . '"><p>' . esc_html($r['msg']) . '</p></div>';
+        // Record subscription revenue for the business dashboard.
+        if ($r['ok'] && class_exists('GemScan_Data')) {
+            $amt = (strtolower($plan) === 'gem collector') ? $o['collector_price'] : $o['explorer_price'];
+            GemScan_Data::record_revenue(array(
+                'email'    => $email,
+                'type'     => 'subscription',
+                'plan'     => $plan,
+                'amount'   => $amt,
+                'currency' => $o['currency'],
+                'method'   => $method,
+            ));
+        }
     }
 
     // Handle the "add Deep Scan credits" admin tool.
@@ -358,6 +394,25 @@ function gemscan_settings_page() {
         }
         $r = gemscan_add_credits($o, $cemail, $ccredits);
         $activation_notice .= '<div class="notice ' . ($r['ok'] ? 'notice-success' : 'notice-error') . '"><p>' . esc_html($r['msg']) . '</p></div>';
+        // Record credit-pack revenue for the business dashboard (price by pack size).
+        if ($r['ok'] && class_exists('GemScan_Data')) {
+            $amt = 0;
+            if ((int) $ccredits === (int) $o['pack5_credits']) {
+                $amt = $o['pack5_price'];
+            } elseif ((int) $ccredits === (int) $o['pack30_credits']) {
+                $amt = $o['pack30_price'];
+            } elseif ((int) $ccredits === (int) $o['pack100_credits']) {
+                $amt = $o['pack100_price'];
+            }
+            GemScan_Data::record_revenue(array(
+                'email'    => $cemail,
+                'type'     => 'credit',
+                'plan'     => $ccredits . ' Deep Scan credits',
+                'credits'  => $ccredits,
+                'amount'   => $amt,
+                'currency' => $o['currency'],
+            ));
+        }
     }
 
     $fields = array(
