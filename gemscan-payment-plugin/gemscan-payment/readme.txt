@@ -1,5 +1,5 @@
 === GemScan Payments ===
-Version: 1.9.0
+Version: 1.9.1
 Requires: WordPress 5.5+
 License: GPL-2.0+
 
@@ -56,6 +56,15 @@ a member's account after payment. It does NOT touch the mobile app.
   switcher at the top toggles to English.
 
 == Changelog ==
+= 1.9.1 =
+* Deep Scan Credits section split into two clearly-labelled ways to buy:
+  "Buy with Card (Stripe)" and "Buy with Mobile Money" (EVC Plus / Zaad /
+  Sahal / eDahab). Each of the 3 packs now has its own mobile-money buy
+  button that opens the pay section with the pack amount already filled into
+  the USSD dial code, plus a receipt form that adds the credits after you
+  confirm. The confirmation email routes credit purchases to the "Add Deep
+  Scan credits" tool (subscriptions still go to "Activate an account").
+
 = 1.9.0 =
 * Monetization sync with the app's Deep Scan credit model:
   - Subscriptions billed per 6 MONTHS (was per year). Explorer $4.99, Gem

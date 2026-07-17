@@ -38,6 +38,7 @@
         var stripePlan = document.getElementById("gs-stripe-plan");
         var stripeEmail = document.getElementById("gs-stripe-email");
         var stripeForm = document.querySelector(".gs-stripe-form");
+        var cardGroup = document.getElementById("gs-card-group");
 
         function appendEmail(url, email) {
             if (!url) return "#";
@@ -52,7 +53,12 @@
             btn.addEventListener("click", function () {
                 var plan = btn.getAttribute("data-plan");
                 var price = btn.getAttribute("data-price") || "";
+                var mode = btn.getAttribute("data-mode") || "";
                 var email = emailMain ? emailMain.value.trim() : "";
+
+                // Credit packs are bought by mobile money here (card has its own
+                // direct link on the pack), so hide the card group for mode="momo".
+                if (cardGroup) cardGroup.style.display = (mode === "momo") ? "none" : "";
 
                 if (payPlanLabel) payPlanLabel.textContent = plan;
                 if (formPlan) formPlan.value = plan;

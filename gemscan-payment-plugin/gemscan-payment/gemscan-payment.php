@@ -3,7 +3,7 @@
  * Plugin Name: GemScan Payments
  * Plugin URI:  https://barbaarintasan.com/gemscanpayment
  * Description: GemScan landing + pricing + payment page, and the bridge that upgrades a member's account after payment. Adds the [gemscan_payment] shortcode. Configure everything under Settings → GemScan.
- * Version:     1.9.0
+ * Version:     1.9.1
  * Author:      GemScan
  * License:     GPL-2.0+
  * Text Domain: gemscan-payment
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
 }
 
 define('GEMSCAN_OPT', 'gemscan_payment_options');
-define('GEMSCAN_VER', '1.9.0');
+define('GEMSCAN_VER', '1.9.1');
 define('GEMSCAN_TPL', 'gemscan-fullpage.php'); // standalone page template slug
 define('GEMSCAN_URL', plugin_dir_url(__FILE__));
 define('GEMSCAN_DIR', plugin_dir_path(__FILE__));
@@ -604,21 +604,28 @@ function gemscan_maybe_handle_form($o) {
     // account the moment they have verified the payment — one click from email.
     $admin_link = admin_url('options-general.php?page=gemscan-payment');
 
-    $subject = 'GemScan payment — ' . $plan . ' — ' . $email;
+    // Credit-pack purchases go to the "Add Deep Scan credits" tool; subscription
+    // payments go to "Activate an account". Both live on the same settings page.
+    $is_credit = (stripos($plan, 'credit') !== false);
+    $cta_text  = $is_credit ? 'Add credits to this account →' : 'Verify &amp; open this account →';
+    $guidance  = $is_credit
+        ? 'After verifying the payment, use the button above (Settings → GemScan → “Add Deep Scan credits”), enter <strong>' . esc_html($email) . '</strong> and choose the matching pack, then click Add.'
+        : 'After verifying the payment, use the button above (Settings → GemScan → Activate an account), enter <strong>' . esc_html($email) . '</strong> and the plan, then click Activate now.';
+
+    $subject = 'GemScan ' . ($is_credit ? 'credits' : 'payment') . ' — ' . $plan . ' — ' . $email;
     $body = '<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:15px;color:#1c1c1e;line-height:1.6">'
-          . '<h2 style="margin:0 0 12px">💎 New GemScan payment confirmation</h2>'
+          . '<h2 style="margin:0 0 12px">💎 New GemScan ' . ($is_credit ? 'Deep Scan credit' : 'payment') . ' confirmation</h2>'
           . '<table cellpadding="6" style="border-collapse:collapse;font-size:15px">'
           . '<tr><td><strong>Name</strong></td><td>' . esc_html($name) . '</td></tr>'
           . '<tr><td><strong>Email</strong></td><td>' . esc_html($email) . '</td></tr>'
-          . '<tr><td><strong>Plan</strong></td><td>' . esc_html($plan) . '</td></tr>'
+          . '<tr><td><strong>' . ($is_credit ? 'Credit pack' : 'Plan') . '</strong></td><td>' . esc_html($plan) . '</td></tr>'
           . '<tr><td><strong>Transaction ID</strong></td><td>' . esc_html($txn) . '</td></tr>'
           . '<tr><td><strong>Paid with</strong></td><td>' . esc_html($note) . '</td></tr>'
           . '</table>'
           . '<p style="margin:18px 0"><a href="' . esc_url($admin_link) . '" '
           . 'style="display:inline-block;background:#c9a227;color:#0b0b0c;text-decoration:none;'
-          . 'font-weight:800;padding:12px 22px;border-radius:8px">Verify &amp; open this account →</a></p>'
-          . '<p style="color:#555;font-size:13px">After verifying the payment, use the button above (Settings → GemScan → Activate an account), '
-          . 'enter <strong>' . esc_html($email) . '</strong> and the plan, then click Activate now.</p>'
+          . 'font-weight:800;padding:12px 22px;border-radius:8px">' . $cta_text . '</a></p>'
+          . '<p style="color:#555;font-size:13px">' . $guidance . '</p>'
           . '<p style="color:#888;font-size:12px">' . esc_url($admin_link) . '</p>'
           . '</div>';
     $headers = array('Content-Type: text/html; charset=UTF-8');
@@ -729,44 +736,69 @@ function gemscan_render() {
         <section class="gs-credit-packs">
             <h3>➕ <?php echo gs_t('Deep Scan Credits', 'Credits Deep Scan'); ?></h3>
             <p class="gs-credits-sub"><?php echo gs_t('Out of Deep Scans? Buy more anytime — purchased credits roll over.', 'Deep Scan ma dhammaatay? Waqti kasta iibso — credits-ka la iibsado way sii jiraan.'); ?></p>
-            <div class="gs-packs">
-                <?php
-                $gs_packs = array(
-                    array('c' => (int) $o['pack5_credits'],   'p' => $o['pack5_price'],   'link' => $o['stripe_link_pack5']),
-                    array('c' => (int) $o['pack30_credits'],  'p' => $o['pack30_price'],  'link' => $o['stripe_link_pack30']),
-                    array('c' => (int) $o['pack100_credits'], 'p' => $o['pack100_price'], 'link' => $o['stripe_link_pack100']),
-                );
-                foreach ($gs_packs as $gs_pk) {
-                    echo '<div class="gs-pack">'
-                       . '<div class="gs-pack-credits">' . esc_html($gs_pk['c']) . ' <span class="gs-i18n" data-en="Deep Scans" data-so="Deep Scan">Deep Scan</span></div>'
-                       . '<div class="gs-pack-price">' . esc_html($cur) . ' ' . esc_html($gs_pk['p']) . '</div>';
-                    if ($gs_pk['link']) {
-                        echo '<a class="gs-pack-buy" href="' . esc_url($gs_pk['link']) . '" target="_blank" rel="noopener">'
-                           . '<span class="gs-i18n" data-en="Buy with card" data-so="Iibso card">Iibso card</span></a>';
-                    } else {
-                        echo '<span class="gs-pack-mm"><span class="gs-i18n" data-en="Pay via mobile money below" data-so="Ku bixi mobile money hoose">Ku bixi mobile money hoose</span></span>';
-                    }
-                    echo '</div>';
-                }
-                ?>
+            <?php
+            $gs_packs = array(
+                array('c' => (int) $o['pack5_credits'],   'p' => $o['pack5_price'],   'link' => $o['stripe_link_pack5']),
+                array('c' => (int) $o['pack30_credits'],  'p' => $o['pack30_price'],  'link' => $o['stripe_link_pack30']),
+                array('c' => (int) $o['pack100_credits'], 'p' => $o['pack100_price'], 'link' => $o['stripe_link_pack100']),
+            );
+            $gs_has_momo = ($o['evc_number'] || $o['edahab_number'] || $o['zaad_number'] || $o['sahal_number']);
+            ?>
+
+            <!-- Card (Stripe) — its own clearly-labelled block. -->
+            <div class="gs-buy-block gs-buy-block-card">
+                <h4 class="gs-buy-head">💳 <span class="gs-i18n" data-en="Buy with Card (Stripe)" data-so="Ku iibso Card (Stripe)">Ku iibso Card (Stripe)</span></h4>
+                <div class="gs-packs">
+                    <?php foreach ($gs_packs as $gs_pk) {
+                        echo '<div class="gs-pack">'
+                           . '<div class="gs-pack-credits">' . esc_html($gs_pk['c']) . ' <span class="gs-i18n" data-en="Deep Scans" data-so="Deep Scan">Deep Scan</span></div>'
+                           . '<div class="gs-pack-price">' . esc_html($cur) . ' ' . esc_html($gs_pk['p']) . '</div>';
+                        if ($gs_pk['link']) {
+                            echo '<a class="gs-pack-buy" href="' . esc_url($gs_pk['link']) . '" target="_blank" rel="noopener">'
+                               . '<span class="gs-i18n" data-en="Buy with card" data-so="Iibso card">Iibso card</span></a>';
+                        } else {
+                            echo '<span class="gs-pack-soon"><span class="gs-i18n" data-en="Card link not set" data-so="Card lama dejin">Card lama dejin</span></span>';
+                        }
+                        echo '</div>';
+                    } ?>
+                </div>
             </div>
-            <p class="gs-credits-note"><?php echo gs_t(
-                'Paying for credits by mobile money? Send the exact pack amount, then submit your receipt in the form below — we add your Deep Scan credits after we confirm it.',
-                'Credits mobile money ku bixinaya? Dir qiimaha saxda ah ee xirmada, ka dibna foomka hoose ku soo gudbi rasiidka — credits-ka Deep Scan ayaan kuu darnaa marka aan xaqiijino.'
-            ); ?></p>
+
+            <?php if ($gs_has_momo) : ?>
+            <!-- Mobile money — its own clearly-labelled block; each pack reveals the
+                 pay section below with the pack amount already filled into the USSD code. -->
+            <div class="gs-buy-block gs-buy-block-momo">
+                <h4 class="gs-buy-head">📱 <span class="gs-i18n" data-en="Buy with Mobile Money" data-so="Ku iibso Mobile Money">Ku iibso Mobile Money</span>
+                    <span class="gs-buy-head-sub">EVC Plus / Zaad / Sahal / eDahab</span></h4>
+                <div class="gs-packs">
+                    <?php foreach ($gs_packs as $gs_pk) {
+                        echo '<div class="gs-pack">'
+                           . '<div class="gs-pack-credits">' . esc_html($gs_pk['c']) . ' <span class="gs-i18n" data-en="Deep Scans" data-so="Deep Scan">Deep Scan</span></div>'
+                           . '<div class="gs-pack-price">' . esc_html($cur) . ' ' . esc_html($gs_pk['p']) . '</div>'
+                           . '<button type="button" class="gs-pack-buy gs-pack-buy-momo gs-buy" data-mode="momo" data-plan="' . esc_attr($gs_pk['c'] . ' Deep Scan credits') . '" data-price="' . esc_attr($gs_pk['p']) . '">'
+                           . '<span class="gs-i18n" data-en="Buy with mobile money" data-so="Iibso mobile money">Iibso mobile money</span></button>'
+                           . '</div>';
+                    } ?>
+                </div>
+                <p class="gs-credits-note"><?php echo gs_t(
+                    'Pick a pack — the pay code below fills in the exact amount. After paying, submit your receipt in the form and we add your Deep Scan credits once confirmed.',
+                    'Xirmo dooro — koodhka lacag-bixinta ee hoose wuxuu buuxiyaa qiimaha saxda ah. Ka dib markaad bixiso, foomka ku soo gudbi rasiidka, credits-kana waan kuu darnaa marka la xaqiijiyo.'
+                ); ?></p>
+            </div>
+            <?php endif; ?>
         </section>
 
         <section class="gs-pay" id="gs-pay" style="display:none;">
             <h2><?php echo gs_t('Complete your payment', 'Dhammaystir lacag-bixinta'); ?> — <span id="gs-pay-plan"></span></h2>
 
             <?php if ($o['stripe_link_explorer'] || $o['stripe_link_collector']) : ?>
-            <div class="gs-pay-group">
+            <div class="gs-pay-group" id="gs-card-group">
                 <h4><?php echo gs_t('International (card)', 'Caalami (card)'); ?></h4>
                 <a class="gs-pay-btn gs-stripe" id="gs-stripe" href="#" target="_blank" rel="noopener">💳 <?php echo gs_t('Pay with Card (Stripe)', 'Ku bixi Card (Stripe)'); ?></a>
                 <p class="gs-momo-hint"><?php echo gs_t('You will be redirected to Stripe to pay securely by card.', 'Waxaa lagu gudbin doonaa Stripe si aad card ammaan ugu bixiso.'); ?></p>
             </div>
             <?php elseif ($o['stripe_pk'] && $o['stripe_sk']) : ?>
-            <div class="gs-pay-group">
+            <div class="gs-pay-group" id="gs-card-group">
                 <h4><?php echo gs_t('International (card)', 'Caalami (card)'); ?></h4>
                 <form method="post" class="gs-stripe-form">
                     <?php wp_nonce_field('gemscan_stripe', 'gemscan_stripe_nonce'); ?>
