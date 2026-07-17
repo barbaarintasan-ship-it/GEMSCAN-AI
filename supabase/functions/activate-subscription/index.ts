@@ -69,6 +69,24 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Grant purchased Deep Scan credits (website credit-pack purchase). These
+    // are separate from the subscription allowance and roll over; the atomic,
+    // server-only add_deep_scan_credits() RPC (migration 0005) does the upsert.
+    if (action === "add_credits") {
+      const credits = Math.floor(Number(body.credits ?? 0));
+      if (!credits || credits <= 0) {
+        return json({ error: "credits must be a positive integer" }, 400);
+      }
+      const { data: p } = await admin.from("profiles").select("id").eq("email", email).maybeSingle();
+      if (!p) return json({ error: "no account found with that email" }, 404);
+      const { data: newBalance, error: creditErr } = await admin.rpc("add_deep_scan_credits", {
+        p_user_id: p.id,
+        p_credits: credits,
+      });
+      if (creditErr) return json({ error: creditErr.message }, 500);
+      return json({ success: true, email, creditsAdded: credits, purchasedBalance: newBalance });
+    }
+
     const planKey = String(body.plan ?? "").trim().toLowerCase();
     const months = Number(body.months ?? 12) || 12;
     const method = String(body.method ?? "").trim();

@@ -11,10 +11,10 @@ import {
   resolveEffectiveTier,
 } from "./entitlements.ts";
 
-Deno.test("featuresForTier: professional (Gem Collector) — 50 Deep Scans, no unlimited ensemble", () => {
+Deno.test("featuresForTier: professional (Gem Collector) — 100 Deep Scans, no unlimited ensemble", () => {
   const features = featuresForTier("professional");
   assertEquals(features.standardScanDailyLimit, 100);
-  assertEquals(features.deepScanAllowance, 50);
+  assertEquals(features.deepScanAllowance, 100);
   assertEquals(features.askAGemologist, true);
   assertEquals(features.inventoryManagement, true);
   assertEquals(features.pdfReports, true);
@@ -23,10 +23,10 @@ Deno.test("featuresForTier: professional (Gem Collector) — 50 Deep Scans, no u
   assertEquals((features as Record<string, unknown>).ensembleScans, undefined);
 });
 
-Deno.test("featuresForTier: premium (Explorer) — 10 Deep Scans", () => {
+Deno.test("featuresForTier: premium (Explorer) — 20 Deep Scans", () => {
   const features = featuresForTier("premium");
   assertEquals(features.standardScanDailyLimit, 30);
-  assertEquals(features.deepScanAllowance, 10);
+  assertEquals(features.deepScanAllowance, 20);
   assertEquals(features.inventoryManagement, false);
 });
 
@@ -53,8 +53,8 @@ Deno.test("featuresForTier: empty string tier falls back to free (fail-closed)",
 
 Deno.test("deepScanAllowanceFor: owner is effectively unlimited; others get their tier allowance", () => {
   assertEquals(deepScanAllowanceFor("awmusse.musse@gmail.com", "professional"), OWNER_DEEP_SCAN_ALLOWANCE);
-  assertEquals(deepScanAllowanceFor("user@example.com", "professional"), 50);
-  assertEquals(deepScanAllowanceFor("user@example.com", "premium"), 10);
+  assertEquals(deepScanAllowanceFor("user@example.com", "professional"), 100);
+  assertEquals(deepScanAllowanceFor("user@example.com", "premium"), 20);
   assertEquals(deepScanAllowanceFor("user@example.com", "free"), 0);
 });
 

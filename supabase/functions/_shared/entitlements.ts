@@ -57,7 +57,7 @@ export function featuresForTier(tier: string): SubscriptionFeatures {
     case "professional": // Gem Collector — $14.99 / 6 months
       return {
         standardScanDailyLimit: 100, // generous; abuse guard only
-        deepScanAllowance: 50, // included Deep Scans per period
+        deepScanAllowance: 100, // included Deep Scans per 6-month period
         askAGemologist: true,
         inventoryManagement: true,
         pdfReports: true,
@@ -67,7 +67,7 @@ export function featuresForTier(tier: string): SubscriptionFeatures {
     case "premium": // Explorer — $4.99 / 6 months
       return {
         standardScanDailyLimit: 30,
-        deepScanAllowance: 10,
+        deepScanAllowance: 20,
         askAGemologist: true,
         inventoryManagement: false,
         pdfReports: false,
