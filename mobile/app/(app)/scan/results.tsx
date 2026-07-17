@@ -376,25 +376,44 @@ export default function ResultsScreen() {
         // App Store Guideline 3.1.1).
         <View style={styles.pdfLockedCard}>
           <View style={styles.pdfLockedHeader}>
-            <Ionicons name="lock-closed" size={15} color="#C9A227" />
-            <Text style={styles.pdfLockedTitle}>{L("Professional PDF Report", "Warbixin PDF Xirfadeed")}</Text>
+            <Ionicons name="ribbon" size={16} color="#C9A227" />
+            <Text style={styles.pdfLockedTitle}>
+              {L("Get a Deep Scan & Verification Certificate (PDF)", "Baaritaan Qoto Dheer iyo Shahaado Caddayn ah (PDF) hel")}
+            </Text>
             <View style={styles.proTag}>
               <Text style={styles.proTagText}>PRO</Text>
             </View>
           </View>
+
           <Text style={styles.body}>
             {L(
-              "Generate a branded, shareable PDF report of this identification — available on GemScan Pro (Gem Collector).",
-              "Samee warbixin PDF ah oo summad leh oo la wadaagi karo — waxaa lagu heli karaa GemScan Pro (Gem Collector).",
+              "A branded, professional PDF you can share with a buyer or for insurance:",
+              "Warbixin PDF xirfadeed oo summadaysan oo aad la wadaagi karto iibsade ama caymis:",
             )}
           </Text>
+          {[
+            L("Identification + confidence level", "Aqoonsi + heerka kalsoonida"),
+            L("Market value & alternative matches", "Qiimaha suuqa & ikhtiyaarro kale"),
+            L("Hallmark details & AI analysis", "Faahfaahin hallmark & falanqayn AI"),
+            L("Download, print & share anywhere", "Soo deji, daabac & wadaag meel kasta"),
+          ].map((b) => (
+            <Text key={b} style={styles.pdfSellBullet}>✓ {b}</Text>
+          ))}
+
+          <View style={styles.pdfPriceRow}>
+            <Text style={styles.pdfPrice}>USD 14.99</Text>
+            <Text style={styles.pdfPriceUnit}>{L("/ year", "/ sannadkii")}</Text>
+          </View>
+
           <Pressable
             style={styles.pdfUpgradeButton}
             onPress={() => Linking.openURL(PAYMENT_URL)}
             accessibilityRole="link"
-            accessibilityLabel={L("Open GemScan pricing page", "Fur bogga qiimaha GemScan")}
+            accessibilityLabel={L("Buy the Professional (Gem Collector) plan", "Iibso xirmada Professional (Gem Collector)")}
           >
-            <Text style={styles.pdfUpgradeText}>{L("Upgrade to Pro", "U kordhi Pro")}</Text>
+            <Text style={styles.pdfUpgradeText}>
+              {L("Buy Professional (Gem Collector)", "Iibso Xirmada Professional (Gem Collector)")}
+            </Text>
           </Pressable>
         </View>
       ) : null}
@@ -646,15 +665,19 @@ const styles = StyleSheet.create({
   pdfButtonText: { color: "#C9A227", fontWeight: "800", fontSize: 15 },
   pdfLockedCard: {
     marginTop: 8,
-    backgroundColor: "#161618",
+    backgroundColor: "rgba(201,162,39,0.10)",
     borderWidth: 1,
-    borderColor: "#2A2A2C",
+    borderColor: "#C9A227",
     borderRadius: 14,
-    padding: 14,
+    padding: 16,
     gap: 8,
   },
   pdfLockedHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
-  pdfLockedTitle: { color: "#F5F1E8", fontWeight: "700", fontSize: 15, flex: 1 },
+  pdfLockedTitle: { color: "#F5F1E8", fontWeight: "800", fontSize: 16, flex: 1, lineHeight: 21 },
+  pdfSellBullet: { color: "#E8E2D2", fontSize: 13, lineHeight: 20 },
+  pdfPriceRow: { flexDirection: "row", alignItems: "flex-end", gap: 6, marginTop: 4 },
+  pdfPrice: { color: "#C9A227", fontSize: 26, fontWeight: "900" },
+  pdfPriceUnit: { color: "#8A8A8E", fontSize: 13, fontWeight: "700", marginBottom: 4 },
   proTag: {
     backgroundColor: "#C9A227",
     borderRadius: 6,
