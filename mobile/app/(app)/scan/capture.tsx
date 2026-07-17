@@ -222,7 +222,7 @@ export default function CaptureScreen() {
       <View style={styles.container}>
         <ActivityIndicator color="#C9A227" size="large" />
         <Text style={styles.body}>
-          {L("Identifying your specimen — this can take up to 30 seconds…", "Waa la aqoonsanayaa tusaalahaaga — waxay qaadan kartaa ilaa 30 ilbiriqsi…")}
+          {L("Identifying your stone — please wait, it may take up to 30 seconds…", "Waa la aqoonsanayaa dhagaxaaga — sug wax yar, waxay qaadan kartaa 30 ilbiriqsi…")}
         </Text>
       </View>
     );

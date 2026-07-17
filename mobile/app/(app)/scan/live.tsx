@@ -383,7 +383,7 @@ export default function LiveScanScreen() {
       <View style={styles.centered}>
         <ImageProcessorGL ref={imageProcessorRef} />
         <ActivityIndicator color="#C9A227" size="large" />
-        <Text style={styles.body}>{L("Identifying your specimen — up to 30 seconds…", "Waa la aqoonsanayaa tusaalahaaga — ilaa 30 ilbiriqsi…")}</Text>
+        <Text style={styles.body}>{L("Identifying your stone — please wait, it may take up to 30 seconds…", "Waa la aqoonsanayaa dhagaxaaga — sug wax yar, waxay qaadan kartaa 30 ilbiriqsi…")}</Text>
       </View>
     );
   }
