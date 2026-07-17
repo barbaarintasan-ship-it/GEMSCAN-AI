@@ -6,6 +6,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "../lib/auth";
 import { captureException, initMonitoring } from "../lib/monitoring";
+import UpdateGate from "../components/UpdateGate";
 import "../lib/i18n";
 
 const queryClient = new QueryClient();
@@ -77,6 +78,7 @@ export default function RootLayout() {
           <AuthProvider>
             <StatusBar style="light" />
             <Slot />
+            <UpdateGate />
           </AuthProvider>
         </QueryClientProvider>
       </SafeAreaProvider>

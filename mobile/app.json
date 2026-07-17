@@ -3,7 +3,7 @@
     "name": "GemScan",
     "slug": "gemestone",
     "owner": "gemestones-team",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "scheme": "gemscanai",
     "userInterfaceStyle": "dark",
     "orientation": "portrait",
