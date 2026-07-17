@@ -1,5 +1,5 @@
 === GemScan Accounting ===
-Version: 1.0.0
+Version: 1.1.0
 Requires at least: WordPress 5.5
 Requires PHP: 7.2
 License: GPL-2.0+
@@ -107,6 +107,10 @@ genuine later renewal creates a new record.
 - Hooks fired: `gsa_payment_recorded` ($id,$data) and `gsa_payment_synced`.
 
 == Changelog ==
+= 1.1.0 =
+* Auto-recorded activations now expire after 6 months (was 1 year), to match
+  the app's 6-month subscription period.
+
 = 1.0.0 =
 * Initial release: payments table, Salaam ledger, dashboard, reports,
   CSV/Excel/PDF/print exports, customer profiles, REST + action integration,
