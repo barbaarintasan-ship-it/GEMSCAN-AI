@@ -76,7 +76,7 @@ export function featuresForTier(tier: string): SubscriptionFeatures {
     case "free":
     default:
       return {
-        standardScanDailyLimit: 5, // 5 Standard scans/day
+        standardScanDailyLimit: 3, // 3 Standard scans/day
         deepScanAllowance: 0, // no included Deep Scans (can buy credits)
         askAGemologist: false,
         inventoryManagement: false,

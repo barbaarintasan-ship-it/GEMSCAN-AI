@@ -144,12 +144,12 @@ export default function RegisterScreen() {
         <Text style={styles.subtitle}>
           {EXTERNAL_PURCHASES_ENABLED
             ? L(
-                "Free accounts get 5 scans a day. Upgrade any time on our website.",
-                "Akoonnada bilaashka ah waxay helaan 5 baaris maalintii. Waqti kasta ka cusboonaysii website-kayaga.",
+                "Free accounts get 3 scans a day. Upgrade any time on our website.",
+                "Akoonnada bilaashka ah waxay helaan 3 baaris maalintii. Waqti kasta ka cusboonaysii website-kayaga.",
               )
             : L(
-                "Free accounts get 5 scans a day.",
-                "Akoonnada bilaashka ah waxay helaan 5 baaris maalintii.",
+                "Free accounts get 3 scans a day.",
+                "Akoonnada bilaashka ah waxay helaan 3 baaris maalintii.",
               )}
         </Text>
 
