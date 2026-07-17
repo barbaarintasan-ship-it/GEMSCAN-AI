@@ -1,0 +1,81 @@
+/* GemScan Accounting — admin styles. Scoped under .gsa-wrap. */
+.gsa-wrap .gsa-title { margin: 10px 0 4px; font-size: 22px; }
+.gsa-tabs { margin-bottom: 16px; }
+.gsa-muted { color: #8a8a8e; }
+
+/* Revenue / stat tiles */
+.gsa-tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 16px 0; }
+.gsa-tiles-3 { grid-template-columns: repeat(3, 1fr); }
+.gsa-tiles-2 { grid-template-columns: repeat(2, 1fr); max-width: 620px; }
+.gsa-tile {
+	background: #fff; border: 1px solid #e2ddd0; border-left: 4px solid #C9A227;
+	border-radius: 10px; padding: 14px 16px;
+}
+.gsa-tile-label { font-size: 12px; color: #6b6b6f; text-transform: uppercase; letter-spacing: .4px; }
+.gsa-tile-value { font-size: 22px; font-weight: 800; color: #1c1c1e; margin-top: 4px; }
+.gsa-tile-ok { border-left-color: #2E7D32; }
+.gsa-tile-warn { border-left-color: #E67E22; }
+.gsa-tile-primary { border-left-color: #635BFF; }
+
+.gsa-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 8px 0 20px; }
+.gsa-stat {
+	background: #fff; border: 1px solid #e2ddd0; border-radius: 10px; padding: 14px;
+	text-align: center;
+}
+.gsa-stat-num { display: block; font-size: 26px; font-weight: 800; color: #1c1c1e; }
+.gsa-stat-lbl { font-size: 12px; color: #6b6b6f; }
+.gsa-stat-ok .gsa-stat-num { color: #2E7D32; }
+.gsa-stat-warn .gsa-stat-num { color: #E67E22; }
+.gsa-stat-muted .gsa-stat-num { color: #8a8a8e; }
+
+/* Cards + grids */
+.gsa-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+.gsa-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 16px 0; }
+.gsa-card { background: #fff; border: 1px solid #e2ddd0; border-radius: 12px; padding: 16px; }
+.gsa-card h2, .gsa-card h3 { margin-top: 0; font-size: 15px; }
+
+.gsa-mini { width: 100%; border-collapse: collapse; }
+.gsa-mini td { padding: 6px 4px; border-bottom: 1px solid #f0efe9; font-size: 13px; }
+.gsa-mini .gsa-num { text-align: right; font-weight: 700; color: #6b571a; white-space: nowrap; }
+.gsa-mini .gsa-count { text-align: right; color: #8a8a8e; width: 40px; }
+
+/* Badges */
+.gsa-badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.gsa-badge-ok { background: #e7f5e9; color: #1d6b2a; }
+.gsa-badge-warn { background: #fff3d6; color: #7a5c00; }
+.gsa-badge-err { background: #fdeceb; color: #b3261e; }
+.gsa-badge-muted { background: #eee; color: #666; }
+
+/* Page head + forms */
+.gsa-page-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+.gsa-export-form { margin-left: auto; display: inline-flex; gap: 6px; }
+.gsa-filters select, .gsa-filters input { margin-right: 4px; }
+.gsa-form .form-table th { width: 220px; }
+.gsa-inline-fields { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.gsa-inline-fields label { display: flex; flex-direction: column; font-size: 12px; font-weight: 600; color: #4a4330; gap: 4px; }
+.gsa-inline-fields .gsa-grow { flex: 1; min-width: 200px; }
+.gsa-inline-fields input, .gsa-inline-fields select { min-width: 130px; }
+.gsa-subtabs { display: inline-flex; gap: 6px; }
+
+.gsa-code, pre.gsa-code {
+	background: #1c1c1e; color: #ffd76a; padding: 12px 14px; border-radius: 8px;
+	overflow-x: auto; font-size: 12px; line-height: 1.5;
+}
+.gsa-ledger-form { margin: 12px 0 18px; }
+
+canvas.gsa-chart { width: 100%; display: block; }
+
+/* Print — show only the report/table content cleanly. */
+@media print {
+	#adminmenumain, #wpadminbar, #wpfooter, .gsa-tabs, .gsa-no-print,
+	.gsa-page-head .button, .gsa-export-form { display: none !important; }
+	#wpcontent, #wpbody-content { margin: 0 !important; padding: 0 !important; }
+	.gsa-card, .gsa-tile { border: 1px solid #ccc; }
+	.gsa-title { color: #000; }
+	body { background: #fff; }
+}
+
+@media (max-width: 1100px) {
+	.gsa-tiles { grid-template-columns: repeat(2, 1fr); }
+	.gsa-grid-2, .gsa-grid-3, .gsa-stats { grid-template-columns: 1fr 1fr; }
+}
