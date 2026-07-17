@@ -1,5 +1,5 @@
 === GemScan Payments ===
-Version: 1.6.7
+Version: 1.8.0
 Requires: WordPress 5.5+
 License: GPL-2.0+
 
@@ -43,7 +43,9 @@ a member's account after payment. It does NOT touch the mobile app.
     so you can verify and open the account fast. Enter the member's email + plan
     and click Activate.
 - Both paths call the app backend (activate-subscription) to set the member's
-  subscription (Explorer → premium, Gem Collector → professional, +1 year).
+  subscription (Explorer → premium, Gem Collector → professional, +6 months).
+- Deep Scan credit packs: buyer pays (card link or mobile money), then you add
+  the credits with Settings → GemScan → "Add Deep Scan credits".
 
 == Notes ==
 - "Explorer" maps to the app's premium tier; "Gem Collector" to professional.
@@ -54,8 +56,22 @@ a member's account after payment. It does NOT touch the mobile app.
   switcher at the top toggles to English.
 
 == Changelog ==
-= 1.6.7 =
-* eDahab code set to *110*{national}*{amount}# (number without leading 0), amount uses a comma (4,99). Sahal *883*{number}*{amount}#. EVC/Zaad left blank.
+= 1.8.0 =
+* Monetization sync with the app's Deep Scan credit model:
+  - Subscriptions billed per 6 MONTHS (was per year). Explorer $4.99, Gem
+    Collector $14.99. Activation sets a 6-month period.
+  - Plan features updated: "Standard AI scans", Explorer = 20 Deep Scans /
+    6 months, Gem Collector = 100 Deep Scans / 6 months + Professional PDF
+    Reports. Removed all "unlimited" wording.
+  - Deep Scan credit packages: $0.99=5, $4.99=30, $9.99=100 (configurable;
+    match the Supabase credit_packages table).
+  - New admin tool "Add Deep Scan credits" → backend add_credits (grants
+    purchased credits via add_deep_scan_credits RPC).
+
+= 1.7.0 =
+* Free plan feature text updated: "3 scans per day" (was 5).
+* Per-line mobile money (EVC Plus / Zaad / Sahal / eDahab each with its own name,
+  number and USSD code): EVC *712*, Zaad *880*, Sahal *883*, eDahab *110*.
 
 = 1.6.4 =
 * USSD pay codes no longer include the amount inline — the customer enters the

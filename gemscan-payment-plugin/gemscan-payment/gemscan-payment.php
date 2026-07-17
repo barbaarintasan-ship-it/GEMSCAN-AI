@@ -3,7 +3,7 @@
  * Plugin Name: GemScan Payments
  * Plugin URI:  https://barbaarintasan.com/gemscanpayment
  * Description: GemScan landing + pricing + payment page, and the bridge that upgrades a member's account after payment. Adds the [gemscan_payment] shortcode. Configure everything under Settings → GemScan.
- * Version:     1.6.7
+ * Version:     1.8.0
  * Author:      GemScan
  * License:     GPL-2.0+
  * Text Domain: gemscan-payment
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
 }
 
 define('GEMSCAN_OPT', 'gemscan_payment_options');
-define('GEMSCAN_VER', '1.6.7');
+define('GEMSCAN_VER', '1.8.0');
 define('GEMSCAN_TPL', 'gemscan-fullpage.php'); // standalone page template slug
 
 /* -------------------------------------------------------------------------
@@ -46,36 +46,50 @@ add_filter('template_include', function ($template) {
 function gemscan_defaults() {
     return array(
         'currency'          => 'USD',
+        // Subscriptions are billed per 6-month period (matches the app entitlement).
         'explorer_price'    => '4.99',
         'collector_price'   => '14.99',
-        'credits_price'     => '0.99',
-        // Per-plan Stripe Payment Links (simplest — one link per plan).
+        // Deep Scan credit packages (must match the Supabase credit_packages
+        // table + the app: $0.99=5, $4.99=30, $9.99=100).
+        'pack5_credits'     => 5,
+        'pack5_price'       => '0.99',
+        'pack30_credits'    => 30,
+        'pack30_price'      => '4.99',
+        'pack100_credits'   => 100,
+        'pack100_price'     => '9.99',
+        // Per-plan Stripe Payment Links (simplest — one link per plan/pack).
         'stripe_link_explorer'  => 'https://buy.stripe.com/3cIbJ0dHw3Zo3Is5Pn4Vy04',
         'stripe_link_collector' => 'https://buy.stripe.com/3cIaEW9rg0Nc4MwdhP4Vy05',
-        'stripe_link_credits'   => 'https://buy.stripe.com/8x28wOeLA2VkfrafpX4Vy06',
+        'stripe_link_pack5'     => 'https://buy.stripe.com/8x28wOeLA2VkfrafpX4Vy06',
+        'stripe_link_pack30'    => '',
+        'stripe_link_pack100'   => '',
         // Advanced alternative: Stripe API keys (auto-activation). Used only if
         // no per-plan links are set above.
         'stripe_pk'         => '',
         'stripe_sk'         => '',
-        // Owner's mobile-money numbers. 0907790584 is a Golis number used for
-        // EVC Plus / Zaad / Sahal (grouped, shows the Sahal *883* code); eDahab is
-        // 0667790584. Override any of these under Settings → GemScan.
+        // Owner's mobile-money numbers. Each service is its OWN line on the page
+        // (EVC Plus, Zaad, Sahal, eDahab), with its own number + USSD code.
+        // Leave a number blank to hide that line. Editable under Settings → GemScan.
         'evc_number'        => '0907790584',
         'edahab_number'     => '0667790584',
         'zaad_number'       => '0907790584',
         'sahal_number'      => '0907790584',
+        // Editable display name for each mobile-money line (each shows on its
+        // own row with its own number + USSD code).
+        'evc_label'         => 'EVC Plus',
+        'zaad_label'        => 'Zaad',
+        'sahal_label'       => 'Sahal',
+        'edahab_label'      => 'eDahab',
         // Per-operator USSD "dial to pay" templates. Placeholders:
         //   {number}   = local number WITH leading 0 (e.g. 0907790584)
         //   {national} = local number WITHOUT leading 0 (e.g. 667790584)
         //   {amount}   = plan price with the decimal typed as * (e.g. 4*99 / 14*99)
         // Owner-verified: Sahal/Golis *883*{number}*{amount}# (e.g. *883*0907790584*4*99#)
         //                 eDahab      *110*{national}*{amount}# (e.g. *110*667790584*4*99#)
-        // EVC Plus / Zaad left blank — not used/confirmed here. If a number is shared
-        // by several services, the first service with a code wins; keeping EVC/Zaad
-        // blank makes a shared 090… (Golis) number correctly show the Sahal *883* code.
-        'ussd_evc'          => '',
+        // Each service uses its OWN code below (no sharing). Adjust per operator.
+        'ussd_evc'          => '*712*{national}*{amount}#',
         'ussd_edahab'       => '*110*{national}*{amount}#',
-        'ussd_zaad'         => '',
+        'ussd_zaad'         => '*880*{national}*{amount}#',
         'ussd_sahal'        => '*883*{number}*{amount}#',
         'notify_email'      => get_option('admin_email'),
         // Connection to the app's backend (for automatic account upgrade).
@@ -106,6 +120,7 @@ function gemscan_activate($o, $email, $plan, $method = '', $reference = '') {
             'plan'      => $plan,
             'method'    => $method,
             'reference' => $reference,
+            'months'    => 6, // plans are billed per 6-month period
         )),
     ));
     if (is_wp_error($res)) {
@@ -115,6 +130,42 @@ function gemscan_activate($o, $email, $plan, $method = '', $reference = '') {
     $data = json_decode(wp_remote_retrieve_body($res), true);
     if ($code === 200 && !empty($data['success'])) {
         return array('ok' => true, 'msg' => 'Activated ' . esc_html($email) . ' → ' . esc_html($data['tier']) . ' (until ' . esc_html(substr($data['expires'], 0, 10)) . ').');
+    }
+    return array('ok' => false, 'msg' => isset($data['error']) ? $data['error'] : ('HTTP ' . $code));
+}
+
+/* -------------------------------------------------------------------------
+ * Credits bridge — add purchased Deep Scan credits to an account by calling the
+ * backend (action=add_credits → add_deep_scan_credits RPC). Returns
+ * array('ok'=>bool, 'msg'=>string).
+ * ---------------------------------------------------------------------- */
+function gemscan_add_credits($o, $email, $credits) {
+    if (empty($o['functions_url']) || empty($o['activation_secret'])) {
+        return array('ok' => false, 'msg' => 'Set the Functions URL and Activation secret first.');
+    }
+    $credits = (int) $credits;
+    if ($credits <= 0) {
+        return array('ok' => false, 'msg' => 'Enter a positive number of credits.');
+    }
+    $url = rtrim($o['functions_url'], '/') . '/activate-subscription';
+    $res = wp_remote_post($url, array(
+        'timeout' => 20,
+        'headers' => array('Content-Type' => 'application/json'),
+        'body'    => wp_json_encode(array(
+            'secret'  => $o['activation_secret'],
+            'action'  => 'add_credits',
+            'email'   => $email,
+            'credits' => $credits,
+        )),
+    ));
+    if (is_wp_error($res)) {
+        return array('ok' => false, 'msg' => $res->get_error_message());
+    }
+    $code = wp_remote_retrieve_response_code($res);
+    $data = json_decode(wp_remote_retrieve_body($res), true);
+    if ($code === 200 && !empty($data['success'])) {
+        return array('ok' => true, 'msg' => 'Added ' . $credits . ' Deep Scan credits to ' . esc_html($email)
+            . ' (balance: ' . esc_html($data['purchasedBalance']) . ').');
     }
     return array('ok' => false, 'msg' => isset($data['error']) ? $data['error'] : ('HTTP ' . $code));
 }
@@ -297,24 +348,48 @@ function gemscan_settings_page() {
         $activation_notice = '<div class="notice ' . ($r['ok'] ? 'notice-success' : 'notice-error') . '"><p>' . esc_html($r['msg']) . '</p></div>';
     }
 
+    // Handle the "add Deep Scan credits" admin tool.
+    if (!empty($_POST['gemscan_do_credits']) && check_admin_referer('gemscan_add_credits_now')) {
+        $cemail   = isset($_POST['cr_email']) ? sanitize_email(wp_unslash($_POST['cr_email'])) : '';
+        $ccredits = isset($_POST['cr_credits']) ? (int) $_POST['cr_credits'] : 0;
+        // A pack dropdown fills the credits amount; a custom value overrides it.
+        if (isset($_POST['cr_pack']) && '' !== $_POST['cr_pack']) {
+            $ccredits = (int) $_POST['cr_pack'];
+        }
+        $r = gemscan_add_credits($o, $cemail, $ccredits);
+        $activation_notice .= '<div class="notice ' . ($r['ok'] ? 'notice-success' : 'notice-error') . '"><p>' . esc_html($r['msg']) . '</p></div>';
+    }
+
     $fields = array(
         'currency'          => 'Currency code (e.g. USD)',
-        'explorer_price'    => 'Explorer — yearly price',
-        'collector_price'   => 'Gem Collector — yearly price',
-        'credits_price'         => 'Extra credits — pack price',
+        'explorer_price'    => 'Explorer — price per 6 months',
+        'collector_price'   => 'Gem Collector — price per 6 months',
+        'pack5_price'       => 'Credit pack 1 — price (5 Deep Scans)',
+        'pack30_price'      => 'Credit pack 2 — price (30 Deep Scans)',
+        'pack100_price'     => 'Credit pack 3 — price (100 Deep Scans)',
         'stripe_link_explorer'  => 'Stripe Payment Link — Explorer',
         'stripe_link_collector' => 'Stripe Payment Link — Gem Collector',
-        'stripe_link_credits'   => 'Stripe Payment Link — Credits',
+        'stripe_link_pack5'     => 'Stripe Payment Link — 5 Deep Scans',
+        'stripe_link_pack30'    => 'Stripe Payment Link — 30 Deep Scans',
+        'stripe_link_pack100'   => 'Stripe Payment Link — 100 Deep Scans',
         'stripe_pk'             => 'Stripe Publishable Key (optional — only if not using links above)',
         'stripe_sk'             => 'Stripe Secret Key (optional — kept server-side, never shown)',
-        'evc_number'            => 'EVC Plus number',
-        'edahab_number'     => 'eDahab number',
-        'zaad_number'       => 'Zaad number',
-        'sahal_number'      => 'Sahal number',
-        'ussd_evc'          => 'USSD pay code — EVC Plus (e.g. *712*{number}*{amount}#). {number}=with 0, {national}=no 0, {amount}=comma price',
-        'ussd_edahab'       => 'USSD pay code — eDahab (e.g. *110*{national}*{amount}#)',
-        'ussd_zaad'         => 'USSD pay code — Zaad (leave blank until confirmed with Telesom)',
-        'ussd_sahal'        => 'USSD pay code — Sahal / Golis (e.g. *883*{number}*{amount}#)',
+        // Each mobile-money service is its own line: Name + Number + USSD code.
+        // Placeholders in the USSD code: {number}=with leading 0 (0907790584),
+        // {national}=no leading 0 (907790584), {amount}=price (4*99). Leave a
+        // service's Number blank to hide that line.
+        'evc_label'         => '① EVC Plus — name',
+        'evc_number'        => '① EVC Plus — number',
+        'ussd_evc'          => '① EVC Plus — USSD code (e.g. *712*{national}*{amount}#)',
+        'zaad_label'        => '② Zaad — name',
+        'zaad_number'       => '② Zaad — number',
+        'ussd_zaad'         => '② Zaad — USSD code (e.g. *880*{national}*{amount}#)',
+        'sahal_label'       => '③ Sahal — name',
+        'sahal_number'      => '③ Sahal — number',
+        'ussd_sahal'        => '③ Sahal — USSD code (e.g. *883*{national}*{amount}#)',
+        'edahab_label'      => '④ eDahab — name',
+        'edahab_number'     => '④ eDahab — number',
+        'ussd_edahab'       => '④ eDahab — USSD code (e.g. *110*{national}*{amount}#)',
         'notify_email'      => 'Notify email for payment confirmations',
         'functions_url'     => 'App backend Functions URL (e.g. https://xxxx.functions.supabase.co)',
         'activation_secret' => 'Activation secret (must match the server ACTIVATION_SECRET)',
@@ -350,6 +425,29 @@ function gemscan_settings_page() {
                     </td></tr>
                 </table>
                 <?php submit_button('Activate now', 'primary', 'submit', false); ?>
+            </form>
+        </div>
+
+        <!-- Add purchased Deep Scan credits after a credit-pack payment. -->
+        <div style="background:#fff;border:1px solid #635bff;border-left:4px solid #635bff;border-radius:8px;padding:16px 20px;margin:0 0 24px;max-width:760px">
+            <h2 style="margin-top:0">💎 Add Deep Scan credits</h2>
+            <p>After you have confirmed a Deep Scan credit-pack payment, enter the member's email and choose the pack (or a custom amount).</p>
+            <form method="post">
+                <?php wp_nonce_field('gemscan_add_credits_now'); ?>
+                <input type="hidden" name="gemscan_do_credits" value="1">
+                <table class="form-table" role="presentation">
+                    <tr><th>Member email</th><td><input type="email" name="cr_email" class="regular-text" required></td></tr>
+                    <tr><th>Pack</th><td>
+                        <select name="cr_pack">
+                            <option value="<?php echo esc_attr((int) $o['pack5_credits']); ?>"><?php echo esc_html((int) $o['pack5_credits']); ?> Deep Scans (<?php echo esc_html($o['currency'] . ' ' . $o['pack5_price']); ?>)</option>
+                            <option value="<?php echo esc_attr((int) $o['pack30_credits']); ?>"><?php echo esc_html((int) $o['pack30_credits']); ?> Deep Scans (<?php echo esc_html($o['currency'] . ' ' . $o['pack30_price']); ?>)</option>
+                            <option value="<?php echo esc_attr((int) $o['pack100_credits']); ?>"><?php echo esc_html((int) $o['pack100_credits']); ?> Deep Scans (<?php echo esc_html($o['currency'] . ' ' . $o['pack100_price']); ?>)</option>
+                            <option value="">— Custom amount —</option>
+                        </select>
+                    </td></tr>
+                    <tr><th>Custom credits</th><td><input type="number" name="cr_credits" class="small-text" min="1" placeholder="e.g. 5"> <span class="description">(only used if Pack = Custom)</span></td></tr>
+                </table>
+                <?php submit_button('Add credits', 'secondary', 'submit', false); ?>
             </form>
         </div>
 
@@ -541,7 +639,7 @@ function gemscan_render() {
                 <h3><?php echo gs_t('Free', 'Bilaash'); ?></h3>
                 <div class="gs-price">$0</div>
                 <ul>
-                    <li><?php echo gs_t('5 scans per day', '5 scan maalintii'); ?></li>
+                    <li><?php echo gs_t('3 scans per day', '3 scan maalintii'); ?></li>
                     <li><?php echo gs_t('Instant identification', 'Aqoonsi degdeg ah'); ?></li>
                 </ul>
                 <div class="gs-plan-cta gs-muted"><?php echo gs_t('Already included', 'Horeba wuu ku jiraa'); ?></div>
@@ -550,10 +648,10 @@ function gemscan_render() {
             <div class="gs-plan gs-popular">
                 <div class="gs-badge"><?php echo gs_t('Most Popular', 'Ugu Caansan'); ?></div>
                 <h3>Explorer</h3>
-                <div class="gs-price"><?php echo $cur; ?> <?php echo esc_html($o['explorer_price']); ?><span>/<?php echo gs_t('year', 'sannad'); ?></span></div>
+                <div class="gs-price"><?php echo $cur; ?> <?php echo esc_html($o['explorer_price']); ?><span>/<?php echo gs_t('6 months', '6 bilood'); ?></span></div>
                 <ul>
-                    <li><?php echo gs_t('Unlimited standard scans', 'Scan caadi ah oo aan xad lahayn'); ?></li>
-                    <li><?php echo gs_t('40 Deep Scans / year', '40 Deep Scan / sannad'); ?></li>
+                    <li><?php echo gs_t('Standard AI scans', 'Scan Standard AI ah'); ?></li>
+                    <li><?php echo gs_t('20 Deep Scans / 6 months', '20 Deep Scan / 6 bilood'); ?></li>
                     <li><?php echo gs_t('Full market value', 'Qiimayn buuxda'); ?></li>
                     <li><?php echo gs_t('Expert contact', 'Xiriir khabiir'); ?></li>
                 </ul>
@@ -562,24 +660,46 @@ function gemscan_render() {
 
             <div class="gs-plan">
                 <h3>Gem Collector</h3>
-                <div class="gs-price"><?php echo $cur; ?> <?php echo esc_html($o['collector_price']); ?><span>/<?php echo gs_t('year', 'sannad'); ?></span></div>
+                <div class="gs-price"><?php echo $cur; ?> <?php echo esc_html($o['collector_price']); ?><span>/<?php echo gs_t('6 months', '6 bilood'); ?></span></div>
                 <ul>
-                    <li><?php echo gs_t('Unlimited standard scans', 'Scan caadi ah oo aan xad lahayn'); ?></li>
-                    <li><?php echo gs_t('200 Deep Scans / year', '200 Deep Scan / sannad'); ?></li>
-                    <li><?php echo gs_t('PDF reports &amp; inventory', 'Warbixin PDF &amp; inventory'); ?></li>
+                    <li><?php echo gs_t('Standard AI scans', 'Scan Standard AI ah'); ?></li>
+                    <li><?php echo gs_t('100 Deep Scans / 6 months', '100 Deep Scan / 6 bilood'); ?></li>
+                    <li><?php echo gs_t('Professional PDF Reports', 'Warbixin PDF Xirfadeed'); ?></li>
                     <li><?php echo gs_t('Priority expert access', 'Xiriir khabiir mudnaan leh'); ?></li>
                 </ul>
                 <button type="button" class="gs-buy" data-plan="Gem Collector" data-price="<?php echo esc_attr($o['collector_price']); ?>"><?php echo gs_t('Choose Gem Collector', 'Dooro Gem Collector'); ?></button>
             </div>
         </section>
 
-        <p class="gs-credits">➕ <?php echo gs_t('Need more Deep Scans?', 'Ma u baahan tahay Deep Scan dheeraad ah?'); ?>
-            <strong><?php echo $cur; ?> <?php echo esc_html($o['credits_price']); ?></strong>
-            <?php echo gs_t('for a credits pack.', 'oo credits ah.'); ?>
-            <?php if ($o['stripe_link_credits']) : ?>
-                <a class="gs-credits-link" href="<?php echo esc_url($o['stripe_link_credits']); ?>" target="_blank" rel="noopener"><?php echo gs_t('Buy credits', 'Iibso credits'); ?></a>
-            <?php endif; ?>
-        </p>
+        <section class="gs-credit-packs">
+            <h3>➕ <?php echo gs_t('Deep Scan Credits', 'Credits Deep Scan'); ?></h3>
+            <p class="gs-credits-sub"><?php echo gs_t('Out of Deep Scans? Buy more anytime — purchased credits roll over.', 'Deep Scan ma dhammaatay? Waqti kasta iibso — credits-ka la iibsado way sii jiraan.'); ?></p>
+            <div class="gs-packs">
+                <?php
+                $gs_packs = array(
+                    array('c' => (int) $o['pack5_credits'],   'p' => $o['pack5_price'],   'link' => $o['stripe_link_pack5']),
+                    array('c' => (int) $o['pack30_credits'],  'p' => $o['pack30_price'],  'link' => $o['stripe_link_pack30']),
+                    array('c' => (int) $o['pack100_credits'], 'p' => $o['pack100_price'], 'link' => $o['stripe_link_pack100']),
+                );
+                foreach ($gs_packs as $gs_pk) {
+                    echo '<div class="gs-pack">'
+                       . '<div class="gs-pack-credits">' . esc_html($gs_pk['c']) . ' <span class="gs-i18n" data-en="Deep Scans" data-so="Deep Scan">Deep Scan</span></div>'
+                       . '<div class="gs-pack-price">' . esc_html($cur) . ' ' . esc_html($gs_pk['p']) . '</div>';
+                    if ($gs_pk['link']) {
+                        echo '<a class="gs-pack-buy" href="' . esc_url($gs_pk['link']) . '" target="_blank" rel="noopener">'
+                           . '<span class="gs-i18n" data-en="Buy with card" data-so="Iibso card">Iibso card</span></a>';
+                    } else {
+                        echo '<span class="gs-pack-mm"><span class="gs-i18n" data-en="Pay via mobile money below" data-so="Ku bixi mobile money hoose">Ku bixi mobile money hoose</span></span>';
+                    }
+                    echo '</div>';
+                }
+                ?>
+            </div>
+            <p class="gs-credits-note"><?php echo gs_t(
+                'Paying for credits by mobile money? Send the exact pack amount, then submit your receipt in the form below — we add your Deep Scan credits after we confirm it.',
+                'Credits mobile money ku bixinaya? Dir qiimaha saxda ah ee xirmada, ka dibna foomka hoose ku soo gudbi rasiidka — credits-ka Deep Scan ayaan kuu darnaa marka aan xaqiijino.'
+            ); ?></p>
+        </section>
 
         <section class="gs-pay" id="gs-pay" style="display:none;">
             <h2><?php echo gs_t('Complete your payment', 'Dhammaystir lacag-bixinta'); ?> — <span id="gs-pay-plan"></span></h2>
@@ -630,46 +750,25 @@ function gemscan_render() {
 
                 <ul class="gs-momo">
                     <?php
-                    // Group services that share the same number, so each number is
-                    // shown only once. Build the USSD "dial to pay" code from the
-                    // configured template ({number} = local number, {amount} = price).
-                    $gs_momo = array(
-                        'EVC Plus' => $o['evc_number'],
-                        'eDahab'   => $o['edahab_number'],
-                        'Zaad'     => $o['zaad_number'],
-                        'Sahal'    => $o['sahal_number'],
+                    // Each mobile-money service is its OWN line: name + number +
+                    // its own USSD "dial to pay" code. Order: EVC Plus, Zaad,
+                    // Sahal, eDahab. A service with a blank number is skipped.
+                    // USSD placeholders: {number}=local with leading 0,
+                    // {national}=without leading 0, {amount}=price (JS fills it).
+                    $gs_services = array(
+                        array('label' => $o['evc_label'],    'num' => $o['evc_number'],    'ussd' => $o['ussd_evc']),
+                        array('label' => $o['zaad_label'],   'num' => $o['zaad_number'],   'ussd' => $o['ussd_zaad']),
+                        array('label' => $o['sahal_label'],  'num' => $o['sahal_number'],  'ussd' => $o['ussd_sahal']),
+                        array('label' => $o['edahab_label'], 'num' => $o['edahab_number'], 'ussd' => $o['ussd_edahab']),
                     );
-                    // Group by the LOCAL number form, so services that share a
-                    // number (e.g. EVC Plus / Zaad / Sahal → 0907790584) show once,
-                    // whether the number was saved as +252… or 0….
-                    $gs_by_num = array();
-                    foreach ($gs_momo as $gs_svc => $gs_num) {
-                        $gs_local = gs_local_number($gs_num);
-                        if (!$gs_local) continue;
-                        $gs_by_num[$gs_local][] = $gs_svc;
-                    }
-                    // Each operator has its own USSD send-money code.
-                    $gs_ussd_map = array(
-                        'EVC Plus' => $o['ussd_evc'],
-                        'eDahab'   => $o['ussd_edahab'],
-                        'Zaad'     => $o['ussd_zaad'],
-                        'Sahal'    => $o['ussd_sahal'],
-                    );
-                    foreach ($gs_by_num as $gs_local => $gs_svcs) {
-                        $gs_local = (string) $gs_local; // numeric-looking keys → string
-                        $gs_label = implode(' / ', $gs_svcs);
-                        // Use the USSD code of the first service in this group that
-                        // has one configured (a number belongs to one operator).
-                        $gs_ussd_tpl = '';
-                        foreach ($gs_svcs as $gs_s) {
-                            if (!empty($gs_ussd_map[$gs_s])) { $gs_ussd_tpl = $gs_ussd_map[$gs_s]; break; }
-                        }
+                    foreach ($gs_services as $gs_svc) {
+                        if (!trim($gs_svc['num'])) continue;
+                        $gs_local    = gs_local_number($gs_svc['num']); // display form (leading 0).
+                        $gs_national = ltrim($gs_local, '0');           // for {national}.
+                        $gs_label    = $gs_svc['label'] ? $gs_svc['label'] : '';
+                        $gs_ussd_tpl = $gs_svc['ussd'];
                         $gs_has_ussd = ($gs_ussd_tpl && (strpos($gs_ussd_tpl, '{number}') !== false || strpos($gs_ussd_tpl, '{national}') !== false));
-                        // Fill the number now (with/without leading 0). The {amount}
-                        // token stays until a plan is chosen — JS fills it with the
-                        // comma-formatted price (e.g. 4,99).
-                        $gs_national = ltrim($gs_local, '0');
-                        $gs_code = $gs_has_ussd
+                        $gs_code     = $gs_has_ussd
                             ? str_replace(array('{number}', '{national}'), array($gs_local, $gs_national), $gs_ussd_tpl)
                             : '';
                         echo '<li class="gs-momo-item">'
@@ -732,7 +831,6 @@ function gemscan_render() {
                     'Explorer'      => $o['stripe_link_explorer'],
                     'Gem Collector' => $o['stripe_link_collector'],
                 ),
-                'creditsLink' => $o['stripe_link_credits'],
             )); ?>
         </script>
     </div>
