@@ -3,7 +3,7 @@
  * Plugin Name: GemScan Payments
  * Plugin URI:  https://barbaarintasan.com/gemscanpayment
  * Description: GemScan landing + pricing + payment page, and the bridge that upgrades a member's account after payment. Adds the [gemscan_payment] shortcode. Configure everything under Settings → GemScan.
- * Version:     1.9.1
+ * Version:     1.9.2
  * Author:      GemScan
  * License:     GPL-2.0+
  * Text Domain: gemscan-payment
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
 }
 
 define('GEMSCAN_OPT', 'gemscan_payment_options');
-define('GEMSCAN_VER', '1.9.1');
+define('GEMSCAN_VER', '1.9.2');
 define('GEMSCAN_TPL', 'gemscan-fullpage.php'); // standalone page template slug
 define('GEMSCAN_URL', plugin_dir_url(__FILE__));
 define('GEMSCAN_DIR', plugin_dir_path(__FILE__));
@@ -91,6 +91,11 @@ function gemscan_defaults() {
         // no per-plan links are set above.
         'stripe_pk'         => '',
         'stripe_sk'         => '',
+        // Stripe webhook signing secret (whsec_…). When set, card payments are
+        // activated AUTOMATICALLY: Stripe calls /wp-json/gemscan/v1/stripe, the
+        // plugin verifies the signature and opens the subscription or adds the
+        // Deep Scan credits — no manual step. Leave blank to keep manual only.
+        'stripe_webhook_secret' => '',
         // Owner's mobile-money numbers. Each service is its OWN line on the page
         // (EVC Plus, Zaad, Sahal, eDahab), with its own number + USSD code.
         // Leave a number blank to hide that line. Editable under Settings → GemScan.
@@ -192,6 +197,169 @@ function gemscan_add_credits($o, $email, $credits) {
             . ' (balance: ' . esc_html($data['purchasedBalance']) . ').');
     }
     return array('ok' => false, 'msg' => isset($data['error']) ? $data['error'] : ('HTTP ' . $code));
+}
+
+/* -------------------------------------------------------------------------
+ * Stripe webhook — AUTOMATIC card activation.
+ *
+ * Stripe calls POST /wp-json/gemscan/v1/stripe after a successful Checkout.
+ * We verify the signature (whsec_… secret), read the item slug from
+ * client_reference_id (explorer|collector|pack5|pack30|pack100) and the buyer
+ * email from the session, then open the subscription or add the Deep Scan
+ * credits — reusing the same bridges as the manual admin tools — and record
+ * the revenue. No manual step. Falls back silently when not configured.
+ * ---------------------------------------------------------------------- */
+add_action('rest_api_init', function () {
+    register_rest_route('gemscan/v1', '/stripe', array(
+        'methods'             => 'POST',
+        'callback'            => 'gemscan_stripe_webhook',
+        'permission_callback' => '__return_true', // Verified by Stripe signature, not WP auth.
+    ));
+});
+
+/* Verify a Stripe-Signature header against the raw payload + signing secret. */
+function gemscan_verify_stripe_sig($payload, $sig_header, $secret) {
+    if (!$sig_header || !$secret) {
+        return false;
+    }
+    $t = '';
+    $v1 = array();
+    foreach (explode(',', $sig_header) as $kv) {
+        $pair = explode('=', trim($kv), 2);
+        if (count($pair) !== 2) {
+            continue;
+        }
+        if ('t' === $pair[0]) {
+            $t = $pair[0 + 1];
+        } elseif ('v1' === $pair[0]) {
+            $v1[] = $pair[1];
+        }
+    }
+    if ('' === $t || empty($v1)) {
+        return false;
+    }
+    // Reject events older than 5 minutes (replay protection).
+    if (abs(time() - (int) $t) > 300) {
+        return false;
+    }
+    $expected = hash_hmac('sha256', $t . '.' . $payload, $secret);
+    foreach ($v1 as $sig) {
+        if (hash_equals($expected, $sig)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Map the paid item to an activation / credit grant, and record the revenue. */
+function gemscan_fulfill_stripe($o, $item, $email, $session_id) {
+    $item = strtolower(trim($item));
+    $subs = array('explorer' => 'Explorer', 'collector' => 'Gem Collector');
+    $packs = array(
+        'pack5'   => array((int) $o['pack5_credits'],   $o['pack5_price']),
+        'pack30'  => array((int) $o['pack30_credits'],  $o['pack30_price']),
+        'pack100' => array((int) $o['pack100_credits'], $o['pack100_price']),
+    );
+
+    if (isset($subs[$item])) {
+        $plan = $subs[$item];
+        $r = gemscan_activate($o, $email, $plan, 'stripe', $session_id);
+        if (!empty($r['ok']) && class_exists('GemScan_Data')) {
+            GemScan_Data::record_revenue(array(
+                'email'    => $email,
+                'type'     => 'subscription',
+                'plan'     => $plan,
+                'amount'   => ('collector' === $item) ? $o['collector_price'] : $o['explorer_price'],
+                'currency' => $o['currency'],
+                'method'   => 'stripe',
+            ));
+        }
+        return array('ok' => !empty($r['ok']), 'action' => 'subscription', 'msg' => isset($r['msg']) ? $r['msg'] : '');
+    }
+
+    if (isset($packs[$item])) {
+        list($credits, $price) = $packs[$item];
+        $r = gemscan_add_credits($o, $email, $credits);
+        if (!empty($r['ok']) && class_exists('GemScan_Data')) {
+            GemScan_Data::record_revenue(array(
+                'email'    => $email,
+                'type'     => 'credit',
+                'plan'     => $credits . ' Deep Scan credits',
+                'credits'  => $credits,
+                'amount'   => $price,
+                'currency' => $o['currency'],
+                'method'   => 'stripe',
+            ));
+        }
+        return array('ok' => !empty($r['ok']), 'action' => 'credit', 'msg' => isset($r['msg']) ? $r['msg'] : '');
+    }
+
+    return array('ok' => false, 'error' => 'unknown_item', 'item' => $item);
+}
+
+/* REST callback for the Stripe webhook. */
+function gemscan_stripe_webhook(WP_REST_Request $request) {
+    $o = gemscan_opts();
+    $secret = isset($o['stripe_webhook_secret']) ? trim($o['stripe_webhook_secret']) : '';
+    if ('' === $secret) {
+        return new WP_REST_Response(array('error' => 'not_configured'), 400);
+    }
+
+    $payload = $request->get_body();
+    $sig = isset($_SERVER['HTTP_STRIPE_SIGNATURE']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_STRIPE_SIGNATURE'])) : '';
+    if (!gemscan_verify_stripe_sig($payload, $sig, $secret)) {
+        return new WP_REST_Response(array('error' => 'bad_signature'), 400);
+    }
+
+    $event = json_decode($payload, true);
+    if (!is_array($event) || empty($event['type'])) {
+        return new WP_REST_Response(array('error' => 'bad_payload'), 400);
+    }
+    // We only fulfil completed one-off Checkout sessions.
+    if ('checkout.session.completed' !== $event['type']) {
+        return new WP_REST_Response(array('ignored' => $event['type']), 200);
+    }
+
+    $event_id = isset($event['id']) ? sanitize_text_field($event['id']) : '';
+    if ($event_id && get_transient('gemscan_ev_' . $event_id)) {
+        return new WP_REST_Response(array('duplicate' => true), 200); // Idempotency.
+    }
+
+    $session = isset($event['data']['object']) && is_array($event['data']['object']) ? $event['data']['object'] : array();
+    $paid = (isset($session['payment_status']) && 'paid' === $session['payment_status'])
+        || (isset($session['status']) && 'complete' === $session['status']);
+    if (!$paid) {
+        return new WP_REST_Response(array('unpaid' => true), 200);
+    }
+
+    $item = isset($session['client_reference_id']) ? sanitize_text_field($session['client_reference_id']) : '';
+    $email = '';
+    if (!empty($session['customer_details']['email'])) {
+        $email = sanitize_email($session['customer_details']['email']);
+    } elseif (!empty($session['customer_email'])) {
+        $email = sanitize_email($session['customer_email']);
+    }
+    if (!$email || !is_email($email)) {
+        return new WP_REST_Response(array('error' => 'no_email'), 200);
+    }
+
+    $result = gemscan_fulfill_stripe($o, $item, $email, isset($session['id']) ? $session['id'] : '');
+
+    // Notify the owner (a paper trail; the account is already opened above).
+    if (!empty($o['notify_email'])) {
+        $ok_txt = !empty($result['ok']) ? 'DONE' : 'FAILED';
+        wp_mail(
+            $o['notify_email'],
+            'GemScan Stripe auto-activation — ' . $ok_txt . ' — ' . $email,
+            'Item: ' . esc_html($item) . "\n" . 'Email: ' . esc_html($email) . "\n"
+                . 'Result: ' . wp_json_encode($result)
+        );
+    }
+
+    if ($event_id) {
+        set_transient('gemscan_ev_' . $event_id, 1, 7 * DAY_IN_SECONDS);
+    }
+    return new WP_REST_Response($result, 200);
 }
 
 /* -------------------------------------------------------------------------
@@ -429,6 +597,7 @@ function gemscan_settings_page() {
         'stripe_link_pack100'   => 'Stripe Payment Link — 100 Deep Scans',
         'stripe_pk'             => 'Stripe Publishable Key (optional — only if not using links above)',
         'stripe_sk'             => 'Stripe Secret Key (optional — kept server-side, never shown)',
+        'stripe_webhook_secret' => 'Stripe Webhook signing secret (whsec_… — enables AUTOMATIC card activation)',
         // Each mobile-money service is its own line: Name + Number + USSD code.
         // Placeholders in the USSD code: {number}=with leading 0 (0907790584),
         // {national}=no leading 0 (907790584), {amount}=price (4*99). Leave a
@@ -514,7 +683,7 @@ function gemscan_settings_page() {
             <?php settings_fields('gemscan_group'); ?>
             <table class="form-table" role="presentation">
                 <?php foreach ($fields as $k => $label) {
-                    $type = ($k === 'activation_secret' || $k === 'stripe_sk') ? 'password' : 'text';
+                    $type = ($k === 'activation_secret' || $k === 'stripe_sk' || $k === 'stripe_webhook_secret') ? 'password' : 'text';
                     printf(
                         '<tr><th scope="row"><label for="%1$s">%2$s</label></th><td><input type="%5$s" id="%1$s" name="%3$s[%1$s]" value="%4$s" class="regular-text"></td></tr>',
                         esc_attr($k),
@@ -532,8 +701,16 @@ function gemscan_settings_page() {
         <h2>How it connects to the app</h2>
         <ol>
             <li>The member pays on your page (Stripe for cards, or mobile money).</li>
-            <li>You confirm the payment, then use <em>Activate an account</em> at the top (or it can be automated with a Stripe webhook).</li>
-            <li>This calls your app backend, which upgrades the member's subscription. The app shows Premium on their next open.</li>
+            <li><strong>Card (Stripe):</strong> if you set the <em>Stripe Webhook signing secret</em> above, activation is AUTOMATIC — the account opens (or credits are added) the moment payment succeeds, no manual step. Otherwise, use <em>Activate an account</em> / <em>Add Deep Scan credits</em> at the top after you confirm the payment.</li>
+            <li><strong>Mobile money:</strong> the member submits their receipt; you confirm and activate from the tools at the top.</li>
+            <li>Either way this calls your app backend, which upgrades the member. The app shows the new plan / credits on their next open.</li>
+        </ol>
+        <h2>Enable automatic Stripe activation</h2>
+        <ol>
+            <li>Stripe Dashboard → Developers → Webhooks → <strong>Add endpoint</strong>.</li>
+            <li>Endpoint URL: <code><?php echo esc_html(rest_url('gemscan/v1/stripe')); ?></code></li>
+            <li>Event to send: <code>checkout.session.completed</code>.</li>
+            <li>Copy the endpoint's <strong>Signing secret</strong> (<code>whsec_…</code>) into the <em>Stripe Webhook signing secret</em> field above, then Save settings.</li>
         </ol>
     </div>
     <?php
@@ -717,7 +894,7 @@ function gemscan_render() {
                     <li><?php echo gs_t('Full market value', 'Qiimayn buuxda'); ?></li>
                     <li><?php echo gs_t('Expert contact', 'Xiriir khabiir'); ?></li>
                 </ul>
-                <button type="button" class="gs-buy" data-plan="Explorer" data-price="<?php echo esc_attr($o['explorer_price']); ?>"><?php echo gs_t('Choose Explorer', 'Dooro Explorer'); ?></button>
+                <button type="button" class="gs-buy" data-plan="Explorer" data-item="explorer" data-price="<?php echo esc_attr($o['explorer_price']); ?>"><?php echo gs_t('Choose Explorer', 'Dooro Explorer'); ?></button>
             </div>
 
             <div class="gs-plan">
@@ -729,7 +906,7 @@ function gemscan_render() {
                     <li><?php echo gs_t('Professional PDF Reports', 'Warbixin PDF Xirfadeed'); ?></li>
                     <li><?php echo gs_t('Priority expert access', 'Xiriir khabiir mudnaan leh'); ?></li>
                 </ul>
-                <button type="button" class="gs-buy" data-plan="Gem Collector" data-price="<?php echo esc_attr($o['collector_price']); ?>"><?php echo gs_t('Choose Gem Collector', 'Dooro Gem Collector'); ?></button>
+                <button type="button" class="gs-buy" data-plan="Gem Collector" data-item="collector" data-price="<?php echo esc_attr($o['collector_price']); ?>"><?php echo gs_t('Choose Gem Collector', 'Dooro Gem Collector'); ?></button>
             </div>
         </section>
 
@@ -738,9 +915,9 @@ function gemscan_render() {
             <p class="gs-credits-sub"><?php echo gs_t('Out of Deep Scans? Buy more anytime — purchased credits roll over.', 'Deep Scan ma dhammaatay? Waqti kasta iibso — credits-ka la iibsado way sii jiraan.'); ?></p>
             <?php
             $gs_packs = array(
-                array('c' => (int) $o['pack5_credits'],   'p' => $o['pack5_price'],   'link' => $o['stripe_link_pack5']),
-                array('c' => (int) $o['pack30_credits'],  'p' => $o['pack30_price'],  'link' => $o['stripe_link_pack30']),
-                array('c' => (int) $o['pack100_credits'], 'p' => $o['pack100_price'], 'link' => $o['stripe_link_pack100']),
+                array('item' => 'pack5',   'c' => (int) $o['pack5_credits'],   'p' => $o['pack5_price'],   'link' => $o['stripe_link_pack5']),
+                array('item' => 'pack30',  'c' => (int) $o['pack30_credits'],  'p' => $o['pack30_price'],  'link' => $o['stripe_link_pack30']),
+                array('item' => 'pack100', 'c' => (int) $o['pack100_credits'], 'p' => $o['pack100_price'], 'link' => $o['stripe_link_pack100']),
             );
             $gs_has_momo = ($o['evc_number'] || $o['edahab_number'] || $o['zaad_number'] || $o['sahal_number']);
             ?>
@@ -754,7 +931,7 @@ function gemscan_render() {
                            . '<div class="gs-pack-credits">' . esc_html($gs_pk['c']) . ' <span class="gs-i18n" data-en="Deep Scans" data-so="Deep Scan">Deep Scan</span></div>'
                            . '<div class="gs-pack-price">' . esc_html($cur) . ' ' . esc_html($gs_pk['p']) . '</div>';
                         if ($gs_pk['link']) {
-                            echo '<a class="gs-pack-buy" href="' . esc_url($gs_pk['link']) . '" target="_blank" rel="noopener">'
+                            echo '<a class="gs-pack-buy gs-card-link" href="' . esc_url($gs_pk['link']) . '" data-link="' . esc_url($gs_pk['link']) . '" data-item="' . esc_attr($gs_pk['item']) . '" target="_blank" rel="noopener">'
                                . '<span class="gs-i18n" data-en="Buy with card" data-so="Iibso card">Iibso card</span></a>';
                         } else {
                             echo '<span class="gs-pack-soon"><span class="gs-i18n" data-en="Card link not set" data-so="Card lama dejin">Card lama dejin</span></span>';

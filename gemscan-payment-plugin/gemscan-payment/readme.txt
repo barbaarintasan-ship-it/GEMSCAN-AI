@@ -1,5 +1,5 @@
 === GemScan Payments ===
-Version: 1.9.1
+Version: 1.9.2
 Requires: WordPress 5.5+
 License: GPL-2.0+
 
@@ -49,13 +49,25 @@ a member's account after payment. It does NOT touch the mobile app.
 
 == Notes ==
 - "Explorer" maps to the app's premium tier; "Gem Collector" to professional.
-- Automatic Stripe activation (webhook → backend) can be added later; this
-  version activates from the admin tool after you confirm payment.
+- Automatic Stripe activation is available: set the "Stripe Webhook signing
+  secret" under Settings → GemScan and add a Stripe webhook to
+  /wp-json/gemscan/v1/stripe (event checkout.session.completed). Without it,
+  activate from the admin tools after you confirm each payment.
 - No mobile-app code is modified. This plugin is self-contained.
 - Fully bilingual Somali / English — Somali is the default; a prominent language
   switcher at the top toggles to English.
 
 == Changelog ==
+= 1.9.2 =
+* AUTOMATIC Stripe activation. Set the new "Stripe Webhook signing secret"
+  (whsec_…) under Settings → GemScan and add a Stripe webhook to
+  /wp-json/gemscan/v1/stripe (event checkout.session.completed). Card
+  payments then open the subscription or add the Deep Scan credits instantly
+  — no manual step — for both plans and all three credit packs. Card buttons
+  now carry the buyer's email + item so the webhook activates the right
+  account and product; revenue is recorded automatically. Mobile money still
+  works exactly as before (submit receipt → you confirm).
+
 = 1.9.1 =
 * Deep Scan Credits section split into two clearly-labelled ways to buy:
   "Buy with Card (Stripe)" and "Buy with Mobile Money" (EVC Plus / Zaad /

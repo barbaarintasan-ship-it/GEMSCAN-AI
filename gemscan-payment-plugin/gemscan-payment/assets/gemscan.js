@@ -40,21 +40,34 @@
         var stripeForm = document.querySelector(".gs-stripe-form");
         var cardGroup = document.getElementById("gs-card-group");
 
-        function appendEmail(url, email) {
+        // Build a Stripe Payment Link URL that carries the buyer's email
+        // (prefilled_email) and the item slug (client_reference_id) so the
+        // webhook can auto-activate the right account + product.
+        function buildCardUrl(url, email, item) {
             if (!url) return "#";
-            if (!email) return url;
+            var q = [];
+            if (email) q.push("prefilled_email=" + encodeURIComponent(email));
+            if (item) q.push("client_reference_id=" + encodeURIComponent(item));
+            if (!q.length) return url;
             var sep = url.indexOf("?") === -1 ? "?" : "&";
-            // Stripe Payment Links understand prefilled_email + client_reference_id.
-            return url + sep + "prefilled_email=" + encodeURIComponent(email) +
-                   "&client_reference_id=" + encodeURIComponent(email);
+            return url + sep + q.join("&");
         }
+
+        function needEmail() {
+            if (emailMain) { emailMain.focus(); emailMain.scrollIntoView({ behavior: "smooth", block: "center" }); }
+            alert("Fadlan gali email-ka akoonkaaga GemScan marka hore.\nPlease enter your GemScan account email first.");
+        }
+
+        var selPlan = "", selItem = "";
 
         wrap.querySelectorAll(".gs-buy").forEach(function (btn) {
             btn.addEventListener("click", function () {
                 var plan = btn.getAttribute("data-plan");
                 var price = btn.getAttribute("data-price") || "";
                 var mode = btn.getAttribute("data-mode") || "";
+                var item = btn.getAttribute("data-item") || "";
                 var email = emailMain ? emailMain.value.trim() : "";
+                selPlan = plan; selItem = item;
 
                 // Credit packs are bought by mobile money here (card has its own
                 // direct link on the pack), so hide the card group for mode="momo".
@@ -86,9 +99,10 @@
                     btn.setAttribute("data-copy", tpl.replace("{amount}", amtUssd));
                 });
 
-                // Per-plan Stripe Payment Link: point the button at this plan's link.
+                // Per-plan Stripe Payment Link: point the button at this plan's link,
+                // carrying the email + item so the webhook can auto-activate.
                 var planLink = cfg.links && cfg.links[plan];
-                if (stripeBtn && planLink) stripeBtn.setAttribute("href", appendEmail(planLink, email));
+                if (stripeBtn && planLink) stripeBtn.setAttribute("href", buildCardUrl(planLink, email, item));
 
                 // Keys-based Stripe Checkout form (only used if no links configured).
                 if (stripePlan) stripePlan.value = plan;
@@ -98,6 +112,28 @@
                     paySection.style.display = "block";
                     paySection.scrollIntoView({ behavior: "smooth" });
                 }
+            });
+        });
+
+        // ---- Card checkout (subscription): require email, carry email + item ----
+        if (stripeBtn) {
+            stripeBtn.addEventListener("click", function (e) {
+                var email = emailMain ? emailMain.value.trim() : "";
+                if (!email) { e.preventDefault(); needEmail(); return; }
+                var link = cfg.links && cfg.links[selPlan];
+                if (link) stripeBtn.setAttribute("href", buildCardUrl(link, email, selItem));
+            });
+        }
+
+        // ---- Card checkout (credit packs): require email, carry email + item ----
+        wrap.querySelectorAll(".gs-card-link").forEach(function (a) {
+            a.addEventListener("click", function (e) {
+                var email = emailMain ? emailMain.value.trim() : "";
+                var base = a.getAttribute("data-link") || "";
+                var item = a.getAttribute("data-item") || "";
+                if (!base) return;
+                if (!email) { e.preventDefault(); needEmail(); return; }
+                a.setAttribute("href", buildCardUrl(base, email, item));
             });
         });
 
