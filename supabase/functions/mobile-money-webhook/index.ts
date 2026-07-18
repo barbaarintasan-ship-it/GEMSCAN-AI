@@ -8,9 +8,15 @@
 //
 // This function follows the exact same contract as stripe-webhook: verify
 // the request came from the real gateway, then upsert the subscriptions
-// table via the service_role client. It is a template — replace the
-// signature-verification block with the chosen gateway's actual scheme
-// once a vendor is selected.
+// table via the service_role client.
+//
+// Signature verification is real HMAC-SHA256(rawBody, secret) — NOT a
+// placeholder — but the endpoint stays fully FAIL-CLOSED (rejects every
+// request, signed or not) until MOBILE_MONEY_GATEWAY_ENABLED=true is set,
+// since no gateway vendor has been selected yet (see 05-Monetization-
+// Legal-Payments.md). If the eventual gateway uses a different signing
+// scheme than a flat HMAC of the raw body, adjust verifyGatewaySignature()
+// accordingly before enabling.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders } from "../_shared/cors.ts";
@@ -21,17 +27,55 @@ const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-const GATEWAY_SHARED_SECRET = Deno.env.get("MOBILE_MONEY_GATEWAY_SECRET")!;
+const GATEWAY_SHARED_SECRET = Deno.env.get("MOBILE_MONEY_GATEWAY_SECRET") ?? "";
+// Explicit kill-switch: this endpoint stays FAIL-CLOSED (rejects everything)
+// until a real gateway is selected and MOBILE_MONEY_GATEWAY_ENABLED=true is
+// set alongside the secret. This prevents the "placeholder that quietly
+// accepts any request" trap — flipping the secret alone is not enough to
+// open the endpoint.
+const GATEWAY_ENABLED = Deno.env.get("MOBILE_MONEY_GATEWAY_ENABLED") === "true";
 
-function verifyGatewaySignature(req: Request, _rawBody: string): boolean {
-  // PLACEHOLDER — replace with the real gateway's HMAC/signature scheme,
-  // which will need the raw request body (kept in the signature above,
-  // hence prefixed `_rawBody` rather than dropped) to compute/verify an
-  // HMAC digest. Never process a payment event without verifying it
-  // actually came from the gateway; an unauthenticated endpoint here would
-  // let anyone grant themselves a subscription for free.
+function toHex(buf: ArrayBuffer): string {
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// Constant-time string compare (avoids leaking the secret via timing).
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+async function hmacSha256Hex(secret: string, payload: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  return toHex(sig);
+}
+
+// Verifies an HMAC-SHA256(rawBody, secret) hex digest sent as
+// X-Gateway-Signature. This is the standard scheme (Stripe, most WaafiPay-
+// style aggregators); adjust the digest computation here only if the chosen
+// gateway uses a different scheme (e.g. a timestamp prefix like Stripe's
+// `t=...,v1=...`). Never process a payment event without verifying it
+// actually came from the gateway — an unauthenticated endpoint here would
+// let anyone grant themselves a subscription for free.
+async function verifyGatewaySignature(req: Request, rawBody: string): Promise<boolean> {
+  if (!GATEWAY_ENABLED || !GATEWAY_SHARED_SECRET) return false;
   const signature = req.headers.get("X-Gateway-Signature");
-  return Boolean(signature && GATEWAY_SHARED_SECRET && signature.length > 0);
+  if (!signature) return false;
+  const expected = await hmacSha256Hex(GATEWAY_SHARED_SECRET, rawBody);
+  return timingSafeEqual(signature.toLowerCase(), expected.toLowerCase());
 }
 
 Deno.serve(async (req) => {
@@ -41,7 +85,7 @@ Deno.serve(async (req) => {
 
   const rawBody = await req.text();
 
-  if (!verifyGatewaySignature(req, rawBody)) {
+  if (!(await verifyGatewaySignature(req, rawBody))) {
     return new Response("Signature verification failed", { status: 400 });
   }
 
