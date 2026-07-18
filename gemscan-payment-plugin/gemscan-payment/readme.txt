@@ -1,5 +1,5 @@
 === GemScan Payments ===
-Version: 1.9.2
+Version: 1.9.3
 Requires: WordPress 5.5+
 License: GPL-2.0+
 
@@ -58,6 +58,13 @@ a member's account after payment. It does NOT touch the mobile app.
   switcher at the top toggles to English.
 
 == Changelog ==
+= 1.9.3 =
+* Every sale (subscription or credit; manual OR Stripe auto) now fires a
+  gemscan_revenue_recorded action at a single choke point, so GemScan
+  Accounting (v1.2.0+) mirrors ALL of them into its ledger — not just manual
+  subscription activations. Stripe sales pass the session id as the dedupe
+  reference.
+
 = 1.9.2 =
 * AUTOMATIC Stripe activation. Set the new "Stripe Webhook signing secret"
   (whsec_…) under Settings → GemScan and add a Stripe webhook to

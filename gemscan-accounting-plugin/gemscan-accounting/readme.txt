@@ -1,5 +1,5 @@
 === GemScan Accounting ===
-Version: 1.1.0
+Version: 1.2.0
 Requires at least: WordPress 5.5
 Requires PHP: 7.2
 License: GPL-2.0+
@@ -107,6 +107,15 @@ genuine later renewal creates a new record.
 - Hooks fired: `gsa_payment_recorded` ($id,$data) and `gsa_payment_synced`.
 
 == Changelog ==
+= 1.2.0 =
+* Records EVERY GemScan Payments sale automatically, not just manual
+  subscription activations: subscriptions AND Deep Scan credit packs, whether
+  activated by hand or automatically by the Stripe webhook. The bridge now
+  listens to GemScan Payments' gemscan_revenue_recorded action (requires
+  GemScan Payments 1.9.3+) instead of only sniffing the manual activation form.
+* New "Deep Scan Credits" plan in the ledger for credit-pack sales.
+* Stripe sales de-duplicate on the Stripe session id.
+
 = 1.1.0 =
 * Auto-recorded activations now expire after 6 months (was 1 year), to match
   the app's 6-month subscription period.

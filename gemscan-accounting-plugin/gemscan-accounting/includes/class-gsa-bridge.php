@@ -40,72 +40,74 @@ class GSA_Bridge {
 	);
 
 	public static function init() {
-		if ( ! is_admin() ) {
-			return;
-		}
-		// Priority 20: run alongside the GemScan Payments settings-page handler
-		// on the same request. Read-only detection; never blocks that plugin.
-		add_action( 'admin_init', array( __CLASS__, 'capture_activation' ), 20 );
+		// Mirror EVERY GemScan Payments sale — subscription or credit pack,
+		// activated manually OR automatically by the Stripe webhook — into the
+		// accounting ledger. GemScan Payments fires this action from a single
+		// choke point (GemScan_Data::record_revenue), so it works in the admin
+		// tools and in the REST (Stripe webhook) context alike. If GemScan
+		// Payments is older / not installed, the action simply never fires.
+		add_action( 'gemscan_revenue_recorded', array( __CLASS__, 'capture_revenue' ), 10, 1 );
 	}
 
 	/**
-	 * Detect a GemScan Payments "Activate an account" submission and record it.
+	 * Record a GemScan Payments sale into the accounting ledger.
+	 *
+	 * @param array $data email, type(subscription|credit), plan, credits,
+	 *                    amount, currency, method, reference.
 	 */
-	public static function capture_activation() {
-		// Only when the GemScan Payments activation form is being submitted.
-		if ( empty( $_POST['gemscan_do_activate'] ) ) {
+	public static function capture_revenue( $data ) {
+		if ( ! function_exists( 'gsa_record_payment' ) || ! is_array( $data ) ) {
 			return;
 		}
-		if ( ! current_user_can( 'manage_options' ) ) {
-			return;
-		}
-		// Verify the SAME nonce GemScan Payments uses (non-fatal — never breaks
-		// that plugin's own processing if it fails here).
-		$nonce = isset( $_POST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ) : '';
-		if ( ! wp_verify_nonce( $nonce, 'gemscan_activate_now' ) ) {
-			return;
-		}
-		if ( ! function_exists( 'gsa_record_payment' ) ) {
-			return;
-		}
-
-		$email = isset( $_POST['act_email'] ) ? sanitize_email( wp_unslash( $_POST['act_email'] ) ) : '';
+		$email = isset( $data['email'] ) ? sanitize_email( $data['email'] ) : '';
 		if ( ! $email || ! is_email( $email ) ) {
 			return;
 		}
-		$plan_label = isset( $_POST['act_plan'] ) ? sanitize_text_field( wp_unslash( $_POST['act_plan'] ) ) : '';
-		$method_raw = isset( $_POST['act_method'] ) ? sanitize_text_field( wp_unslash( $_POST['act_method'] ) ) : '';
 
-		// Pull the price + currency straight from GemScan Payments' own settings.
-		$opts = wp_parse_args(
-			get_option( 'gemscan_payment_options', array() ),
-			array(
-				'explorer_price'  => '4.99',
-				'collector_price' => '14.99',
-				'currency'        => 'USD',
-			)
-		);
+		$type      = ( isset( $data['type'] ) && 'credit' === $data['type'] ) ? 'credit' : 'subscription';
+		$amount    = isset( $data['amount'] ) ? (float) $data['amount'] : 0;
+		$currency  = isset( $data['currency'] ) ? strtoupper( sanitize_text_field( $data['currency'] ) ) : 'USD';
+		$ref       = isset( $data['reference'] ) ? sanitize_text_field( $data['reference'] ) : '';
+		$method_in = isset( $data['method'] ) ? $data['method'] : '';
+		$method    = isset( self::METHOD_MAP[ $method_in ] ) ? self::METHOD_MAP[ $method_in ] : 'other';
 
-		$plan_key = isset( self::PLAN_MAP[ $plan_label ] ) ? self::PLAN_MAP[ $plan_label ] : 'explorer';
-		$amount   = ( 'professional' === $plan_key ) ? $opts['collector_price'] : $opts['explorer_price'];
-		$method   = isset( self::METHOD_MAP[ $method_raw ] ) ? self::METHOD_MAP[ $method_raw ] : 'other';
+		if ( 'credit' === $type ) {
+			$credits = isset( $data['credits'] ) ? (int) $data['credits'] : 0;
+			// Reuse the Stripe session id when present (unique) so webhook
+			// retries de-duplicate; otherwise a per-minute synthetic key.
+			$txn = $ref ? $ref : 'GSA-CR-' . substr( md5( $email . $credits . current_time( 'YmdHi' ) ), 0, 12 );
+			gsa_record_payment(
+				array(
+					'email'       => $email,
+					'plan'        => 'credits',
+					'amount'      => $amount,
+					'currency'    => $currency,
+					'method'      => $method,
+					'txn_id'      => $txn,
+					'status'      => 'paid',
+					'start_date'  => current_time( 'Y-m-d' ),
+					'expiry_date' => '', // Purchased credits roll over — no expiry.
+					'notes'       => $credits . ' Deep Scan credits (auto-recorded from GemScan Payments).',
+				)
+			);
+			return;
+		}
 
-		// Synthetic reference so a same-day double-activation de-duplicates,
-		// while a genuine later renewal (different day) creates a new record.
-		$txn = 'ACT-' . substr( md5( $email . $plan_key . current_time( 'Y-m-d' ) ), 0, 12 );
-
+		$plan_label = isset( $data['plan'] ) ? $data['plan'] : '';
+		$plan_key   = isset( self::PLAN_MAP[ $plan_label ] ) ? self::PLAN_MAP[ $plan_label ] : 'explorer';
+		$txn        = $ref ? $ref : 'GSA-SUB-' . substr( md5( $email . $plan_key . current_time( 'Y-m-d' ) ), 0, 12 );
 		gsa_record_payment(
 			array(
 				'email'       => $email,
 				'plan'        => $plan_key,
 				'amount'      => $amount,
-				'currency'    => $opts['currency'],
+				'currency'    => $currency,
 				'method'      => $method,
 				'txn_id'      => $txn,
 				'status'      => 'paid',
 				'start_date'  => current_time( 'Y-m-d' ),
 				'expiry_date' => gmdate( 'Y-m-d', strtotime( '+6 months', current_time( 'timestamp' ) ) ), // phpcs:ignore WordPress.DateTime.CurrentTimeTimestamp
-				'notes'       => 'Auto-recorded on account activation (GemScan Payments).',
+				'notes'       => 'Subscription (auto-recorded from GemScan Payments).',
 			)
 		);
 	}

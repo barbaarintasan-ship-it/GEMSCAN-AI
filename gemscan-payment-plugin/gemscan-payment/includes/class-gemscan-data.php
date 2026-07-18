@@ -135,6 +135,15 @@ class GemScan_Data {
 			'created_at' => current_time( 'mysql' ),
 		);
 		$ok = $wpdb->insert( self::revenue_table(), $row, array( '%s', '%s', '%s', '%s', '%d', '%f', '%s', '%s', '%s', '%d', '%s' ) ); // phpcs:ignore WordPress.DB
+		if ( $ok ) {
+			/**
+			 * Fires after ANY sale is recorded (subscription or credit; manual
+			 * or Stripe auto). Lets other plugins — e.g. GemScan Accounting —
+			 * mirror the sale into their own ledger. $row carries email, type,
+			 * plan, credits, amount, currency, method, reference.
+			 */
+			do_action( 'gemscan_revenue_recorded', $row );
+		}
 		return $ok ? (int) $wpdb->insert_id : false;
 	}
 

@@ -3,7 +3,7 @@
  * Plugin Name: GemScan Accounting
  * Plugin URI:  https://barbaarintasan.com/
  * Description: Standalone accounting & subscription-management module for GemScan. Records every payment, a Salaam transfers ledger, dashboards, reports (CSV/Excel/PDF/print) and an integration bridge to record payments from Stripe/PayPal/Salaam/EVC Plus/Zaad/eDahab. Self-contained — it does not modify any existing Barbaarintasan functionality.
- * Version:     1.1.0
+ * Version:     1.2.0
  * Author:      GemScan
  * License:     GPL-2.0+
  * Text Domain: gemscan-accounting
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /* -------------------------------------------------------------------------
  * Constants
  * ---------------------------------------------------------------------- */
-define( 'GSA_VERSION', '1.1.0' );
+define( 'GSA_VERSION', '1.2.0' );
 define( 'GSA_DB_VERSION', '1.0.0' );
 define( 'GSA_FILE', __FILE__ );
 define( 'GSA_DIR', plugin_dir_path( __FILE__ ) );

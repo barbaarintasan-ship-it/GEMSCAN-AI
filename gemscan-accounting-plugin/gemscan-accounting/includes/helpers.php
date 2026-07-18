@@ -24,6 +24,7 @@ function gsa_plans() {
 		'free'         => __( 'Free', 'gemscan-accounting' ),
 		'explorer'     => __( 'Explorer', 'gemscan-accounting' ),
 		'professional' => __( 'Pro (Gem Collector)', 'gemscan-accounting' ),
+		'credits'      => __( 'Deep Scan Credits', 'gemscan-accounting' ),
 	);
 }
 
