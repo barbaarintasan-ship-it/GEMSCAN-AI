@@ -63,6 +63,7 @@ class GemScan_Analytics_Admin {
 			59
 		);
 		add_submenu_page( 'gemscan-business', __( 'Dashboard', 'gemscan-payment' ), __( 'Dashboard', 'gemscan-payment' ), self::CAP, 'gemscan-business', array( __CLASS__, 'render_dashboard' ) );
+		add_submenu_page( 'gemscan-business', __( 'Registered Users', 'gemscan-payment' ), __( 'Registered Users', 'gemscan-payment' ), self::CAP, 'gemscan-business-users', array( __CLASS__, 'render_users' ) );
 		add_submenu_page( 'gemscan-business', __( 'Financial Ledger', 'gemscan-payment' ), __( 'Financial Ledger', 'gemscan-payment' ), self::CAP, 'gemscan-business-ledger', array( __CLASS__, 'render_ledger' ) );
 		add_submenu_page( 'gemscan-business', __( 'Cost Settings', 'gemscan-payment' ), __( 'Cost Settings', 'gemscan-payment' ), self::CAP, 'gemscan-business-costs', array( __CLASS__, 'render_costs' ) );
 	}
@@ -270,6 +271,100 @@ class GemScan_Analytics_Admin {
 			esc_html( self::money( $ai, $cur ) ),
 			esc_html( self::money( $rev - $ai, $cur ) )
 		);
+	}
+
+	/* --------------------------------------------------------------------- */
+	/* Render: Registered Users (full list, admin only)                       */
+	/* --------------------------------------------------------------------- */
+
+	public static function render_users() {
+		if ( ! current_user_can( self::CAP ) ) {
+			wp_die( esc_html__( 'Permission denied.', 'gemscan-payment' ) );
+		}
+		$per_page = 50;
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended
+		$search = isset( $_GET['s'] ) ? sanitize_text_field( wp_unslash( $_GET['s'] ) ) : '';
+		$paged  = isset( $_GET['paged'] ) ? max( 1, absint( $_GET['paged'] ) ) : 1;
+		// phpcs:enable
+		$offset = ( $paged - 1 ) * $per_page;
+		$data   = GemScan_Data::fetch_users_list( $per_page, $offset, $search );
+
+		echo '<div class="wrap gemscan-biz"><h1>' . esc_html__( 'Registered Users', 'gemscan-payment' ) . '</h1>';
+		echo '<p class="description">' . esc_html__( 'Everyone who has signed up in the GemScan app (from Supabase). Administrator-only.', 'gemscan-payment' ) . '</p>';
+
+		if ( null === $data ) {
+			echo '<div class="notice notice-warning"><p>'
+				. esc_html__( 'Could not load users from Supabase. Set the Functions URL + Activation secret under Settings → GemScan, and deploy the gemscan-users function.', 'gemscan-payment' )
+				. '</p></div></div>';
+			return;
+		}
+
+		$total = isset( $data['total'] ) ? (int) $data['total'] : 0;
+		$users = isset( $data['users'] ) && is_array( $data['users'] ) ? $data['users'] : array();
+		$pages = max( 1, (int) ceil( $total / $per_page ) );
+
+		// Search box.
+		echo '<form method="get" class="gsb-ledger-filters"><input type="hidden" name="page" value="gemscan-business-users">';
+		echo '<input type="search" name="s" value="' . esc_attr( $search ) . '" placeholder="' . esc_attr__( 'Search email…', 'gemscan-payment' ) . '"> ';
+		submit_button( __( 'Search', 'gemscan-payment' ), 'secondary', '', false );
+		if ( '' !== $search ) {
+			echo ' <a class="button" href="' . esc_url( add_query_arg( array( 'page' => 'gemscan-business-users' ), admin_url( 'admin.php' ) ) ) . '">' . esc_html__( 'Clear', 'gemscan-payment' ) . '</a>';
+		}
+		echo '</form>';
+
+		echo '<p>' . sprintf(
+			/* translators: %s: total user count. */
+			esc_html__( '%s registered users', 'gemscan-payment' ),
+			'<strong>' . esc_html( number_format_i18n( $total ) ) . '</strong>'
+		) . '</p>';
+
+		echo '<table class="widefat striped"><thead><tr>'
+			. '<th>' . esc_html__( 'Email', 'gemscan-payment' ) . '</th>'
+			. '<th>' . esc_html__( 'Joined', 'gemscan-payment' ) . '</th>'
+			. '<th>' . esc_html__( 'Plan', 'gemscan-payment' ) . '</th>'
+			. '<th>' . esc_html__( 'Status', 'gemscan-payment' ) . '</th>'
+			. '<th class="num">' . esc_html__( 'Standard', 'gemscan-payment' ) . '</th>'
+			. '<th class="num">' . esc_html__( 'Deep', 'gemscan-payment' ) . '</th>'
+			. '</tr></thead><tbody>';
+		if ( empty( $users ) ) {
+			echo '<tr><td colspan="6">' . esc_html__( 'No users found.', 'gemscan-payment' ) . '</td></tr>';
+		}
+		foreach ( $users as $u ) {
+			$joined  = ! empty( $u['created_at'] ) ? gmdate( 'Y-m-d', strtotime( $u['created_at'] ) ) : '—';
+			$expires = ! empty( $u['expires'] ) ? gmdate( 'Y-m-d', strtotime( $u['expires'] ) ) : '';
+			printf(
+				'<tr><td>%1$s</td><td>%2$s</td><td>%3$s</td><td>%4$s%5$s</td><td class="num">%6$d</td><td class="num">%7$d</td></tr>',
+				esc_html( isset( $u['email'] ) ? $u['email'] : '' ),
+				esc_html( $joined ),
+				esc_html( isset( $u['tier'] ) ? ucfirst( $u['tier'] ) : 'free' ),
+				esc_html( isset( $u['status'] ) ? $u['status'] : '—' ),
+				$expires ? ' <span class="description">(' . esc_html( $expires ) . ')</span>' : '',
+				(int) ( isset( $u['standard'] ) ? $u['standard'] : 0 ),
+				(int) ( isset( $u['deep'] ) ? $u['deep'] : 0 )
+			);
+		}
+		echo '</tbody></table>';
+
+		// Pagination.
+		if ( $pages > 1 ) {
+			$base = add_query_arg( array( 'page' => 'gemscan-business-users', 's' => $search ), admin_url( 'admin.php' ) );
+			echo '<p class="tablenav-pages" style="margin-top:12px;">';
+			if ( $paged > 1 ) {
+				echo '<a class="button" href="' . esc_url( add_query_arg( 'paged', $paged - 1, $base ) ) . '">‹ ' . esc_html__( 'Prev', 'gemscan-payment' ) . '</a> ';
+			}
+			echo '<span style="margin:0 8px;">' . sprintf(
+				/* translators: 1: current page, 2: total pages. */
+				esc_html__( 'Page %1$d of %2$d', 'gemscan-payment' ),
+				(int) $paged,
+				(int) $pages
+			) . '</span>';
+			if ( $paged < $pages ) {
+				echo ' <a class="button" href="' . esc_url( add_query_arg( 'paged', $paged + 1, $base ) ) . '">' . esc_html__( 'Next', 'gemscan-payment' ) . ' ›</a>';
+			}
+			echo '</p>';
+		}
+
+		echo '</div>';
 	}
 
 	/* --------------------------------------------------------------------- */

@@ -8,6 +8,7 @@ import { useSubscriptionStatus } from "../../lib/subscription";
 import { useAuth } from "../../lib/auth";
 import { setAppLanguage } from "../../lib/i18n";
 import { PremiumGate } from "../../components/PremiumGate";
+import { CommunityStats } from "../../components/CommunityStats";
 
 // What the scanner identifies — shown as coloured gem marks. Names are the real
 // gem/material names; the count below is deliberately honest (see the note).
@@ -148,6 +149,9 @@ export default function HomeScreen() {
       <PremiumGate requiredTier="premium" featureName="Deep Scan (advanced identification)">
         <Text style={styles.body}>{t("home.deepScanUnlocked")}</Text>
       </PremiumGate>
+
+      {/* Live community counters (registered users + confirmed valuable gems). */}
+      <CommunityStats />
     </ScrollView>
   );
 }

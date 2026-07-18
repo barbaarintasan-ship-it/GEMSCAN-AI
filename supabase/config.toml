@@ -56,6 +56,11 @@ verify_jwt = false
 [functions.gemscan-analytics]
 verify_jwt = false
 
+# Full registrant list for the WordPress admin "Registered Users" page. Same
+# server-to-server shared-secret model as gemscan-analytics.
+[functions.gemscan-users]
+verify_jwt = false
+
 # Webhook endpoints verify authenticity via provider signature, not Supabase
 # JWT (the caller is Stripe/the mobile-money gateway, not a logged-in user).
 [functions.stripe-webhook]

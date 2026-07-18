@@ -360,6 +360,43 @@ class GemScan_Data {
 		self::get_analytics( true );
 	}
 
+	/**
+	 * Fetch a page of the full registrant list (admin only) from the
+	 * secret-protected gemscan-users Edge Function. Not cached — this is the
+	 * detailed admin view, queried on demand with paging + search.
+	 *
+	 * @param int    $limit  Page size (1-200).
+	 * @param int    $offset Row offset.
+	 * @param string $search Email substring filter.
+	 * @return array|null { total, users:[...] } or null on failure.
+	 */
+	public static function fetch_users_list( $limit = 50, $offset = 0, $search = '' ) {
+		$o = gemscan_opts();
+		if ( empty( $o['functions_url'] ) || empty( $o['activation_secret'] ) ) {
+			return null;
+		}
+		$res = wp_remote_post(
+			rtrim( $o['functions_url'], '/' ) . '/gemscan-users',
+			array(
+				'timeout' => 25,
+				'headers' => array( 'Content-Type' => 'application/json' ),
+				'body'    => wp_json_encode(
+					array(
+						'secret' => $o['activation_secret'],
+						'limit'  => (int) $limit,
+						'offset' => (int) $offset,
+						'search' => (string) $search,
+					)
+				),
+			)
+		);
+		if ( is_wp_error( $res ) ) {
+			return null;
+		}
+		$data = json_decode( wp_remote_retrieve_body( $res ), true );
+		return ( isset( $data['ok'] ) && $data['ok'] && isset( $data['data'] ) ) ? $data['data'] : null;
+	}
+
 	/* ---------------------------------------------------------------------
 	 * Helpers
 	 * ------------------------------------------------------------------ */

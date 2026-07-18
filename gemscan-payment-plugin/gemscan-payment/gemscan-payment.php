@@ -3,7 +3,7 @@
  * Plugin Name: GemScan Payments
  * Plugin URI:  https://barbaarintasan.com/gemscanpayment
  * Description: GemScan landing + pricing + payment page, and the bridge that upgrades a member's account after payment. Adds the [gemscan_payment] shortcode. Configure everything under Settings → GemScan.
- * Version:     1.9.3
+ * Version:     1.9.4
  * Author:      GemScan
  * License:     GPL-2.0+
  * Text Domain: gemscan-payment
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
 }
 
 define('GEMSCAN_OPT', 'gemscan_payment_options');
-define('GEMSCAN_VER', '1.9.3');
+define('GEMSCAN_VER', '1.9.4');
 define('GEMSCAN_TPL', 'gemscan-fullpage.php'); // standalone page template slug
 define('GEMSCAN_URL', plugin_dir_url(__FILE__));
 define('GEMSCAN_DIR', plugin_dir_path(__FILE__));

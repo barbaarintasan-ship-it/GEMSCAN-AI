@@ -1,5 +1,5 @@
 === GemScan Payments ===
-Version: 1.9.3
+Version: 1.9.4
 Requires: WordPress 5.5+
 License: GPL-2.0+
 
@@ -58,6 +58,14 @@ a member's account after payment. It does NOT touch the mobile app.
   switcher at the top toggles to English.
 
 == Changelog ==
+= 1.9.4 =
+* New "Registered Users" page under GemScan Business: the full app sign-up
+  list (email, joined date, plan, status, scan counts) from Supabase, with
+  search + paging. Administrator-only. Backed by the new secret-protected
+  gemscan-users Edge Function + gemscan_users_list() SQL (migration 0007).
+  (The public app footer counters — registered users + confirmed gems — live
+  in the mobile app via gemscan_public_stats().)
+
 = 1.9.3 =
 * Every sale (subscription or credit; manual OR Stripe auto) now fires a
   gemscan_revenue_recorded action at a single choke point, so GemScan
