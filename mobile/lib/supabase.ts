@@ -8,8 +8,8 @@
 // /supabase/functions/stripe-webhook), and their API keys never ship in this
 // app bundle.
 import "react-native-url-polyfill/auto";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
+import { secureStorageAdapter } from "./secureStorage";
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
@@ -23,7 +23,10 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: AsyncStorage,
+    // Encrypted at rest (iOS Keychain / Android Keystore), not plain
+    // AsyncStorage — see lib/secureStorage.ts for why and the chunking this
+    // requires to fit a full session under SecureStore's per-item limit.
+    storage: secureStorageAdapter,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
