@@ -13,6 +13,7 @@ import {
   StyleSheet,
   Linking,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,6 +24,7 @@ import { useAuth } from "../../lib/auth";
 import { supabase } from "../../lib/supabase";
 import { useSubscriptionStatus } from "../../lib/subscription";
 import { setAppLanguage, type AppLanguage } from "../../lib/i18n";
+import { checkForUpdate } from "../../lib/appUpdate";
 
 export default function SettingsScreen() {
   const { t, i18n } = useTranslation();
@@ -36,6 +38,36 @@ export default function SettingsScreen() {
   const [showDataUsage, setShowDataUsage] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [versionTaps, setVersionTaps] = useState(0);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+
+  // Manual "Check for updates": reuses the same launch-time check, on demand.
+  async function handleCheckUpdate() {
+    if (checkingUpdate) return;
+    setCheckingUpdate(true);
+    const so = i18n.language === "so";
+    try {
+      const info = await checkForUpdate();
+      if (info?.updateAvailable) {
+        Alert.alert(
+          so ? "Update ayaa diyaar ah" : "Update available",
+          so ? info.message.so : info.message.en,
+          [
+            { text: so ? "Ka daadi" : "Later", style: "cancel" },
+            { text: so ? "Cusboonaysii" : "Update", onPress: () => Linking.openURL(info.storeUrl) },
+          ],
+        );
+      } else {
+        Alert.alert(
+          so ? "Waad heysaa nooca ugu dambeeya" : "You're up to date",
+          so
+            ? "Waxaad haysataa nooca GemScan ugu dambeeyay."
+            : "You have the latest version of GemScan.",
+        );
+      }
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }
 
   // Hidden Debug/Diagnostics screen: tap the version number 5 times.
   function onVersionTap() {
@@ -163,6 +195,17 @@ export default function SettingsScreen() {
           <Text style={styles.rowLabel}>{t("settings.version")}</Text>
           <Text style={styles.rowValue}>{appVersion}</Text>
         </Pressable>
+        <View style={styles.rowDivider} />
+        <Pressable style={styles.row} onPress={handleCheckUpdate} disabled={checkingUpdate}>
+          <Text style={styles.rowLabel}>
+            {i18n.language === "so" ? "Hubi update cusub" : "Check for updates"}
+          </Text>
+          {checkingUpdate ? (
+            <ActivityIndicator size="small" color="#8A8A8E" />
+          ) : (
+            <Ionicons name="refresh-outline" size={18} color="#C9A227" />
+          )}
+        </Pressable>
       </View>
 
       {/* Logout */}
@@ -198,6 +241,7 @@ const styles = StyleSheet.create({
   },
   rowLabel: { fontSize: 14, color: "#8A8A8E" },
   rowValue: { fontSize: 15, color: "#F5F1E8", flexShrink: 1, textAlign: "right" },
+  rowDivider: { height: 1, backgroundColor: "#242123" },
   rowRight: { flexDirection: "row", alignItems: "center", gap: 8 },
   tierText: { fontSize: 14, color: "#C9A227", fontWeight: "600", textTransform: "capitalize" },
   divider: { height: 1, backgroundColor: "#2A2A2C" },
