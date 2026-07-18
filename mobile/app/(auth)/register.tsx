@@ -11,9 +11,12 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../lib/auth";
 import { EXTERNAL_PURCHASES_ENABLED } from "../../lib/appLinks";
+import { Button } from "../../components/ui/Button";
+import { colors, spacing, radius, type as typo } from "../../lib/theme";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -100,10 +103,8 @@ export default function RegisterScreen() {
             `Waxaan u dirnay xiriiriye xaqiijin ${confirmationEmail}. Riix si aad akoonka u firfircooneyso, ka dibna ku noqo oo gal.`,
           )}
         </Text>
-        <Pressable style={styles.button} onPress={() => router.replace("/(auth)/login")}>
-          <Text style={styles.buttonText}>{L("Go to login", "Aad galitaanka")}</Text>
-        </Pressable>
-        <Pressable onPress={() => setConfirmationEmail(null)}>
+        <Button title={L("Go to login", "Aad galitaanka")} onPress={() => router.replace("/(auth)/login")} style={styles.submitButton} />
+        <Pressable onPress={() => setConfirmationEmail(null)} hitSlop={8}>
           <Text style={styles.link}>{L("Use a different email", "Isticmaal email kale")}</Text>
         </Pressable>
       </View>
@@ -112,19 +113,23 @@ export default function RegisterScreen() {
 
   const field = (
     label: string,
+    icon: keyof typeof Ionicons.glyphMap,
     value: string,
     onChange: (v: string) => void,
     opts: Partial<React.ComponentProps<typeof TextInput>> = {},
   ) => (
     <>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
-        style={styles.input}
-        placeholderTextColor="#8A8A8E"
-        value={value}
-        onChangeText={onChange}
-        {...opts}
-      />
+      <View style={styles.inputRow}>
+        <Ionicons name={icon} size={17} color={colors.textFaint} />
+        <TextInput
+          style={styles.input}
+          placeholderTextColor={colors.textFaint}
+          value={value}
+          onChangeText={onChange}
+          {...opts}
+        />
+      </View>
     </>
   );
 
@@ -153,54 +158,55 @@ export default function RegisterScreen() {
               )}
         </Text>
 
-        {field(L("Full name (three names)", "Magaca oo saddexan"), fullName, setFullName, {
+        {field(L("Full name (three names)", "Magaca oo saddexan"), "person-outline", fullName, setFullName, {
           placeholder: L("e.g. Cabdi Xasan Cali", "tusaale: Cabdi Xasan Cali"),
           autoCapitalize: "words",
           autoComplete: "name",
         })}
-        {field(L("Phone number", "Lambarka taleefanka"), phone, setPhone, {
+        {field(L("Phone number", "Lambarka taleefanka"), "call-outline", phone, setPhone, {
           placeholder: "+252 61 234 5678",
           keyboardType: "phone-pad",
           autoComplete: "tel",
         })}
-        {field(L("Email", "Email-ka"), email, setEmail, {
+        {field(L("Email", "Email-ka"), "mail-outline", email, setEmail, {
           placeholder: "you@example.com",
           autoCapitalize: "none",
           autoComplete: "email",
           keyboardType: "email-address",
         })}
-        {field(L("Confirm email", "Xaqiiji email-ka"), confirmEmail, setConfirmEmail, {
+        {field(L("Confirm email", "Xaqiiji email-ka"), "mail-outline", confirmEmail, setConfirmEmail, {
           placeholder: L("Re-enter your email", "Dib u geli email-kaaga"),
           autoCapitalize: "none",
           keyboardType: "email-address",
         })}
-        {field(L("Password", "Furaha sirta"), password, setPassword, {
+        {field(L("Password", "Furaha sirta"), "lock-closed-outline", password, setPassword, {
           placeholder: L("At least 8 characters", "Ugu yaraan 8 xaraf"),
           secureTextEntry: true,
         })}
-        {field(L("Confirm password", "Xaqiiji furaha"), confirmPassword, setConfirmPassword, {
+        {field(L("Confirm password", "Xaqiiji furaha"), "lock-closed-outline", confirmPassword, setConfirmPassword, {
           placeholder: L("Re-enter your password", "Dib u geli furahaaga"),
           secureTextEntry: true,
         })}
-        {field(L("Country", "Wadanka"), country, setCountry, {
+        {field(L("Country", "Wadanka"), "globe-outline", country, setCountry, {
           placeholder: L("e.g. Somalia", "tusaale: Soomaaliya"),
           autoCapitalize: "words",
           autoComplete: "country",
         })}
-        {field(L("City", "Magaalada"), city, setCity, {
+        {field(L("City", "Magaalada"), "location-outline", city, setCity, {
           placeholder: L("e.g. Mogadishu", "tusaale: Muqdisho"),
           autoCapitalize: "words",
         })}
 
         {error && <Text style={styles.error}>{error}</Text>}
 
-        <Pressable style={styles.button} onPress={onSubmit} disabled={isSubmitting}>
-          <Text style={styles.buttonText}>
-            {isSubmitting ? L("Creating account…", "Akoonka waa la abuurayaa…") : L("Sign up", "Is-diiwaangeli")}
-          </Text>
-        </Pressable>
+        <Button
+          title={isSubmitting ? L("Creating account…", "Akoonka waa la abuurayaa…") : L("Sign up", "Is-diiwaangeli")}
+          onPress={onSubmit}
+          loading={isSubmitting}
+          style={styles.submitButton}
+        />
 
-        <Pressable onPress={() => router.push("/(auth)/login")}>
+        <Pressable onPress={() => router.push("/(auth)/login")} hitSlop={8}>
           <Text style={styles.link}>{L("Already have an account? Log in", "Ma horeba akoon baa kuu jira? Gal")}</Text>
         </Pressable>
       </ScrollView>
@@ -209,26 +215,21 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: "#0B0B0C" },
-  container: { flexGrow: 1, justifyContent: "center", padding: 24, gap: 8, backgroundColor: "#0B0B0C" },
-  title: { fontSize: 24, fontWeight: "700", color: "#F5F1E8", textAlign: "center" },
-  subtitle: { fontSize: 13, color: "#8A8A8E", textAlign: "center", marginBottom: 12 },
-  label: { fontSize: 12, color: "#C9C9CC", marginTop: 6, marginBottom: 2 },
-  input: {
-    backgroundColor: "#1A1A1D",
-    color: "#F5F1E8",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  button: {
-    backgroundColor: "#C9A227",
-    borderRadius: 999,
-    paddingVertical: 14,
+  flex: { flex: 1, backgroundColor: colors.bg },
+  container: { flexGrow: 1, justifyContent: "center", padding: spacing.xxl, gap: spacing.sm, backgroundColor: colors.bg },
+  title: { fontSize: 24, fontWeight: "700", color: colors.text, textAlign: "center" },
+  subtitle: { ...typo.bodySmall, textAlign: "center", marginBottom: spacing.md },
+  label: { fontSize: 12, color: colors.textMuted, marginTop: spacing.sm, marginBottom: 2 },
+  inputRow: {
+    flexDirection: "row",
     alignItems: "center",
-    marginTop: 16,
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
   },
-  buttonText: { color: "#0B0B0C", fontWeight: "700" },
-  link: { color: "#C9A227", textAlign: "center", marginTop: 16 },
-  error: { color: "#E5484D", textAlign: "center", marginTop: 8 },
+  input: { flex: 1, color: colors.text, paddingVertical: 14, fontSize: 15 },
+  submitButton: { marginTop: spacing.lg },
+  link: { color: colors.gold, textAlign: "center", marginTop: spacing.lg },
+  error: { color: colors.dangerStrong, textAlign: "center", marginTop: spacing.sm },
 });

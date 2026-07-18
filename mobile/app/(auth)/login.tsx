@@ -1,11 +1,22 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  StyleSheet,
+  KeyboardAvoidingView,
+  ScrollView,
+  Platform,
+} from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../lib/auth";
 import { setAppLanguage } from "../../lib/i18n";
+import { Button } from "../../components/ui/Button";
+import { colors, spacing, radius, type as typo } from "../../lib/theme";
 
 export default function LoginScreen() {
   const { signIn } = useAuth();
@@ -36,7 +47,8 @@ export default function LoginScreen() {
       style={styles.flex}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={styles.container}>
+      {/* Fixed above the ScrollView (not inside it) so it stays put on screen
+          even when the form scrolls to keep fields clear of the keyboard. */}
       <Pressable
         style={[styles.langPill, { top: insets.top + 12 }]}
         onPress={() => setAppLanguage(so ? "en" : "so")}
@@ -46,46 +58,61 @@ export default function LoginScreen() {
         <Text style={styles.langText}>{so ? "SO" : "EN"}</Text>
       </Pressable>
 
-      <Text style={styles.title}>💎 GemScan</Text>
-      <Text style={styles.subtitle}>{L("Log in to your account", "Gal akoonkaaga")}</Text>
+      <ScrollView
+        contentContainerStyle={[styles.container, { paddingTop: 24 + insets.top }]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.title}>💎 GemScan</Text>
+        <Text style={styles.subtitle}>{L("Log in to your account", "Gal akoonkaaga")}</Text>
 
-      <TextInput
-        style={styles.input}
-        placeholder="Email"
-        placeholderTextColor="#8A8A8E"
-        autoCapitalize="none"
-        keyboardType="email-address"
-        value={email}
-        onChangeText={setEmail}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder={L("Password", "Furaha sirta")}
-        placeholderTextColor="#8A8A8E"
-        secureTextEntry
-        value={password}
-        onChangeText={setPassword}
-      />
+        <View style={styles.inputRow}>
+          <Ionicons name="mail-outline" size={18} color={colors.textFaint} />
+          <TextInput
+            style={styles.input}
+            placeholder="Email"
+            placeholderTextColor={colors.textFaint}
+            autoCapitalize="none"
+            autoComplete="email"
+            keyboardType="email-address"
+            value={email}
+            onChangeText={setEmail}
+          />
+        </View>
+        <View style={styles.inputRow}>
+          <Ionicons name="lock-closed-outline" size={18} color={colors.textFaint} />
+          <TextInput
+            style={styles.input}
+            placeholder={L("Password", "Furaha sirta")}
+            placeholderTextColor={colors.textFaint}
+            secureTextEntry
+            autoComplete="password"
+            value={password}
+            onChangeText={setPassword}
+          />
+        </View>
 
-      {error && <Text style={styles.error}>{error}</Text>}
+        {error && <Text style={styles.error}>{error}</Text>}
 
-      <Pressable style={styles.button} onPress={onSubmit} disabled={isSubmitting}>
-        <Text style={styles.buttonText}>
-          {isSubmitting ? L("Logging in…", "Waa la galayaa…") : L("Log in", "Gal")}
-        </Text>
-      </Pressable>
+        <Button
+          title={isSubmitting ? L("Logging in…", "Waa la galayaa…") : L("Log in", "Gal")}
+          onPress={onSubmit}
+          loading={isSubmitting}
+          style={styles.submitButton}
+        />
 
-      <Pressable onPress={() => router.push("/(auth)/register")}>
-        <Text style={styles.link}>{L("Don't have an account? Sign up", "Akoon ma lihid? Is-diiwaangeli")}</Text>
-      </Pressable>
-      </View>
+        <Pressable onPress={() => router.push("/(auth)/register")} hitSlop={8}>
+          <Text style={styles.link}>{L("Don't have an account? Sign up", "Akoon ma lihid? Is-diiwaangeli")}</Text>
+        </Pressable>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: "#0B0B0C" },
-  container: { flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#0B0B0C", gap: 12 },
+  flex: { flex: 1, backgroundColor: colors.bg },
+  container: { flexGrow: 1, justifyContent: "center", padding: spacing.xxl, backgroundColor: colors.bg, gap: spacing.md },
   langPill: {
     position: "absolute",
     top: 48,
@@ -93,29 +120,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
-    backgroundColor: "#C9A227",
-    borderRadius: 999,
+    backgroundColor: colors.gold,
+    borderRadius: radius.pill,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
   langText: { color: "#0B0B0C", fontWeight: "800", fontSize: 12 },
-  title: { fontSize: 28, fontWeight: "800", color: "#C9A227", textAlign: "center" },
-  subtitle: { fontSize: 14, color: "#8A8A8E", textAlign: "center", marginBottom: 16 },
-  input: {
-    backgroundColor: "#1A1A1D",
-    color: "#F5F1E8",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  button: {
-    backgroundColor: "#C9A227",
-    borderRadius: 999,
-    paddingVertical: 14,
+  title: { fontSize: 28, fontWeight: "800", color: colors.gold, textAlign: "center" },
+  subtitle: { ...typo.body, textAlign: "center", marginBottom: spacing.sm },
+  inputRow: {
+    flexDirection: "row",
     alignItems: "center",
-    marginTop: 8,
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
   },
-  buttonText: { color: "#0B0B0C", fontWeight: "700" },
-  link: { color: "#C9A227", textAlign: "center", marginTop: 16 },
-  error: { color: "#E5484D", textAlign: "center" },
+  input: { flex: 1, color: colors.text, paddingVertical: 14, fontSize: 15 },
+  submitButton: { marginTop: spacing.sm },
+  link: { color: colors.gold, textAlign: "center", marginTop: spacing.lg },
+  error: { color: colors.dangerStrong, textAlign: "center" },
 });

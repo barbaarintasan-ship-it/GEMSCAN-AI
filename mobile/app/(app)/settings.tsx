@@ -25,6 +25,8 @@ import { supabase } from "../../lib/supabase";
 import { useSubscriptionStatus } from "../../lib/subscription";
 import { setAppLanguage, type AppLanguage } from "../../lib/i18n";
 import { checkForUpdate } from "../../lib/appUpdate";
+import { SectionLabel } from "../../components/ui/SectionLabel";
+import { colors, spacing, radius } from "../../lib/theme";
 
 export default function SettingsScreen() {
   const { t, i18n } = useTranslation();
@@ -119,27 +121,28 @@ export default function SettingsScreen() {
   }
 
   const appVersion = Constants.expoConfig?.version ?? "0.1.0";
+  const displayNameOrEmail = shownName || session?.user.email || "";
+  const avatarInitial = displayNameOrEmail.trim().charAt(0).toUpperCase() || "?";
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={[styles.content, { paddingBottom: 40 + insets.bottom }]}>
-      {/* Profile */}
-      <Text style={styles.sectionLabel}>{t("settings.profileSection")}</Text>
-      <View style={styles.card}>
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>{t("settings.email")}</Text>
-          <Text style={styles.rowValue}>{session?.user.email ?? "—"}</Text>
+      {/* Profile header — name front and center, with an avatar initial. */}
+      <View style={styles.profileHeader}>
+        <View style={styles.avatarCircle}>
+          <Text style={styles.avatarInitial}>{avatarInitial}</Text>
         </View>
-        <View style={styles.divider} />
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>{t("settings.displayName")}</Text>
-          <Text style={styles.rowValue}>
+        <View style={styles.profileHeaderText}>
+          <Text style={styles.profileName} numberOfLines={1}>
             {shownName || (profileLoading ? "…" : t("settings.notSet"))}
+          </Text>
+          <Text style={styles.profileEmail} numberOfLines={1}>
+            {session?.user.email ?? "—"}
           </Text>
         </View>
       </View>
 
       {/* Language */}
-      <Text style={styles.sectionLabel}>{t("settings.languageSection")}</Text>
+      <SectionLabel>{t("settings.languageSection")}</SectionLabel>
       <View style={styles.card}>
         <Pressable style={styles.selectRow} onPress={() => handleLanguage("en")}>
           <Text style={styles.rowValue}>{t("settings.english")}</Text>
@@ -153,10 +156,13 @@ export default function SettingsScreen() {
       </View>
 
       {/* Privacy */}
-      <Text style={styles.sectionLabel}>{t("settings.privacySection")}</Text>
+      <SectionLabel>{t("settings.privacySection")}</SectionLabel>
       <View style={styles.card}>
         <Pressable style={styles.selectRow} onPress={() => setShowDataUsage((v) => !v)}>
-          <Text style={styles.rowValue}>{t("settings.howYourDataIsUsed")}</Text>
+          <View style={styles.rowLeft}>
+            <Ionicons name="shield-checkmark-outline" size={18} color={colors.textFaint} />
+            <Text style={styles.rowValue}>{t("settings.howYourDataIsUsed")}</Text>
+          </View>
           <Ionicons
             name={showDataUsage ? "chevron-up" : "chevron-down"}
             size={18}
@@ -171,16 +177,22 @@ export default function SettingsScreen() {
           style={styles.selectRow}
           onPress={() => Linking.openURL("https://barbaarintasan.com/gemscanprivacy")}
         >
-          <Text style={styles.rowValue}>{t("settings.privacyPolicy")}</Text>
+          <View style={styles.rowLeft}>
+            <Ionicons name="document-text-outline" size={18} color={colors.textFaint} />
+            <Text style={styles.rowValue}>{t("settings.privacyPolicy")}</Text>
+          </View>
           <Ionicons name="open-outline" size={18} color="#8A8A8E" />
         </Pressable>
       </View>
 
       {/* Subscription */}
-      <Text style={styles.sectionLabel}>{t("settings.subscriptionSection")}</Text>
+      <SectionLabel>{t("settings.subscriptionSection")}</SectionLabel>
       <View style={styles.card}>
         <Pressable style={styles.selectRow} onPress={() => router.push("/(app)/account")}>
-          <Text style={styles.rowValue}>{t("settings.manageSubscription")}</Text>
+          <View style={styles.rowLeft}>
+            <Ionicons name="card-outline" size={18} color={colors.textFaint} />
+            <Text style={styles.rowValue}>{t("settings.manageSubscription")}</Text>
+          </View>
           <View style={styles.rowRight}>
             <Text style={styles.tierText}>{subscription?.tier ?? "free"}</Text>
             <Ionicons name="chevron-forward" size={18} color="#8A8A8E" />
@@ -189,17 +201,23 @@ export default function SettingsScreen() {
       </View>
 
       {/* App information */}
-      <Text style={styles.sectionLabel}>{t("settings.aboutSection")}</Text>
+      <SectionLabel>{t("settings.aboutSection")}</SectionLabel>
       <View style={styles.card}>
         <Pressable style={styles.row} onPress={onVersionTap}>
-          <Text style={styles.rowLabel}>{t("settings.version")}</Text>
+          <View style={styles.rowLeft}>
+            <Ionicons name="information-circle-outline" size={18} color={colors.textFaint} />
+            <Text style={styles.rowLabel}>{t("settings.version")}</Text>
+          </View>
           <Text style={styles.rowValue}>{appVersion}</Text>
         </Pressable>
         <View style={styles.rowDivider} />
         <Pressable style={styles.row} onPress={handleCheckUpdate} disabled={checkingUpdate}>
-          <Text style={styles.rowLabel}>
-            {i18n.language === "so" ? "Hubi update cusub" : "Check for updates"}
-          </Text>
+          <View style={styles.rowLeft}>
+            <Ionicons name="cloud-download-outline" size={18} color={colors.textFaint} />
+            <Text style={styles.rowLabel}>
+              {i18n.language === "so" ? "Hubi update cusub" : "Check for updates"}
+            </Text>
+          </View>
           {checkingUpdate ? (
             <ActivityIndicator size="small" color="#8A8A8E" />
           ) : (
@@ -213,7 +231,10 @@ export default function SettingsScreen() {
         {signingOut ? (
           <ActivityIndicator color="#E5484D" />
         ) : (
-          <Text style={styles.logoutText}>{t("settings.logout")}</Text>
+          <>
+            <Ionicons name="log-out-outline" size={18} color={colors.dangerStrong} />
+            <Text style={styles.logoutText}>{t("settings.logout")}</Text>
+          </>
         )}
       </Pressable>
     </ScrollView>
@@ -223,14 +244,29 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#0B0B0C" },
   content: { padding: 20, gap: 8, paddingBottom: 40 },
-  sectionLabel: {
-    fontSize: 12,
-    color: "#8A8A8E",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginTop: 16,
-    marginBottom: 2,
+  profileHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    marginBottom: spacing.sm,
   },
+  avatarCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: colors.goldSoft,
+    borderWidth: 1,
+    borderColor: colors.goldBorder,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarInitial: { color: colors.gold, fontSize: 22, fontWeight: "800" },
+  profileHeaderText: { flex: 1, gap: 2 },
+  profileName: { color: colors.text, fontSize: 18, fontWeight: "800" },
+  profileEmail: { color: colors.textFaint, fontSize: 13 },
   card: { backgroundColor: "#1A1A1D", borderRadius: 14, paddingHorizontal: 16 },
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 14 },
   selectRow: {
@@ -239,6 +275,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 14,
   },
+  rowLeft: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexShrink: 1 },
   rowLabel: { fontSize: 14, color: "#8A8A8E" },
   rowValue: { fontSize: 15, color: "#F5F1E8", flexShrink: 1, textAlign: "right" },
   rowDivider: { height: 1, backgroundColor: "#242123" },
@@ -247,9 +284,12 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: "#2A2A2C" },
   privacyBody: { fontSize: 13, color: "#C9C9CC", lineHeight: 19, paddingBottom: 14 },
   logoutButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
     marginTop: 28,
     paddingVertical: 14,
-    alignItems: "center",
     borderRadius: 999,
     borderWidth: 1,
     borderColor: "#E5484D",

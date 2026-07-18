@@ -33,6 +33,8 @@ import { isScanLimitError } from "../../../lib/appLinks";
 import { useSubscriptionStatus } from "../../../lib/subscription";
 import ScanTypeChooser from "../../../components/ScanTypeChooser";
 import type { CoarseClassification } from "../../../lib/onDeviceDetection";
+import { ScanTipsCard } from "../../../components/ui/ScanTipsCard";
+import { ProgressChecklist, type ProgressStep } from "../../../components/ui/ProgressChecklist";
 
 // Heuristic for the smart Deep Scan recommendation: does the on-device hint
 // look like a high-value material worth the 3-AI ensemble?
@@ -120,6 +122,7 @@ export default function CaptureScreen() {
   const [busyLabel, setBusyLabel] = useState("");
   const [retakeReason, setRetakeReason] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [stage, setStage] = useState<"preparing" | "analyzing" | "finalizing">("preparing");
 
   // Scan-type chooser (Standard vs Deep). Credits are read-only from the
   // backend; the app never sells anything in-app.
@@ -226,6 +229,7 @@ export default function CaptureScreen() {
   async function handleAnalyze(scanType: ScanType) {
     setChooserVisible(false);
     setIsAnalyzing(true);
+    setStage("preparing");
     try {
       const location = await getPreciseLocation();
       const onDeviceHint = pendingHintRef.current;
@@ -241,7 +245,9 @@ export default function CaptureScreen() {
         await uploadScanImage(scanId, { ...image, processedUri: segmented.uri });
       }
 
+      setStage("analyzing");
       const result = await runOrchestration(scanId, onDeviceHint, scanType);
+      setStage("finalizing");
       router.replace({
         pathname: "/(app)/scan/results",
         params: { scanId: result.scanId },
@@ -260,11 +266,31 @@ export default function CaptureScreen() {
   }
 
   if (isAnalyzing) {
+    const steps: ProgressStep[] = [
+      {
+        key: "prep",
+        label: L("Preparing photos", "Sawirrada waa la diyaarinayaa"),
+        done: stage !== "preparing",
+        active: stage === "preparing",
+      },
+      {
+        key: "ai",
+        label: L("AI identification & analysis", "Aqoonsi & falanqayn AI"),
+        done: stage === "finalizing",
+        active: stage === "analyzing",
+      },
+      {
+        key: "final",
+        label: L("Preparing your report", "Warbixinta waa la diyaarinayaa"),
+        done: false,
+        active: stage === "finalizing",
+      },
+    ];
     return (
-      <View style={styles.container}>
-        <ActivityIndicator color="#C9A227" size="large" />
-        <Text style={styles.body}>
-          {L("Identifying your stone — please wait, it may take up to 30 seconds…", "Waa la aqoonsanayaa dhagaxaaga — sug wax yar, waxay qaadan kartaa 30 ilbiriqsi…")}
+      <View style={styles.loadingContainer}>
+        <ProgressChecklist steps={steps} />
+        <Text style={styles.caption}>
+          {L("This may take up to 30 seconds.", "Waxay qaadan kartaa ilaa 30 ilbiriqsi.")}
         </Text>
       </View>
     );
@@ -274,7 +300,9 @@ export default function CaptureScreen() {
     <View style={styles.container}>
       <ImageProcessorGL ref={imageProcessorRef} />
 
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
+      <ScrollView contentContainerStyle={{ flexGrow: 1, gap: 12 }}>
+        {stepIndex === 0 && <ScanTipsCard />}
+
         <Text style={styles.stepCounter}>
           {L("Step", "Tallaabo")} {stepIndex + 1} {L("of", "ee")} {ANGLE_STEPS.length}: {so ? currentStep.labelSo : currentStep.label}
         </Text>
@@ -347,6 +375,11 @@ export default function CaptureScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#0B0B0C", padding: 20, gap: 12 },
+  loadingContainer: {
+    flex: 1, backgroundColor: "#0B0B0C", padding: 24, gap: 16,
+    alignItems: "center", justifyContent: "center",
+  },
+  caption: { color: "#8A8A8E", fontSize: 12.5, textAlign: "center" },
   body: { fontSize: 14, color: "#C9C9CC", lineHeight: 20 },
   stepCounter: { fontSize: 18, fontWeight: "700", color: "#F5F1E8" },
   cameraWrapper: {

@@ -45,6 +45,7 @@ import { precheckObject, categoryLabel, type SupportedCategory } from "../../../
 import { diag } from "../../../lib/diagnostics";
 import { isScanLimitError } from "../../../lib/appLinks";
 import { UpgradePrompt } from "../../../components/UpgradePrompt";
+import { ProgressChecklist, type ProgressStep } from "../../../components/ui/ProgressChecklist";
 
 type Phase = "initializing" | "ready" | "classifying" | "rejected" | "capturing" | "analyzing";
 
@@ -126,6 +127,7 @@ export default function LiveScanScreen() {
     setPhase(p);
   };
 
+  const [analyzeStage, setAnalyzeStage] = useState<"preparing" | "analyzing" | "finalizing">("preparing");
   const [category, setCategory] = useState<SupportedCategory>("unknown");
   const [guidance, setGuidance] = useState("");
   const [evidence, setEvidence] = useState<string[]>([]);
@@ -324,6 +326,7 @@ export default function LiveScanScreen() {
       return;
     }
     setPhaseBoth("analyzing");
+    setAnalyzeStage("preparing");
     diag.log("capture_completed", `${uris.length} frames`);
     diag.setMetric("cpuFallbackActive", diag.isGpuDisabled());
     const scanStart = Date.now();
@@ -351,10 +354,12 @@ export default function LiveScanScreen() {
       diag.end("upload");
       diag.begin("cloud_analysis");
       diag.setMetric("currentProvider", "Cloud analysis");
+      setAnalyzeStage("analyzing");
       const orchestrated = await runOrchestration(scanId, onDeviceHint);
       diag.end("cloud_analysis");
       diag.setMetric("lastScanMs", Date.now() - scanStart);
       diag.log("result_displayed");
+      setAnalyzeStage("finalizing");
       router.replace({ pathname: "/(app)/scan/results", params: { scanId: orchestrated.scanId } });
     } catch (err) {
       diag.error("submit_failed", (err as Error).message);
@@ -379,11 +384,33 @@ export default function LiveScanScreen() {
   }
 
   if (phase === "analyzing") {
+    const steps: ProgressStep[] = [
+      {
+        key: "prep",
+        label: L("Preparing photos", "Sawirrada waa la diyaarinayaa"),
+        done: analyzeStage !== "preparing",
+        active: analyzeStage === "preparing",
+      },
+      {
+        key: "ai",
+        label: L("AI identification & analysis", "Aqoonsi & falanqayn AI"),
+        done: analyzeStage === "finalizing",
+        active: analyzeStage === "analyzing",
+      },
+      {
+        key: "final",
+        label: L("Preparing your report", "Warbixinta waa la diyaarinayaa"),
+        done: false,
+        active: analyzeStage === "finalizing",
+      },
+    ];
     return (
       <View style={styles.centered}>
         <ImageProcessorGL ref={imageProcessorRef} />
-        <ActivityIndicator color="#C9A227" size="large" />
-        <Text style={styles.body}>{L("Identifying your stone — please wait, it may take up to 30 seconds…", "Waa la aqoonsanayaa dhagaxaaga — sug wax yar, waxay qaadan kartaa 30 ilbiriqsi…")}</Text>
+        <ProgressChecklist steps={steps} />
+        <Text style={styles.body}>
+          {L("This may take up to 30 seconds.", "Waxay qaadan kartaa ilaa 30 ilbiriqsi.")}
+        </Text>
       </View>
     );
   }

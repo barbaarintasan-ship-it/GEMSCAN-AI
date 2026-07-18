@@ -5,17 +5,22 @@
 // contains a purchase flow, price list with a "Buy" button, or any payment
 // SDK — that would violate the payment-separation decision.
 import React, { useState } from "react";
-import { View, Text, Pressable, Linking, Alert, StyleSheet } from "react-native";
+import { View, Text, Pressable, Linking, Alert, StyleSheet, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../lib/auth";
 import { useSubscriptionStatus } from "../../lib/subscription";
 import { PAYMENT_URL, EXTERNAL_PURCHASES_ENABLED } from "../../lib/appLinks";
+import { Card } from "../../components/ui/Card";
+import { Button } from "../../components/ui/Button";
+import { colors, spacing, type as typo } from "../../lib/theme";
 
 export default function AccountScreen() {
   const { session, signOut, deleteAccount } = useAuth();
   const { data, isLoading, refetch, isRefetching } = useSubscriptionStatus();
   const insets = useSafeAreaInsets();
   const [deleting, setDeleting] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   const confirmDelete = () => {
     Alert.alert(
@@ -38,13 +43,21 @@ export default function AccountScreen() {
     );
   };
 
+  async function handleLogout() {
+    setSigningOut(true);
+    await signOut();
+  }
+
   return (
     <View style={[styles.container, { paddingBottom: 24 + insets.bottom }]}>
       <Text style={styles.heading}>Account</Text>
       <Text style={styles.email}>{session?.user.email}</Text>
 
-      <View style={styles.card}>
-        <Text style={styles.cardLabel}>Subscription</Text>
+      <Card accent style={styles.card}>
+        <View style={styles.cardHeader}>
+          <Ionicons name="diamond" size={16} color={colors.gold} />
+          <Text style={styles.cardLabel}>Subscription</Text>
+        </View>
         <Text style={styles.cardValue}>{isLoading ? "Loading…" : (data?.tier ?? "free")}</Text>
         {data?.currentPeriodEnd && (
           <Text style={styles.cardSubtext}>Renews/expires: {data.currentPeriodEnd}</Text>
@@ -55,70 +68,56 @@ export default function AccountScreen() {
             and don't see it reflected here, tap refresh below.
           </Text>
         )}
-      </View>
+      </Card>
 
-      <Pressable
-        style={styles.secondaryButton}
+      <Button
+        title={isRefetching ? "Refreshing…" : "Refresh subscription status"}
+        variant="secondary"
+        icon={<Ionicons name="refresh-outline" size={16} color={colors.text} />}
         onPress={() => refetch()}
         disabled={isRefetching}
-      >
-        <Text style={styles.secondaryButtonText}>
-          {isRefetching ? "Refreshing…" : "Refresh subscription status"}
-        </Text>
-      </Pressable>
+        style={styles.actionSpacing}
+      />
 
       {EXTERNAL_PURCHASES_ENABLED && (
-        <Pressable style={styles.button} onPress={() => Linking.openURL(PAYMENT_URL)}>
-          <Text style={styles.buttonText}>Manage subscription on website</Text>
-        </Pressable>
+        <Button
+          title="Manage subscription on website"
+          variant="primary"
+          icon={<Ionicons name="open-outline" size={16} color="#0B0B0C" />}
+          onPress={() => Linking.openURL(PAYMENT_URL)}
+          style={styles.actionSpacing}
+        />
       )}
 
-      <Pressable style={styles.signOutButton} onPress={signOut}>
-        <Text style={styles.signOutText}>Log out</Text>
+      <Pressable style={styles.signOutButton} onPress={handleLogout} disabled={signingOut}>
+        {signingOut ? (
+          <ActivityIndicator color={colors.text} />
+        ) : (
+          <Text style={styles.signOutText}>Log out</Text>
+        )}
       </Pressable>
 
-      <Pressable style={styles.deleteButton} onPress={confirmDelete} disabled={deleting}>
-        <Text style={styles.deleteText}>{deleting ? "Deleting…" : "Delete account"}</Text>
-      </Pressable>
+      <Button
+        title={deleting ? "Deleting…" : "Delete account"}
+        variant="danger"
+        loading={deleting}
+        onPress={confirmDelete}
+        style={styles.actionSpacing}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, backgroundColor: "#0B0B0C", gap: 12 },
-  heading: { fontSize: 22, fontWeight: "700", color: "#F5F1E8" },
-  email: { fontSize: 13, color: "#8A8A8E", marginBottom: 8 },
-  card: {
-    backgroundColor: "#1A1A1D",
-    borderRadius: 16,
-    padding: 16,
-    gap: 6,
-  },
-  cardLabel: { fontSize: 12, color: "#8A8A8E", textTransform: "uppercase" },
-  cardValue: { fontSize: 20, color: "#C9A227", fontWeight: "700", textTransform: "capitalize" },
-  cardSubtext: { fontSize: 12, color: "#8A8A8E" },
-  button: {
-    backgroundColor: "#C9A227",
-    borderRadius: 999,
-    paddingVertical: 14,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  buttonText: { color: "#0B0B0C", fontWeight: "700" },
-  secondaryButton: {
-    borderRadius: 999,
-    paddingVertical: 12,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#3A3A3D",
-  },
-  secondaryButtonText: { color: "#F5F1E8" },
-  signOutButton: { marginTop: 24, alignItems: "center" },
-  signOutText: { color: "#F5F1E8" },
-  deleteButton: {
-    marginTop: 8,
-    alignItems: "center",
-    paddingVertical: 12,
-  },
-  deleteText: { color: "#E5484D", fontWeight: "600" },
+  container: { flex: 1, padding: spacing.xxl, backgroundColor: colors.bg, gap: spacing.md },
+  heading: { ...typo.heading },
+  email: { ...typo.caption, marginBottom: spacing.sm },
+  card: { gap: spacing.xs },
+  cardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  cardLabel: { ...typo.label, marginTop: 0, marginBottom: 0 },
+  cardValue: { fontSize: 20, color: colors.gold, fontWeight: "700", textTransform: "capitalize" },
+  cardSubtext: { ...typo.caption },
+  actionSpacing: { marginTop: spacing.xs },
+  signOutButton: { marginTop: spacing.xxl, alignItems: "center", paddingVertical: spacing.sm },
+  signOutText: { color: colors.text, fontSize: 15 },
 });

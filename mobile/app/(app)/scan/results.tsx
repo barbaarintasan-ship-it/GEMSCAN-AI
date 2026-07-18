@@ -21,6 +21,10 @@ import { useSubscriptionStatus } from "../../../lib/subscription";
 import { generateAndSharePdf, type PdfReportData } from "../../../lib/pdfReport";
 import { EXTERNAL_PURCHASES_ENABLED, PAYMENT_URL } from "../../../lib/appLinks";
 import LocationMap from "../../../components/LocationMap";
+import { Card } from "../../../components/ui/Card";
+import { ConfidenceBadge } from "../../../components/ui/ConfidenceBadge";
+import { Button } from "../../../components/ui/Button";
+import { colors, spacing, radius, type as typo } from "../../../lib/theme";
 
 type ScanCandidate = {
   rank: number;
@@ -320,61 +324,44 @@ export default function ResultsScreen() {
   return (
     <>
     <ScrollView contentContainerStyle={[styles.container, { paddingBottom: 32 + insets.bottom }]}>
-      <Text style={styles.label}>{L("Best match", "Aqoonsiga ugu fiican")}</Text>
-      <Text style={styles.bestMatch}>{finalResult.bestMatch}</Text>
-      <View style={[styles.bandPill, { backgroundColor: BAND_COLOR[finalResult.confidenceBand] }]}>
-        <Text style={styles.bandPillText}>
-          {bandWord(finalResult.confidenceBand)} {L("CONFIDENCE", "KALSOONI")} · {pct}%
+      <Card accent style={styles.heroCard}>
+        <Text style={styles.label}>{L("Best match", "Aqoonsiga ugu fiican")}</Text>
+        <Text style={styles.bestMatch}>{finalResult.bestMatch}</Text>
+        <ConfidenceBadge pct={pct} band={finalResult.confidenceBand} size="lg" />
+        <Text style={styles.body}>
+          {L(
+            `Identified as the best match with ${pct}% confidence from our expert gemstone analysis.`,
+            `Waxaa loo aqoonsaday inuu yahay aqoonsiga ugu fiican, kalsooni ${pct}%, iyada oo lagu saleeyay baaritaankayaga khibradda leh.`,
+          )}
         </Text>
-      </View>
-      <Text style={styles.body}>
-        {L(
-          `Identified as the best match with ${pct}% confidence from our expert gemstone analysis.`,
-          `Waxaa loo aqoonsaday inuu yahay aqoonsiga ugu fiican, kalsooni ${pct}%, iyada oo lagu saleeyay baaritaankayaga khibradda leh.`,
-        )}
-      </Text>
+      </Card>
 
       {/* Share the result as one image (photo + data, no location). */}
-      <Pressable
-        style={[styles.shareButton, (sharing || (photoUrl != null && !photoReady)) && styles.shareButtonDisabled]}
+      <Button
+        title={L("Share result", "La wadaag natiijada")}
+        variant="primary"
+        icon={<Ionicons name="share-social-outline" size={18} color="#0B0B0C" />}
         onPress={shareResult}
-        disabled={sharing || (photoUrl != null && !photoReady)}
-        accessibilityRole="button"
-      >
-        {sharing ? (
-          <ActivityIndicator color="#0B0B0C" />
-        ) : (
-          <>
-            <Ionicons name="share-social-outline" size={18} color="#0B0B0C" />
-            <Text style={styles.shareButtonText}>{L("Share result", "La wadaag natiijada")}</Text>
-          </>
-        )}
-      </Pressable>
+        loading={sharing}
+        disabled={photoUrl != null && !photoReady}
+        style={styles.actionButton}
+      />
 
       {/* ── Professional PDF Report (Pro / Gem Collector only) ───────────── */}
       {canPdf ? (
-        <Pressable
-          style={[styles.pdfButton, pdfBusy && styles.shareButtonDisabled]}
+        <Button
+          title={L("Download / Share PDF Report", "Soo deji / Wadaag Warbixin PDF")}
+          variant="outline"
+          icon={<Ionicons name="document-text-outline" size={18} color={colors.gold} />}
           onPress={downloadPdf}
-          disabled={pdfBusy}
-          accessibilityRole="button"
+          loading={pdfBusy}
+          style={styles.actionButton}
           accessibilityLabel={L("Generate professional PDF report", "Samee warbixin PDF xirfadeed")}
-        >
-          {pdfBusy ? (
-            <ActivityIndicator color="#C9A227" />
-          ) : (
-            <>
-              <Ionicons name="document-text-outline" size={18} color="#C9A227" />
-              <Text style={styles.pdfButtonText}>
-                {L("Download / Share PDF Report", "Soo deji / Wadaag Warbixin PDF")}
-              </Text>
-            </>
-          )}
-        </Pressable>
+        />
       ) : EXTERNAL_PURCHASES_ENABLED ? (
         // Locked for Free/Explorer (Android/web only — iOS hides the CTA per
         // App Store Guideline 3.1.1).
-        <View style={styles.pdfLockedCard}>
+        <Card accent style={styles.pdfLockedCard}>
           <View style={styles.pdfLockedHeader}>
             <Ionicons name="ribbon" size={16} color="#C9A227" />
             <Text style={styles.pdfLockedTitle}>
@@ -405,23 +392,26 @@ export default function ResultsScreen() {
             <Text style={styles.pdfPriceUnit}>{L("/ year", "/ sannadkii")}</Text>
           </View>
 
-          <Pressable
-            style={styles.pdfUpgradeButton}
+          <Button
+            title={L("Buy Professional (Gem Collector)", "Iibso Xirmada Professional (Gem Collector)")}
+            variant="primary"
             onPress={() => Linking.openURL(PAYMENT_URL)}
-            accessibilityRole="link"
+            style={styles.pdfUpgradeButton}
             accessibilityLabel={L("Buy the Professional (Gem Collector) plan", "Iibso xirmada Professional (Gem Collector)")}
-          >
-            <Text style={styles.pdfUpgradeText}>
-              {L("Buy Professional (Gem Collector)", "Iibso Xirmada Professional (Gem Collector)")}
-            </Text>
-          </Pressable>
-        </View>
+          />
+        </Card>
       ) : null}
 
       {/* ── Estimated Market Value (additive AI estimate) ─────────────────── */}
       {valuation && (
-        <View style={styles.valueCard}>
-          <Text style={styles.sectionTitle}>{L("Estimated Market Value", "Qiimaha Suuqa (Qiyaas)")}</Text>
+        <Card style={styles.valueCard}>
+          <View style={styles.valueHeader}>
+            <Text style={styles.sectionTitle}>{L("Estimated Market Value", "Qiimaha Suuqa (Qiyaas)")}</Text>
+            <View style={styles.estimateChip}>
+              <Ionicons name="sparkles-outline" size={11} color={colors.gold} />
+              <Text style={styles.estimateChipText}>{L("AI ESTIMATE", "QIYAAS AI")}</Text>
+            </View>
+          </View>
           {valuation.lowConfidence || (valuation.minUsd == null && valuation.typicalUsd == null) ? (
             <Text style={styles.body}>
               {L(
@@ -450,13 +440,16 @@ export default function ResultsScreen() {
               {!!valuation.qualityNote && <Text style={styles.valueNote}>{valuation.qualityNote}</Text>}
             </>
           )}
-          <Text style={styles.disclaimer}>
-            {L(
-              "This valuation is only an estimate based on photographs and should not be considered a professional appraisal.",
-              "Qiimayntani waa qiyaas ku saleysan sawirro, lamana tirin karo qiimayn xirfadeed.",
-            )}
-          </Text>
-        </View>
+          <View style={styles.disclaimerPill}>
+            <Ionicons name="information-circle-outline" size={13} color={colors.textFaint} />
+            <Text style={styles.disclaimer}>
+              {L(
+                "This is an AI estimate, not a professional appraisal.",
+                "Tani waa qiyaas AI ah, maaha qiimayn xirfadeed.",
+              )}
+            </Text>
+          </View>
+        </Card>
       )}
 
       {/* ── Expert Review Recommended (high-value / rare / collectible) ───── */}
@@ -466,7 +459,7 @@ export default function ResultsScreen() {
           valuation.rarity === "rare" ||
           valuation.rarity === "very_rare" ||
           valuation.collectible) && (
-          <View style={styles.expertCard}>
+          <Card accent style={styles.expertCard}>
             <Text style={styles.expertTitle}>{L("Expert Review Recommended", "Dib-u-eegis Khibrad ah")}</Text>
             <Text style={styles.body}>
               {L(
@@ -496,26 +489,24 @@ export default function ResultsScreen() {
                 • {item}
               </Text>
             ))}
-          </View>
+          </Card>
         )}
 
       {alternatives.length > 0 && (
         <>
           <Text style={[styles.label, { marginTop: 20 }]}>{L("Other possibilities", "Ikhtiyaarro kale")}</Text>
           {alternatives.map((c) => (
-            <View key={c.rank} style={styles.altCard}>
+            <Card key={c.rank} style={styles.altCard}>
               <Text style={styles.altLabel}>{c.label}</Text>
-              <Text style={styles.altConfidence}>
-                {Math.round(c.weighted_confidence * 100)}% · {bandWord(c.confidence_band).toLowerCase()}
-              </Text>
-            </View>
+              <ConfidenceBadge pct={c.weighted_confidence * 100} band={c.confidence_band} size="sm" />
+            </Card>
           ))}
         </>
       )}
 
       {/* ── Where it was found (exact GPS capture location) ──────────────── */}
       {scan.capture_location && (
-        <View style={styles.locCard}>
+        <Card style={styles.locCard}>
           <Text style={styles.sectionTitle}>📍 {L("Where it was found", "Goobta laga helay")}</Text>
           <LocationMap
             markers={[
@@ -556,7 +547,7 @@ export default function ResultsScreen() {
               "Tani waa goobta GPS-ka saxda ah ee la diiwaangeliyay markii shayga la baaray.",
             )}
           </Text>
-        </View>
+        </Card>
       )}
 
       <Text style={[styles.label, { marginTop: 20 }]}>{L("Was this correct?", "Kani ma saxaa?")}</Text>
@@ -632,46 +623,11 @@ export default function ResultsScreen() {
 const styles = StyleSheet.create({
   container: { flexGrow: 1, backgroundColor: "#0B0B0C", padding: 20, gap: 10 },
   body: { fontSize: 14, color: "#C9C9CC", lineHeight: 20 },
-  label: { fontSize: 13, color: "#8A8A8E", textTransform: "uppercase", letterSpacing: 0.5 },
-  bestMatch: { fontSize: 26, fontWeight: "700", color: "#F5F1E8" },
-  bandPill: { alignSelf: "flex-start", paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999 },
-  bandPillText: { color: "#0B0B0C", fontWeight: "700", fontSize: 11 },
-  shareButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: "#C9A227",
-    borderRadius: 999,
-    paddingVertical: 13,
-    marginTop: 6,
-  },
-  shareButtonText: { color: "#0B0B0C", fontWeight: "800", fontSize: 15 },
-  shareButtonDisabled: { opacity: 0.6 },
-  // Professional PDF report — outlined gold to distinguish it from the primary
-  // gold Share button.
-  pdfButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: "#161618",
-    borderWidth: 1,
-    borderColor: "#C9A227",
-    borderRadius: 999,
-    paddingVertical: 13,
-    marginTop: 8,
-  },
-  pdfButtonText: { color: "#C9A227", fontWeight: "800", fontSize: 15 },
-  pdfLockedCard: {
-    marginTop: 8,
-    backgroundColor: "rgba(201,162,39,0.10)",
-    borderWidth: 1,
-    borderColor: "#C9A227",
-    borderRadius: 14,
-    padding: 16,
-    gap: 8,
-  },
+  label: { ...typo.label, marginTop: 0, marginBottom: 0 },
+  bestMatch: { fontSize: 28, fontWeight: "800", color: colors.text },
+  heroCard: { alignItems: "flex-start", gap: spacing.sm, marginBottom: spacing.xs },
+  actionButton: { marginTop: spacing.xs },
+  pdfLockedCard: { marginTop: spacing.sm, gap: spacing.sm },
   pdfLockedHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
   pdfLockedTitle: { color: "#F5F1E8", fontWeight: "800", fontSize: 16, flex: 1, lineHeight: 21 },
   pdfSellBullet: { color: "#E8E2D2", fontSize: 13, lineHeight: 20 },
@@ -685,14 +641,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   proTagText: { color: "#0B0B0C", fontWeight: "900", fontSize: 11, letterSpacing: 0.5 },
-  pdfUpgradeButton: {
-    backgroundColor: "#C9A227",
-    borderRadius: 999,
-    paddingVertical: 12,
-    alignItems: "center",
-    marginTop: 4,
-  },
-  pdfUpgradeText: { color: "#0B0B0C", fontWeight: "800", fontSize: 14 },
+  pdfUpgradeButton: { marginTop: spacing.xs },
   // Off-screen container: rendered (so it can be captured) but never visible.
   offscreen: { position: "absolute", left: -10000, top: 0 },
   shareCard: {
@@ -713,15 +662,12 @@ const styles = StyleSheet.create({
   insufficientTitle: { fontSize: 18, fontWeight: "700", color: "#F5F1E8" },
   suggestion: { color: "#C9C9CC", fontSize: 13 },
   altCard: {
-    borderWidth: 1,
-    borderColor: "#2A2A2C",
-    borderRadius: 12,
-    padding: 12,
-    gap: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  altLabel: { color: "#F5F1E8", fontWeight: "600", fontSize: 14 },
+  altLabel: { color: "#F5F1E8", fontWeight: "600", fontSize: 14, flexShrink: 1, marginRight: spacing.sm },
   altConfidence: { color: "#C9A227", fontSize: 12 },
-  altReason: { color: "#8A8A8E", fontSize: 12 },
   primaryButton: {
     backgroundColor: "#C9A227",
     borderRadius: 999,
@@ -746,27 +692,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   sectionTitle: { fontSize: 16, fontWeight: "700", color: "#F5F1E8", marginBottom: 4 },
-  valueCard: {
-    marginTop: 16,
-    backgroundColor: "#161618",
-    borderRadius: 14,
-    padding: 14,
+  valueCard: { marginTop: spacing.lg, gap: 4 },
+  valueHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  estimateChip: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
+    backgroundColor: colors.goldSoft,
+    borderRadius: radius.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
+  estimateChipText: { color: colors.gold, fontWeight: "800", fontSize: 10, letterSpacing: 0.4 },
   valueRange: { fontSize: 22, fontWeight: "800", color: "#C9A227" },
   valueTypical: { fontSize: 14, color: "#F5F1E8" },
   valuePremium: { fontSize: 13, color: "#C9A227" },
   valueNote: { fontSize: 13, color: "#C9C9CC", lineHeight: 19, marginTop: 4 },
-  disclaimer: { fontSize: 11, color: "#8A8A8E", lineHeight: 16, marginTop: 8, fontStyle: "italic" },
-  expertCard: {
-    marginTop: 16,
-    backgroundColor: "rgba(201,162,39,0.12)",
-    borderWidth: 1,
-    borderColor: "#C9A227",
-    borderRadius: 14,
-    padding: 14,
-    gap: 8,
+  disclaimer: { fontSize: 12, color: colors.textFaint, lineHeight: 16, flexShrink: 1 },
+  disclaimerPill: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderSubtle,
   },
+  expertCard: { marginTop: spacing.lg, gap: spacing.sm },
   expertTitle: { fontSize: 17, fontWeight: "800", color: "#C9A227" },
   whatsappButton: { backgroundColor: "#25D366", borderRadius: 999, paddingVertical: 14, alignItems: "center", marginTop: 4 },
   whatsappText: { color: "#06381A", fontWeight: "800", fontSize: 15 },
@@ -774,13 +726,7 @@ const styles = StyleSheet.create({
   contactText: { color: "#0B0B0C", fontWeight: "800", fontSize: 15 },
   expertHint: { color: "#C9C9CC", fontSize: 13, marginTop: 6, fontWeight: "600" },
   expertBullet: { color: "#C9C9CC", fontSize: 13, lineHeight: 19 },
-  locCard: {
-    marginTop: 16,
-    backgroundColor: "#161618",
-    borderRadius: 14,
-    padding: 14,
-    gap: 8,
-  },
+  locCard: { marginTop: spacing.lg, gap: spacing.sm },
   locMetaRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   locCoords: { flex: 1, color: "#8A8A8E", fontSize: 12 },
   mapsButton: {

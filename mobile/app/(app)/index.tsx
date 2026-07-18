@@ -9,6 +9,9 @@ import { useAuth } from "../../lib/auth";
 import { setAppLanguage } from "../../lib/i18n";
 import { PremiumGate } from "../../components/PremiumGate";
 import { CommunityStats } from "../../components/CommunityStats";
+import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
+import { colors, spacing, radius, type as typo } from "../../lib/theme";
 
 // What the scanner identifies — shown as coloured gem marks. Names are the real
 // gem/material names; the count below is deliberately honest (see the note).
@@ -94,39 +97,51 @@ export default function HomeScreen() {
       <Text style={styles.subtitle}>{t("home.subtitle")}</Text>
 
       {!isLoading && (
-        <Text style={styles.tierBadge}>
-          {t("home.currentPlan", { tier: data?.tier ?? "free" })}
-        </Text>
+        <Card style={styles.statusCard}>
+          <Text style={styles.statusPlan}>{t("home.currentPlan", { tier: data?.tier ?? "free" })}</Text>
+          {data && (
+            <Text style={styles.statusDeep}>
+              💎 {data.deepScan.remaining}{" "}
+              {i18n.language === "so" ? "Deep Scan ayaa kuu hadhay" : "Deep Scans left"}
+            </Text>
+          )}
+        </Card>
       )}
-      {!isLoading && data && (
-        <Text style={styles.deepBadge}>
-          💎 {data.deepScan.remaining}{" "}
-          {i18n.language === "so" ? "Deep Scan ayaa kuu hadhay" : "Deep Scans left"}
-        </Text>
-      )}
 
-      <Pressable style={styles.scanButton} onPress={() => router.push("/(app)/scan/live")}>
-        <Ionicons name="scan-outline" size={20} color="#0B0B0C" />
-        <Text style={styles.scanButtonText}>{t("home.startLiveScan")}</Text>
-      </Pressable>
+      <Button
+        title={t("home.startLiveScan")}
+        variant="primary"
+        icon={<Ionicons name="scan-outline" size={19} color="#0B0B0C" />}
+        onPress={() => router.push("/(app)/scan/live")}
+        style={styles.primaryAction}
+      />
 
-      <Pressable style={styles.secondaryButton} onPress={() => router.push("/(app)/scan/upload")}>
-        <Ionicons name="images-outline" size={18} color="#F5F1E8" />
-        <Text style={styles.secondaryButtonText}>{t("home.uploadImages")}</Text>
-      </Pressable>
+      <View style={styles.actionRow}>
+        <Button
+          title={t("home.uploadImages")}
+          variant="outline"
+          icon={<Ionicons name="images-outline" size={16} color={colors.gold} />}
+          onPress={() => router.push("/(app)/scan/upload")}
+          style={styles.actionHalf}
+        />
+        <View style={styles.batchWrap}>
+          <Button
+            title="Batch Scan"
+            variant="outline"
+            icon={<Ionicons name="layers-outline" size={16} color={colors.gold} />}
+            onPress={() => router.push("/(app)/scan/batch")}
+            style={styles.actionHalf}
+          />
+          {!data?.features?.batchScanning && !isLoading && (
+            <View style={styles.proBadge}>
+              <Text style={styles.proBadgeText}>PRO</Text>
+            </View>
+          )}
+        </View>
+      </View>
 
-      <Pressable style={styles.secondaryButton} onPress={() => router.push("/(app)/scan/batch")}>
-        <Ionicons name="layers-outline" size={18} color="#F5F1E8" />
-        <Text style={styles.secondaryButtonText}>{so ? "Batch Scan" : "Batch Scan"}</Text>
-        {!data?.features?.batchScanning && !isLoading && (
-          <View style={styles.proBadge}>
-            <Text style={styles.proBadgeText}>PRO</Text>
-          </View>
-        )}
-      </Pressable>
-
-      <Pressable style={styles.collectionButton} onPress={() => router.push("/(app)/history")}>
-        <Ionicons name="albums-outline" size={18} color="#C9A227" />
+      <Pressable style={styles.collectionButton} onPress={() => router.push("/(app)/history")} hitSlop={8}>
+        <Ionicons name="albums-outline" size={16} color={colors.gold} />
         <Text style={styles.collectionButtonText}>{t("home.myCollection")}</Text>
       </Pressable>
 
@@ -157,7 +172,10 @@ export default function HomeScreen() {
       </View>
 
       <PremiumGate requiredTier="premium" featureName="Deep Scan (advanced identification)">
-        <Text style={styles.body}>{t("home.deepScanUnlocked")}</Text>
+        <Card style={styles.unlockedCard}>
+          <Ionicons name="sparkles" size={16} color={colors.gold} />
+          <Text style={styles.body}>{t("home.deepScanUnlocked")}</Text>
+        </Card>
       </PremiumGate>
 
       {/* Live community counters (registered users + confirmed valuable gems). */}
@@ -181,46 +199,50 @@ const styles = StyleSheet.create({
   },
   langText: { color: "#0B0B0C", fontWeight: "800", fontSize: 12 },
 
-  logo: { fontSize: 26, fontWeight: "800", color: "#C9A227", marginTop: 4 },
-  greeting: { fontSize: 18, color: "#F5F1E8", fontWeight: "600" },
-  greetingName: { color: "#C9A227", fontWeight: "800" },
-  subtitle: { fontSize: 15, color: "#C9C9CC", lineHeight: 21 },
-  body: { fontSize: 14, color: "#C9C9CC", lineHeight: 20 },
-  tierBadge: { color: "#C9A227", fontWeight: "600", fontSize: 13 },
-  deepBadge: { color: "#F5F1E8", fontWeight: "800", fontSize: 15, marginTop: 2 },
+  logo: { fontSize: 27, fontWeight: "800", color: colors.gold, marginTop: 4, letterSpacing: 0.2 },
+  greeting: { fontSize: 18, color: colors.text, fontWeight: "600" },
+  greetingName: { color: colors.gold, fontWeight: "800" },
+  subtitle: { ...typo.body, marginBottom: 2 },
+  body: { ...typo.body, flexShrink: 1 },
 
-  scanButton: {
-    flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8,
-    backgroundColor: "#C9A227", borderRadius: 999, paddingVertical: 16, marginTop: 4,
-  },
-  scanButtonText: { color: "#0B0B0C", fontWeight: "700", fontSize: 16 },
-  secondaryButton: {
-    flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8,
-    borderWidth: 1, borderColor: "#8A8A8E", borderRadius: 999, paddingVertical: 14,
-  },
-  secondaryButtonText: { color: "#F5F1E8", fontWeight: "700", fontSize: 15 },
+  statusCard: { paddingVertical: spacing.md, gap: 4 },
+  statusPlan: { color: colors.gold, fontWeight: "700", fontSize: 14, textTransform: "capitalize" },
+  statusDeep: { color: colors.text, fontWeight: "800", fontSize: 15 },
+
+  primaryAction: { marginTop: spacing.xs },
+  actionRow: { flexDirection: "row", gap: spacing.md },
+  actionHalf: { flex: 1, paddingHorizontal: spacing.sm },
+  batchWrap: { flex: 1, position: "relative" },
   proBadge: {
-    backgroundColor: "#C9A227", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2,
+    position: "absolute",
+    top: -8,
+    right: -6,
+    backgroundColor: colors.gold,
+    borderRadius: radius.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
-  proBadgeText: { color: "#0B0B0C", fontWeight: "900", fontSize: 10, letterSpacing: 0.3 },
+  proBadgeText: { color: "#0B0B0C", fontWeight: "900", fontSize: 9, letterSpacing: 0.3 },
   collectionButton: {
-    flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 10,
+    flexDirection: "row", justifyContent: "center", alignItems: "center", gap: spacing.sm,
+    paddingVertical: spacing.sm,
   },
-  collectionButtonText: { color: "#C9A227", fontWeight: "600", fontSize: 15 },
+  collectionButtonText: { color: colors.gold, fontWeight: "600", fontSize: 15 },
+  unlockedCard: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
 
   showcase: {
-    backgroundColor: "#141315", borderRadius: 16, borderWidth: 1, borderColor: "#242123",
-    padding: 16, marginTop: 6, gap: 12,
+    backgroundColor: colors.surface, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.borderSubtle,
+    padding: spacing.lg, marginTop: spacing.xs, gap: spacing.md,
   },
-  showcaseTitle: {
-    fontSize: 12, color: "#8A8A8E", textTransform: "uppercase", letterSpacing: 1,
-    fontWeight: "700", textAlign: "center",
+  showcaseTitle: { ...typo.label, textAlign: "center", marginTop: 0, marginBottom: 0 },
+  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: spacing.sm + 2 },
+  gem: {
+    width: 70, alignItems: "center", gap: 5, paddingVertical: spacing.sm + 1,
+    backgroundColor: colors.surfaceSunken, borderRadius: radius.md,
   },
-  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10 },
-  gem: { width: 70, alignItems: "center", gap: 5, paddingVertical: 9, backgroundColor: "#1C1A1D", borderRadius: 12 },
-  gemLabel: { fontSize: 10, color: "#C9C9CC", fontWeight: "600" },
-  statRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "center", gap: 8, marginTop: 2 },
-  statNumber: { fontSize: 26, fontWeight: "900", color: "#C9A227" },
-  statLabel: { fontSize: 13, color: "#C9C9CC" },
-  showcaseMore: { fontSize: 12, color: "#8A8A8E", textAlign: "center", fontStyle: "italic" },
+  gemLabel: { fontSize: 10, color: colors.textMuted, fontWeight: "600" },
+  statRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "center", gap: spacing.sm, marginTop: 2 },
+  statNumber: { fontSize: 26, fontWeight: "900", color: colors.gold },
+  statLabel: { fontSize: 13, color: colors.textMuted },
+  showcaseMore: { fontSize: 12, color: colors.textFaint, textAlign: "center", fontStyle: "italic" },
 });

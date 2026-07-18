@@ -10,7 +10,7 @@
 // Picked images map, in order, onto the multi-angle sequence (front, left, …)
 // so each satisfies the scan_images unique(scan_id, angle) constraint.
 import React, { useRef, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView, Image } from "react-native";
+import { View, Text, Pressable, StyleSheet, ScrollView, Image } from "react-native";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { Ionicons } from "@expo/vector-icons";
@@ -25,6 +25,8 @@ import { LIVE_ANGLE_SEQUENCE } from "../../../lib/liveScanEngine";
 import { diag } from "../../../lib/diagnostics";
 import { isScanLimitError } from "../../../lib/appLinks";
 import { UpgradePrompt } from "../../../components/UpgradePrompt";
+import { ScanTipsCard } from "../../../components/ui/ScanTipsCard";
+import { ProgressChecklist, type ProgressStep } from "../../../components/ui/ProgressChecklist";
 
 const MAX_IMAGES = LIVE_ANGLE_SEQUENCE.length;
 
@@ -35,6 +37,7 @@ export default function UploadScreen() {
   const imageProcessorRef = useRef<ImageProcessorHandle>(null);
   const [images, setImages] = useState<string[]>([]);
   const [phase, setPhase] = useState<"select" | "processing" | "analyzing">("select");
+  const [analyzeStage, setAnalyzeStage] = useState<"analyzing" | "finalizing">("analyzing");
   const [statusText, setStatusText] = useState<string | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
 
@@ -86,6 +89,7 @@ export default function UploadScreen() {
       }
 
       setPhase("analyzing");
+      setAnalyzeStage("analyzing");
       setStatusText(null);
       const location = await getPreciseLocation();
       const front = captured.find((c) => c.angle === "front") ?? captured[0];
@@ -103,6 +107,7 @@ export default function UploadScreen() {
       const orchestrated = await runOrchestration(scanId, onDeviceHint);
       diag.end("cloud_analysis");
       diag.log("result_displayed");
+      setAnalyzeStage("finalizing");
       router.replace({ pathname: "/(app)/scan/results", params: { scanId: orchestrated.scanId } });
     } catch (err) {
       captureException(err, { where: "upload.handleSend" });
@@ -112,14 +117,32 @@ export default function UploadScreen() {
   }
 
   if (phase === "processing" || phase === "analyzing") {
+    const steps: ProgressStep[] = [
+      {
+        key: "prep",
+        label: statusText ?? L("Preparing images", "Sawirrada waa la diyaarinayaa"),
+        done: phase !== "processing",
+        active: phase === "processing",
+      },
+      {
+        key: "ai",
+        label: L("AI identification & analysis", "Aqoonsi & falanqayn AI"),
+        done: phase === "analyzing" && analyzeStage === "finalizing",
+        active: phase === "analyzing" && analyzeStage === "analyzing",
+      },
+      {
+        key: "final",
+        label: L("Preparing your report", "Warbixinta waa la diyaarinayaa"),
+        done: false,
+        active: phase === "analyzing" && analyzeStage === "finalizing",
+      },
+    ];
     return (
       <View style={styles.centered}>
         <ImageProcessorGL ref={imageProcessorRef} />
-        <ActivityIndicator color="#C9A227" size="large" />
-        <Text style={styles.body}>
-          {phase === "analyzing"
-            ? L("Identifying your stone — please wait, it may take up to 30 seconds…", "Waa la aqoonsanayaa dhagaxaaga — sug wax yar, waxay qaadan kartaa 30 ilbiriqsi…")
-            : (statusText ?? L("Preparing images…", "Sawirrada waa la diyaarinayaa…"))}
+        <ProgressChecklist steps={steps} />
+        <Text style={styles.caption}>
+          {L("This may take up to 30 seconds.", "Waxay qaadan kartaa ilaa 30 ilbiriqsi.")}
         </Text>
       </View>
     );
@@ -135,6 +158,8 @@ export default function UploadScreen() {
           "Dooro hal ama in ka badan oo sawirro ah oo isku shay ah — xaglo kala duwan ayaa saxnaanta kordhiya. Hoos ka fiiri, kii aadan rabin ka saar, ka dibna riix Dir.",
         )}
       </Text>
+
+      <ScanTipsCard />
 
       {images.length > 0 && (
         <View style={styles.grid}>
@@ -189,6 +214,7 @@ export default function UploadScreen() {
 const styles = StyleSheet.create({
   container: { flexGrow: 1, backgroundColor: "#0B0B0C", padding: 24, gap: 14 },
   centered: { flex: 1, backgroundColor: "#0B0B0C", padding: 24, gap: 14, justifyContent: "center", alignItems: "center" },
+  caption: { color: "#8A8A8E", fontSize: 12.5, textAlign: "center" },
   heading: { fontSize: 20, fontWeight: "700", color: "#F5F1E8" },
   body: { fontSize: 14, color: "#C9C9CC", lineHeight: 20 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },

@@ -3,13 +3,14 @@
 // that scan's results. Pure read view over scans.capture_location; it does not
 // touch the scan/identification pipeline.
 import React, { useCallback, useLayoutEffect, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
 import { useRouter, useFocusEffect, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth";
 import LocationMap, { MapMarker } from "../../components/LocationMap";
+import { EmptyState } from "../../components/ui/EmptyState";
 
 type ScanFinalResult = { bestMatch: string | null } | null;
 
@@ -77,16 +78,17 @@ export default function CollectionMapScreen() {
   if (markers.length === 0) {
     return (
       <View style={styles.centered}>
-        <Ionicons name="map-outline" size={56} color="#3A3A3D" />
-        <Text style={styles.emptyTitle}>{so ? "Weli goobo ma jiraan" : "No mapped finds yet"}</Text>
-        <Text style={styles.emptyHint}>
-          {so
-            ? "Marka aad wax baartid oo aad ogolaatid goobta, halkan ayaa lagu calaamadyn doonaa."
-            : "When you scan with location enabled, your finds are pinned here."}
-        </Text>
-        <Pressable style={styles.primaryButton} onPress={() => router.push("/(app)/scan/live")}>
-          <Text style={styles.primaryButtonText}>{so ? "Bilow baaris" : "Start scanning"}</Text>
-        </Pressable>
+        <EmptyState
+          icon="map-outline"
+          title={so ? "Weli goobo ma jiraan" : "No mapped finds yet"}
+          hint={
+            so
+              ? "Marka aad wax baartid oo aad ogolaatid goobta, halkan ayaa lagu calaamadyn doonaa."
+              : "When you scan with location enabled, your finds are pinned here."
+          }
+          ctaLabel={so ? "Bilow baaris" : "Start scanning"}
+          onPressCta={() => router.push("/(app)/scan/live")}
+        />
       </View>
     );
   }
@@ -129,15 +131,4 @@ const styles = StyleSheet.create({
     padding: 32,
     gap: 12,
   },
-  emptyTitle: { fontSize: 20, fontWeight: "700", color: "#F5F1E8", marginTop: 8 },
-  emptyHint: { fontSize: 14, color: "#8A8A8E", textAlign: "center", lineHeight: 20 },
-  primaryButton: {
-    backgroundColor: "#C9A227",
-    borderRadius: 999,
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  primaryButtonText: { color: "#0B0B0C", fontWeight: "700", fontSize: 15 },
 });

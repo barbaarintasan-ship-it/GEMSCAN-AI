@@ -33,6 +33,9 @@ import { useSubscriptionStatus } from "../../../lib/subscription";
 import { PAYMENT_URL, EXTERNAL_PURCHASES_ENABLED } from "../../../lib/appLinks";
 import ScanTypeChooser from "../../../components/ScanTypeChooser";
 import type { BatchItemResult, BatchStopReason } from "../../../lib/batchTypes";
+import { ScanTipsCard } from "../../../components/ui/ScanTipsCard";
+import { Card } from "../../../components/ui/Card";
+import { colors, spacing } from "../../../lib/theme";
 
 const MAX_BATCH_ITEMS = 20;
 
@@ -237,16 +240,22 @@ export default function BatchScanScreen() {
   }
 
   if (phase === "processing") {
+    const pct = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
     return (
       <View style={styles.centered}>
         <ImageProcessorGL ref={imageProcessorRef} />
-        <ActivityIndicator color="#C9A227" size="large" />
-        <Text style={styles.body}>
-          {L(
-            `Scanning ${progress.current} of ${progress.total}…`,
-            `Baaritaan ${progress.current} ee ${progress.total}…`,
-          )}
-        </Text>
+        <Card style={styles.progressCard}>
+          <ActivityIndicator color={colors.gold} size="large" />
+          <Text style={styles.progressLabel}>
+            {L(
+              `Scanning ${progress.current} of ${progress.total}…`,
+              `Baaritaan ${progress.current} ee ${progress.total}…`,
+            )}
+          </Text>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${pct}%` }]} />
+          </View>
+        </Card>
         <Pressable style={styles.cancelButton} onPress={handleCancel}>
           <Text style={styles.cancelButtonText}>{L("Cancel remaining", "Jooji intii hadhay")}</Text>
         </Pressable>
@@ -264,6 +273,8 @@ export default function BatchScanScreen() {
           `Sawir ama dooro ilaa ${MAX_BATCH_ITEMS} sawir — hal shay sawir kasta. Hal mar ayaad dooranaysaa Standard ama Deep Scan, ka dibna sawir kastaa si kala horreysa ayaa loo baarayaa.`,
         )}
       </Text>
+
+      <ScanTipsCard />
 
       {images.length > 0 && (
         <View style={styles.grid}>
@@ -331,6 +342,12 @@ const styles = StyleSheet.create({
   },
   heading: { fontSize: 20, fontWeight: "700", color: "#F5F1E8" },
   body: { fontSize: 14, color: "#C9C9CC", lineHeight: 20 },
+  progressCard: { width: "100%", alignItems: "center", gap: spacing.md },
+  progressLabel: { color: colors.text, fontWeight: "700", fontSize: 15, textAlign: "center" },
+  progressTrack: {
+    width: "100%", height: 6, borderRadius: 3, backgroundColor: colors.surfaceSunken, overflow: "hidden",
+  },
+  progressFill: { height: "100%", backgroundColor: colors.gold, borderRadius: 3 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   thumbWrap: { width: 84, alignItems: "center" },
   thumb: { width: 84, height: 84, borderRadius: 12, backgroundColor: "#1A1A1D" },

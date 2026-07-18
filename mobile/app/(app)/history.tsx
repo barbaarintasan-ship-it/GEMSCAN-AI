@@ -5,7 +5,7 @@
 // date. Tapping a row opens the existing results screen, which re-reads the
 // scan from the database — so history is a pure read view over data the scan
 // pipeline already wrote; it changes nothing about that pipeline.
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
+  TextInput,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -24,6 +25,9 @@ import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth";
 import { useSubscriptionStatus } from "../../lib/subscription";
 import { generatePdfForScan } from "../../lib/scanReport";
+import { ConfidenceBadge } from "../../components/ui/ConfidenceBadge";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { colors, spacing, radius } from "../../lib/theme";
 
 type ScanFinalResult = {
   bestMatch: string | null;
@@ -41,12 +45,6 @@ type HistoryItem = {
   thumbnailUrl: string | null;
 };
 
-const BAND_COLOR: Record<string, string> = {
-  high: "#2E7D32",
-  medium: "#C9A227",
-  low: "#8A8A8E",
-};
-
 export default function HistoryScreen() {
   const { t, i18n } = useTranslation();
   const so = i18n.language === "so";
@@ -58,6 +56,7 @@ export default function HistoryScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);
+  const [query, setQuery] = useState("");
 
   // Professional PDF report — Pro / "Gem Collector" tier only.
   const { data: sub } = useSubscriptionStatus();
@@ -158,6 +157,17 @@ export default function HistoryScreen() {
     return { text: fr.bestMatch, muted: false };
   }
 
+  // Client-side search over already-loaded items — no new API call, no change
+  // to what a scan is or how it's fetched, just filtering the display list.
+  const filteredItems = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((item) => resultLine(item).text.toLowerCase().includes(q));
+    // resultLine is a plain function redefined every render (uses t());
+    // adding it here would defeat the memo since it'd never be stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, query]);
+
   function renderItem({ item }: { item: HistoryItem }) {
     const line = resultLine(item);
     const fr = item.final_result;
@@ -194,9 +204,7 @@ export default function HistoryScreen() {
           </Text>
           <View style={styles.metaRow}>
             {showConfidence && fr && (
-              <View style={[styles.bandPill, { backgroundColor: BAND_COLOR[fr.confidenceBand] }]}>
-                <Text style={styles.bandPillText}>{Math.round(fr.confidenceScore * 100)}%</Text>
-              </View>
+              <ConfidenceBadge pct={fr.confidenceScore * 100} band={fr.confidenceBand} size="sm" />
             )}
             <Text style={styles.dateText}>
               {date} · {time}
@@ -255,15 +263,13 @@ export default function HistoryScreen() {
   if (items.length === 0) {
     return (
       <View style={styles.centered}>
-        <Ionicons name="diamond-outline" size={56} color="#3A3A3D" />
-        <Text style={styles.emptyTitle}>{t("history.emptyTitle")}</Text>
-        <Text style={styles.emptyHint}>{t("history.emptyHint")}</Text>
-        <Pressable
-          style={styles.primaryButton}
-          onPress={() => router.push("/(app)/scan/live")}
-        >
-          <Text style={styles.primaryButtonText}>{t("history.startScanning")}</Text>
-        </Pressable>
+        <EmptyState
+          icon="diamond-outline"
+          title={t("history.emptyTitle")}
+          hint={t("history.emptyHint")}
+          ctaLabel={t("history.startScanning")}
+          onPressCta={() => router.push("/(app)/scan/live")}
+        />
       </View>
     );
   }
@@ -274,7 +280,7 @@ export default function HistoryScreen() {
     <FlatList
       style={styles.screen}
       contentContainerStyle={[styles.listContent, { paddingBottom: 16 + insets.bottom }]}
-      data={items}
+      data={filteredItems}
       keyExtractor={(item) => item.id}
       renderItem={renderItem}
       ListHeaderComponent={
@@ -297,6 +303,31 @@ export default function HistoryScreen() {
               </Pressable>
             )}
           </View>
+
+          <View style={styles.searchBar}>
+            <Ionicons name="search" size={16} color={colors.textFaint} />
+            <TextInput
+              style={styles.searchInput}
+              value={query}
+              onChangeText={setQuery}
+              placeholder={so ? "Raadi kaydkaaga…" : "Search your collection…"}
+              placeholderTextColor={colors.textFaint}
+              returnKeyType="search"
+              autoCapitalize="none"
+            />
+            {query.length > 0 && (
+              <Pressable onPress={() => setQuery("")} hitSlop={8}>
+                <Ionicons name="close-circle" size={16} color={colors.textFaint} />
+              </Pressable>
+            )}
+          </View>
+        </View>
+      }
+      ListEmptyComponent={
+        <View style={styles.noMatches}>
+          <Text style={styles.emptyHint}>
+            {so ? `Wax lama helin oo la mid ah "${query}"` : `No results for "${query}"`}
+          </Text>
         </View>
       }
       refreshControl={
@@ -317,15 +348,17 @@ const styles = StyleSheet.create({
     padding: 32,
     gap: 12,
   },
-  emptyTitle: { fontSize: 20, fontWeight: "700", color: "#F5F1E8", marginTop: 8 },
   emptyHint: { fontSize: 14, color: "#8A8A8E", textAlign: "center", lineHeight: 20 },
+  noMatches: { paddingVertical: spacing.xxxl, alignItems: "center" },
   itemCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    backgroundColor: "#1A1A1D",
-    borderRadius: 14,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.lg,
     padding: 12,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
   thumb: { width: 56, height: 56, borderRadius: 10, backgroundColor: "#2A2A2C" },
   thumbPlaceholder: { alignItems: "center", justifyContent: "center" },
@@ -342,7 +375,7 @@ const styles = StyleSheet.create({
   itemBody: { flex: 1, gap: 4 },
   itemTitle: { fontSize: 16, fontWeight: "600", color: "#F5F1E8" },
   itemTitleMuted: { color: "#8A8A8E", fontWeight: "500" },
-  header: { paddingVertical: 8, paddingHorizontal: 4, marginBottom: 4 },
+  header: { paddingVertical: 8, paddingHorizontal: 4, marginBottom: 4, gap: spacing.md },
   headerTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerTitle: { fontSize: 22, fontWeight: "800", color: "#C9A227" },
   headerCount: { fontSize: 13, color: "#8A8A8E", marginTop: 2 },
@@ -357,8 +390,18 @@ const styles = StyleSheet.create({
   },
   mapButtonText: { color: "#0B0B0C", fontWeight: "800", fontSize: 13 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  bandPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
-  bandPillText: { fontSize: 11, color: "#0B0B0C", fontWeight: "800" },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+  },
+  searchInput: { flex: 1, color: colors.text, fontSize: 14, padding: 0 },
   dateText: { fontSize: 12, color: "#8A8A8E" },
   locChip: { flexDirection: "row", alignItems: "center" },
   primaryButton: {
