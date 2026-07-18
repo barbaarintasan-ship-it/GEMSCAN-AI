@@ -14,6 +14,8 @@ export default function ScanLayout() {
       <Stack.Screen name="upload" options={{ title: "Upload Images" }} />
       <Stack.Screen name="capture" options={{ title: "Manual Capture" }} />
       <Stack.Screen name="results" options={{ title: "Scan Result" }} />
+      <Stack.Screen name="batch" options={{ title: "Batch Scan" }} />
+      <Stack.Screen name="batch-results" options={{ title: "Batch Results" }} />
     </Stack>
   );
 }

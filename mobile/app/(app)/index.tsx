@@ -115,6 +115,16 @@ export default function HomeScreen() {
         <Text style={styles.secondaryButtonText}>{t("home.uploadImages")}</Text>
       </Pressable>
 
+      <Pressable style={styles.secondaryButton} onPress={() => router.push("/(app)/scan/batch")}>
+        <Ionicons name="layers-outline" size={18} color="#F5F1E8" />
+        <Text style={styles.secondaryButtonText}>{so ? "Batch Scan" : "Batch Scan"}</Text>
+        {!data?.features?.batchScanning && !isLoading && (
+          <View style={styles.proBadge}>
+            <Text style={styles.proBadgeText}>PRO</Text>
+          </View>
+        )}
+      </Pressable>
+
       <Pressable style={styles.collectionButton} onPress={() => router.push("/(app)/history")}>
         <Ionicons name="albums-outline" size={18} color="#C9A227" />
         <Text style={styles.collectionButtonText}>{t("home.myCollection")}</Text>
@@ -189,6 +199,10 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "#8A8A8E", borderRadius: 999, paddingVertical: 14,
   },
   secondaryButtonText: { color: "#F5F1E8", fontWeight: "700", fontSize: 15 },
+  proBadge: {
+    backgroundColor: "#C9A227", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2,
+  },
+  proBadgeText: { color: "#0B0B0C", fontWeight: "900", fontSize: 10, letterSpacing: 0.3 },
   collectionButton: {
     flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 10,
   },
