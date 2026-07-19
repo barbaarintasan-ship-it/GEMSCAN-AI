@@ -21,11 +21,13 @@ import { ImageProcessorGL, type ImageProcessorHandle } from "../../../components
 import { detectSpecimenBoundingBox, classifyCoarse } from "../../../lib/onDeviceDetection";
 import { segmentBackground } from "../../../lib/backgroundSegmentation";
 import { getPreciseLocation } from "../../../lib/location";
+import { supabase } from "../../../lib/supabase";
 import {
   createScan,
   uploadScanImage,
   runOrchestration,
   OrchestrationError,
+  mapWithConcurrency,
   type CapturedAngleImage,
   type ScanType,
   type ExplanationStyle,
@@ -38,6 +40,18 @@ import ExplanationStyleChooser from "../../../components/ExplanationStyleChooser
 import type { CoarseClassification } from "../../../lib/onDeviceDetection";
 import { ScanTipsCard } from "../../../components/ui/ScanTipsCard";
 import { ProgressChecklist, type ProgressStep } from "../../../components/ui/ProgressChecklist";
+
+// Friendly display names for the live per-provider progress line — internal
+// provider ids (matching supabase/functions/orchestrate-scan/providers/*.ts
+// `name` fields) are never shown to the user as-is.
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  gemini_vision: "Gemini",
+  openai_vision: "OpenAI",
+  claude_vision: "Claude",
+  hallmark_ocr: "Hallmark",
+  geological_context: "Geology",
+  on_device_classifier: "On-device",
+};
 
 // Heuristic for the smart Deep Scan recommendation: does the on-device hint
 // look like a high-value material worth the 3-AI ensemble?
@@ -140,6 +154,52 @@ export default function CaptureScreen() {
   // the user's first-ever scan, then remembered (lib/explanationStyle.ts).
   const [styleChooserVisible, setStyleChooserVisible] = useState(false);
   const explanationStyleRef = useRef<ExplanationStyle>("simple");
+
+  // Progressive Results: while stage is "analyzing", poll scan_ai_responses
+  // for real per-provider progress (orchestrate-scan now persists each
+  // provider's row the moment IT settles, not after every provider finishes —
+  // see index.ts) so the loading screen reflects actual backend progress
+  // instead of a blank wait.
+  const [liveProviders, setLiveProviders] = useState<
+    { provider: string; label: string | null; failed: boolean }[]
+  >([]);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scanAbortRef = useRef<AbortController | null>(null);
+
+  function stopProgressPolling() {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  }
+
+  function startProgressPolling(scanId: string) {
+    stopProgressPolling();
+    setLiveProviders([]);
+    pollIntervalRef.current = setInterval(async () => {
+      const { data } = await supabase
+        .from("scan_ai_responses")
+        .select("provider, candidate_label, error")
+        .eq("scan_id", scanId);
+      if (data) {
+        setLiveProviders(
+          (data as { provider: string; candidate_label: string | null; error: string | null }[]).map(
+            (r) => ({ provider: r.provider, label: r.candidate_label, failed: !!r.error }),
+          ),
+        );
+      }
+    }, 800);
+  }
+
+  // Cleanup on unmount: stop any in-flight polling and abort an in-progress
+  // scan request rather than leaving it running after the user's navigated
+  // away (saves wasted AI provider calls/cost).
+  useEffect(() => {
+    return () => {
+      stopProgressPolling();
+      scanAbortRef.current?.abort();
+    };
+  }, []);
 
   const currentStep = ANGLE_STEPS[stepIndex];
   const isLastStep = stepIndex === ANGLE_STEPS.length - 1;
@@ -263,17 +323,24 @@ export default function CaptureScreen() {
 
       const scanId = await createScan({ specimenCategory: null, location, explanationStyle });
 
-      for (const image of capturedImages) {
+      // Upload every captured angle concurrently (bounded to 3 at once) rather
+      // than one at a time — cuts total upload wall-clock time significantly
+      // for a full 8-angle scan while keeping at most 3 images' worth of
+      // base64 buffers in memory simultaneously.
+      await mapWithConcurrency(capturedImages, 3, async (image) => {
         // Stage 3's final step: background segmentation. Currently a
         // documented no-op until a segmentation model is bundled (see
         // lib/backgroundSegmentation.ts) — wired in now so nothing else
         // needs to change when it's implemented.
         const segmented = await segmentBackground(image.processedUri);
         await uploadScanImage(scanId, { ...image, processedUri: segmented.uri });
-      }
+      });
 
       setStage("analyzing");
-      const result = await runOrchestration(scanId, onDeviceHint, scanType, explanationStyle);
+      startProgressPolling(scanId);
+      const controller = new AbortController();
+      scanAbortRef.current = controller;
+      const result = await runOrchestration(scanId, onDeviceHint, scanType, explanationStyle, controller.signal);
       setStage("finalizing");
       router.replace({
         pathname: "/(app)/scan/results",
@@ -286,9 +353,14 @@ export default function CaptureScreen() {
       if (err instanceof OrchestrationError && err.code === "deep_credits_exhausted") {
         setCreditsExhausted(true);
         setChooserVisible(true);
-      } else {
+      } else if ((err as Error).name !== "AbortError") {
+        // AbortError means the user navigated away — don't surface a "retake"
+        // error for a scan they already left.
         setRetakeReason((err as Error).message);
       }
+    } finally {
+      scanAbortRef.current = null;
+      stopProgressPolling();
     }
   }
 
@@ -316,6 +388,19 @@ export default function CaptureScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ProgressChecklist steps={steps} />
+        {/* Progressive Results: a real, live reflection of which providers
+            have actually responded so far (see startProgressPolling above) —
+            not a fake animation. Only shown once at least one has settled. */}
+        {stage === "analyzing" && liveProviders.length > 0 && (
+          <Text style={styles.liveProgress}>
+            {liveProviders
+              .map((p) => {
+                const name = PROVIDER_DISPLAY_NAMES[p.provider] ?? p.provider;
+                return p.failed ? `${name} ⚠` : `${name} ✓${p.label ? ` ${p.label}` : ""}`;
+              })
+              .join("  ·  ")}
+          </Text>
+        )}
         <Text style={styles.caption}>
           {L("This may take up to 30 seconds.", "Waxay qaadan kartaa ilaa 30 ilbiriqsi.")}
         </Text>
@@ -409,6 +494,7 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   caption: { color: "#8A8A8E", fontSize: 12.5, textAlign: "center" },
+  liveProgress: { color: "#C9A227", fontSize: 12, textAlign: "center", fontWeight: "600" },
   body: { fontSize: 14, color: "#C9C9CC", lineHeight: 20 },
   stepCounter: { fontSize: 18, fontWeight: "700", color: "#F5F1E8" },
   cameraWrapper: {

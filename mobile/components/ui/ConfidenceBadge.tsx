@@ -14,7 +14,9 @@ const BAND_COLOR: Record<ConfidenceBand, string> = {
 
 type Props = { pct: number; band: ConfidenceBand; size?: "sm" | "md" | "lg" };
 
-export function ConfidenceBadge({ pct, band, size = "md" }: Props) {
+// Memoized: rendered once per row in History's FlatList and per alternative
+// in results.tsx — pure given its props.
+export const ConfidenceBadge = React.memo(function ConfidenceBadge({ pct, band, size = "md" }: Props) {
   return (
     <View
       style={[
@@ -29,7 +31,7 @@ export function ConfidenceBadge({ pct, band, size = "md" }: Props) {
       </Text>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   pill: { paddingHorizontal: spacing.sm + 2, paddingVertical: 3, borderRadius: radius.pill, alignSelf: "flex-start" },

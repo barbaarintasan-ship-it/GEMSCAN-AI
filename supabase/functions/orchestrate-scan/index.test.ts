@@ -42,6 +42,11 @@ function createMockServiceClient() {
   let signedUrlError: string | null = null;
 
   const deletes: Record<string, number> = {};
+  // Distinct from `inserted[table].length` (total ROWS): this counts how many
+  // separate `.insert()` CALLS happened, so tests can tell "one bulk insert of
+  // N rows" apart from "N separate inserts of one row each" (the progressive-
+  // results behavior — see the "persists progressively" test below).
+  const insertCalls: Record<string, number> = {};
 
   // deno-lint-ignore no-explicit-any
   function makeQueryBuilder(table: string): any {
@@ -53,6 +58,7 @@ function createMockServiceClient() {
         };
       },
       insert(rows: unknown[]) {
+        insertCalls[table] = (insertCalls[table] ?? 0) + 1;
         (inserted[table] ??= []).push(...rows);
         return Promise.resolve({ error: null });
       },
@@ -85,6 +91,7 @@ function createMockServiceClient() {
     inserted,
     updates,
     deletes,
+    insertCalls,
     failSignedUrl(message: string) {
       signedUrlError = message;
     },
@@ -153,6 +160,49 @@ Deno.test("processScan: persists every provider response and the ranked ensemble
   assertEquals(updates["scans"]?.length, 2);
   assertEquals((updates["scans"] as Array<{ status: string }>)[0].status, "processing");
   assertEquals((updates["scans"] as Array<{ status: string }>)[1].status, "completed");
+});
+
+Deno.test("processScan: persists each provider's scan_ai_responses row as its own call settles, not one bulk insert at the end", async () => {
+  // Locks in the Progressive Results refactor: a slow provider must not delay
+  // a fast provider's row from landing in the DB, so the mobile app can poll
+  // scan_ai_responses mid-scan instead of staring at a blank screen. Asserted
+  // here as "N separate insert() calls" rather than "1 call with N rows".
+  const { client, inserted, insertCalls } = createMockServiceClient();
+  const providers: VisionProvider[] = [
+    mockProvider({
+      name: "gemini_vision",
+      identify: async () => {
+        // Resolves fast — its row should be inserted well before the slow
+        // provider below finishes, not batched together with it.
+        return {
+          provider: "gemini_vision",
+          candidate: { label: "Amethyst", confidence: 0.9 },
+          alternatives: [],
+          reasoning: "",
+          latencyMs: 5,
+        };
+      },
+    }),
+    mockProvider({
+      name: "openai_vision",
+      identify: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return {
+          provider: "openai_vision",
+          candidate: { label: "Amethyst", confidence: 0.85 },
+          alternatives: [],
+          reasoning: "",
+          latencyMs: 20,
+        };
+      },
+    }),
+  ];
+
+  const response = await processScan(baseParams({ serviceClient: client, providers }));
+  await response.json();
+
+  assertEquals(insertCalls["scan_ai_responses"], 2);
+  assertEquals(inserted["scan_ai_responses"]?.length, 2);
 });
 
 Deno.test("processScan: providers whose isApplicable() returns false never run or get persisted", async () => {

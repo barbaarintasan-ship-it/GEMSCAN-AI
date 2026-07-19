@@ -7,6 +7,7 @@ import type { ProviderInput, ProviderResult, VisionProvider } from "./types.ts";
 import {
   buildIdentificationPrompt,
   createAbstainResult,
+  fetchWithRetry,
   parseJsonCandidateResponse,
 } from "./promptShared.ts";
 
@@ -34,7 +35,7 @@ export const openaiVisionProvider: VisionProvider = {
         })),
       ];
 
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      const res = await fetchWithRetry("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -7,6 +7,7 @@ import {
   buildIdentificationPrompt,
   createAbstainResult,
   fetchImageAsBase64,
+  fetchWithRetry,
   parseJsonCandidateResponse,
 } from "./promptShared.ts";
 
@@ -37,7 +38,7 @@ export const claudeVisionProvider: VisionProvider = {
         }),
       );
 
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetchWithRetry("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

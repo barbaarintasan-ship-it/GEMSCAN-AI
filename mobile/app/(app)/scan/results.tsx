@@ -4,7 +4,7 @@
 // directly from Supabase (RLS-scoped to the caller) rather than relying on
 // navigation params, so this screen also works if the user re-opens a past
 // scan from history later.
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView, Linking, Image } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -89,6 +89,12 @@ const BAND_COLOR: Record<string, string> = {
   low: "#8A8A8E",
 };
 
+// Advanced Diamond Verification trigger: label keywords for the diamond
+// family (its common look-alikes/simulants), matched against the best match
+// and every alternative — no new AI call needed, this reuses labels already
+// on screen.
+const DIAMOND_FAMILY_KEYWORDS = ["diamond", "moissanite", "white sapphire", "cubic zirconia", "zircon"];
+
 export default function ResultsScreen() {
   const { scanId } = useLocalSearchParams<{ scanId: string }>();
   const router = useRouter();
@@ -143,15 +149,29 @@ export default function ResultsScreen() {
         setViewStyle(row.final_result.explanationStyle);
       }
 
+      // Specimen photo (for the shareable card) and hallmark data (for the PDF
+      // report) are independent of each other — fetch concurrently rather than
+      // one after the other. Both run AFTER the primary result above so that
+      // render isn't delayed waiting on them (progressive rendering).
+      const [{ data: img }, { data: hm }] = await Promise.all([
+        supabase
+          .from("scan_images")
+          .select("original_storage_path")
+          .eq("scan_id", scanId)
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("scan_ai_responses")
+          .select("candidate_label, reasoning, raw_response")
+          .eq("scan_id", scanId)
+          .eq("provider", "hallmark_ocr")
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
       // Load one specimen photo (the front/original of the first image) for the
       // shareable card. The bucket is private, so sign the path.
-      const { data: img } = await supabase
-        .from("scan_images")
-        .select("original_storage_path")
-        .eq("scan_id", scanId)
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
       const path = (img as { original_storage_path?: string } | null)?.original_storage_path;
       if (path) {
         const { data: signed } = await supabase.storage
@@ -162,13 +182,6 @@ export default function ResultsScreen() {
 
       // Hallmark data (jewelry/coins) for the PDF report — only present when the
       // hallmark OCR provider actually transcribed a mark. RLS-scoped to own scan.
-      const { data: hm } = await supabase
-        .from("scan_ai_responses")
-        .select("candidate_label, reasoning, raw_response")
-        .eq("scan_id", scanId)
-        .eq("provider", "hallmark_ocr")
-        .limit(1)
-        .maybeSingle();
       if (hm) {
         const raw = (hm as { raw_response?: { marks?: unknown } }).raw_response;
         const marks = Array.isArray(raw?.marks) ? (raw!.marks as string[]) : [];
@@ -321,6 +334,33 @@ export default function ResultsScreen() {
     setFeedbackSent(true);
   }
 
+  // Hooks must run unconditionally on every render — declared here, before
+  // any early return below, even though it's only rendered once `scan` loads.
+  const alternatives = useMemo(() => candidates.filter((c) => c.rank > 1), [candidates]);
+
+  // Advanced Diamond Verification: offer the guided second-stage wizard when
+  // the result looks diamond-family, OR the AI's own valuation signals
+  // rare/collectible/high-value/uncertain — reusing signals already computed
+  // on this screen rather than a new AI call to decide.
+  const [verificationDismissed, setVerificationDismissed] = useState(false);
+  const showDiamondVerification = useMemo(() => {
+    const fr = scan?.final_result;
+    if (!fr || fr.insufficientConfidence || !fr.bestMatch) return false;
+    const allLabels = [fr.bestMatch, ...candidates.filter((c) => c.rank > 1).map((c) => c.label)];
+    const isDiamondFamily = allLabels.some((label) =>
+      DIAMOND_FAMILY_KEYWORDS.some((k) => label.toLowerCase().includes(k)),
+    );
+    const highValueSignal =
+      !!valuation &&
+      ((valuation.typicalUsd ?? 0) >= HIGH_VALUE_THRESHOLD_USD ||
+        valuation.rarity === "rare" ||
+        valuation.rarity === "very_rare" ||
+        valuation.collectible ||
+        valuation.lowConfidence);
+    const uncertainButValuable = highValueSignal && fr.confidenceBand !== "high";
+    return isDiamondFamily || uncertainButValuable;
+  }, [scan, candidates, valuation]);
+
   if (isLoading || !scan) {
     return (
       <View style={styles.container}>
@@ -361,7 +401,6 @@ export default function ResultsScreen() {
     );
   }
 
-  const alternatives = candidates.filter((c) => c.rank > 1);
   const pct = Math.round(finalResult.confidenceScore * 100);
   const bandWord = (b: "low" | "medium" | "high") =>
     lang === "so" ? { high: "SARE", medium: "DHEXE", low: "HOOSE" }[b] : b.toUpperCase();
@@ -563,6 +602,39 @@ export default function ResultsScreen() {
                 "Tani waa qiyaas AI ah, maaha qiimayn xirfadeed.",
               )}
             </Text>
+          </View>
+        </Card>
+      )}
+
+      {/* ── Advanced Diamond Verification trigger ─────────────────────────── */}
+      {showDiamondVerification && !verificationDismissed && (
+        <Card accent style={styles.verifyCard}>
+          <View style={styles.verifyHeader}>
+            <Ionicons name="diamond" size={18} color={colors.gold} />
+            <Text style={styles.verifyTitle}>
+              {L("Possible High Value Stone Detected", "Dhagax Qiimo Sare leh Ayaa Suurtagal ah")}
+            </Text>
+          </View>
+          <Text style={styles.body}>
+            {L(
+              "This stone may require additional verification before a reliable conclusion can be made.",
+              "Dhagaxan waxa laga yaabaa inuu u baahdo xaqiijin dheeraad ah ka hor inta aan la gaarin gunaanad la aamini karo.",
+            )}
+          </Text>
+          <View style={styles.verifyButtonRow}>
+            <Button
+              title={L("Continue Verification", "Sii wad Xaqiijinta")}
+              variant="primary"
+              size="sm"
+              onPress={() => router.push({ pathname: "/(app)/scan/verify", params: { scanId } })}
+              style={{ flex: 1 }}
+            />
+            <Button
+              title={L("Skip", "Ka bood")}
+              variant="ghost"
+              size="sm"
+              onPress={() => setVerificationDismissed(true)}
+            />
           </View>
         </Card>
       )}
@@ -863,6 +935,10 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.borderSubtle,
   },
+  verifyCard: { marginTop: spacing.lg, gap: spacing.sm },
+  verifyHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  verifyTitle: { fontSize: 16, fontWeight: "800", color: colors.text, flexShrink: 1 },
+  verifyButtonRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
   expertCard: { marginTop: spacing.lg, gap: spacing.sm },
   expertTitle: { fontSize: 17, fontWeight: "800", color: "#C9A227" },
   whatsappButton: { backgroundColor: "#25D366", borderRadius: 999, paddingVertical: 14, alignItems: "center", marginTop: 4 },

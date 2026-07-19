@@ -15,6 +15,30 @@
 import type { ProviderInput, ProviderResult, VisionProvider } from "./types.ts";
 import { createAbstainResult } from "./promptShared.ts";
 
+// Macrostrat's geologic-unit data for a given point changes essentially
+// never, and nearby scans (same collecting site/region) commonly land within
+// the same rounded coordinate bucket. Edge Function isolates stay warm across
+// nearby invocations, so a small module-scope cache saves a repeat external
+// API round-trip — performance only, never affects which candidates/weights
+// are produced for a given location.
+const GEO_CACHE_MAX_ENTRIES = 500;
+type GeoCacheEntry = { candidate: { label: string; confidence: number } | null; alternatives: { label: string; confidence: number }[]; reasoning: string; raw: unknown };
+const geoContextCache = new Map<string, GeoCacheEntry>();
+
+function geoCacheKey(lat: number, lng: number): string {
+  // ~1km precision — coarse enough to bucket nearby scans, fine enough to
+  // stay a locality-specific (not regional) signal.
+  return `${lat.toFixed(2)},${lng.toFixed(2)}`;
+}
+
+function cacheGeoContext(key: string, value: GeoCacheEntry): void {
+  if (geoContextCache.size >= GEO_CACHE_MAX_ENTRIES) {
+    const oldestKey = geoContextCache.keys().next().value;
+    if (oldestKey !== undefined) geoContextCache.delete(oldestKey);
+  }
+  geoContextCache.set(key, value);
+}
+
 const LITHOLOGY_TO_CANDIDATES: Record<string, string[]> = {
   granite: ["quartz", "feldspar", "mica", "tourmaline"],
   basalt: ["olivine", "pyroxene", "zeolite", "agate"],
@@ -41,6 +65,19 @@ export const geologicalContextProvider: VisionProvider = {
       return createAbstainResult("geological_context", start, "No location supplied");
     }
 
+    const cacheKey = geoCacheKey(input.location.lat, input.location.lng);
+    const cached = geoContextCache.get(cacheKey);
+    if (cached) {
+      return {
+        provider: "geological_context",
+        candidate: cached.candidate,
+        alternatives: cached.alternatives,
+        reasoning: cached.reasoning,
+        latencyMs: Date.now() - start,
+        raw: cached.raw,
+      };
+    }
+
     try {
       const res = await fetch(
         `https://macrostrat.org/api/v2/geologic_units/map?lat=${input.location.lat}&lng=${input.location.lng}&format=json`,
@@ -65,23 +102,22 @@ export const geologicalContextProvider: VisionProvider = {
       }
 
       if (candidateCounts.size === 0) {
-        return {
-          provider: "geological_context",
+        const entry: GeoCacheEntry = {
           candidate: null,
           alternatives: [],
           reasoning:
             "Could not map the local geologic unit to any known specimen types in the reference table.",
-          latencyMs: Date.now() - start,
           raw,
         };
+        cacheGeoContext(cacheKey, entry);
+        return { provider: "geological_context", ...entry, latencyMs: Date.now() - start };
       }
 
       const ranked = [...candidateCounts.entries()].sort((a, b) => b[1] - a[1]);
       const maxCount = ranked[0][1];
       const [bestLabel] = ranked[0];
 
-      return {
-        provider: "geological_context",
+      const entry: GeoCacheEntry = {
         candidate: { label: bestLabel, confidence: Math.min(0.5, 0.2 + 0.1 * maxCount) },
         alternatives: ranked
           .slice(1, 5)
@@ -90,9 +126,10 @@ export const geologicalContextProvider: VisionProvider = {
           .slice(0, 5)
           .map(([l]) => l)
           .join(", ")}.`,
-        latencyMs: Date.now() - start,
         raw,
       };
+      cacheGeoContext(cacheKey, entry);
+      return { provider: "geological_context", ...entry, latencyMs: Date.now() - start };
     } catch (err) {
       return createAbstainResult("geological_context", start, (err as Error).message);
     }

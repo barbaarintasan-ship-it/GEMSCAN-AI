@@ -176,7 +176,7 @@ export function createAbstainResult(provider: string, start: number, error: stri
 export async function fetchImageAsBase64(
   url: string,
 ): Promise<{ base64: string; mimeType: string }> {
-  const res = await fetch(url);
+  const res = await fetchWithRetry(url);
   if (!res.ok) {
     throw new Error(`Failed to fetch image for provider (status ${res.status})`);
   }
@@ -185,4 +185,29 @@ export async function fetchImageAsBase64(
   let binary = "";
   for (let i = 0; i < buffer.length; i++) binary += String.fromCharCode(buffer[i]);
   return { base64: btoa(binary), mimeType };
+}
+
+// One bounded retry for transient failures — a network-level error (thrown by
+// fetch itself) or a 5xx from the vendor — never for 4xx, which means the
+// request itself was rejected and a retry won't help. Naturally bounded by
+// each provider's overall PROVIDER_TIMEOUT_MS race in index.ts's withTimeout,
+// so this can only ever add one short, capped extra attempt, never stall the
+// scan. Improves successful-identification rate on transient blips without
+// touching any prompt, model choice, or scoring logic.
+const RETRY_BACKOFF_MS = 300;
+
+export async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    const res = await fetch(url, init);
+    if (res.status >= 500 && res.status < 600) {
+      await new Promise((resolve) => setTimeout(resolve, RETRY_BACKOFF_MS));
+      return await fetch(url, init);
+    }
+    return res;
+  } catch {
+    // Network-level failure (DNS, connection reset, etc.) — one retry after a
+    // short fixed backoff, then let the caller's own error handling take over.
+    await new Promise((resolve) => setTimeout(resolve, RETRY_BACKOFF_MS));
+    return await fetch(url, init);
+  }
 }

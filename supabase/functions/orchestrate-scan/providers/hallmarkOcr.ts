@@ -12,7 +12,7 @@
 // as a general identification guess — that keeps this provider's confidence
 // grounded in an actual reference-database hit rather than a model opinion.
 import type { ProviderInput, ProviderResult, VisionProvider } from "./types.ts";
-import { createAbstainResult, fetchImageAsBase64 } from "./promptShared.ts";
+import { createAbstainResult, fetchImageAsBase64, fetchWithRetry } from "./promptShared.ts";
 
 // Auto-updating alias — same rationale as geminiVision.ts: a pinned
 // gemini-2.0-flash was retired by Google, which silently made this hallmark/coin
@@ -60,7 +60,7 @@ export const hallmarkOcrProvider: VisionProvider = {
 
     try {
       const { base64, mimeType } = await fetchImageAsBase64(targetImage.url);
-      const res = await fetch(
+      const res = await fetchWithRetry(
         `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
         {
           method: "POST",
@@ -132,7 +132,32 @@ export const hallmarkOcrProvider: VisionProvider = {
   },
 };
 
-async function lookupHallmarks(
+// `reference_hallmarks` is populated by backend sync jobs and changes rarely
+// (see header comment), while the same handful of marks (925, 750, 18K, ...)
+// recur across many unrelated scans. Supabase Edge Function isolates stay
+// warm across nearby invocations, so a small module-scope cache genuinely
+// saves a repeat DB round-trip per warm invocation — performance only, never
+// consulted for the actual AI identification confidence/weighting logic.
+const HALLMARK_CACHE_MAX_ENTRIES = 500;
+const hallmarkLookupCache = new Map<
+  string,
+  { label: string; confidence: number; matchedMark: string }[]
+>();
+
+function cacheHallmarkLookup(
+  key: string,
+  value: { label: string; confidence: number; matchedMark: string }[],
+): void {
+  // Simple insertion-order eviction (Map preserves insertion order): once at
+  // capacity, drop the oldest entry rather than growing unbounded.
+  if (hallmarkLookupCache.size >= HALLMARK_CACHE_MAX_ENTRIES) {
+    const oldestKey = hallmarkLookupCache.keys().next().value;
+    if (oldestKey !== undefined) hallmarkLookupCache.delete(oldestKey);
+  }
+  hallmarkLookupCache.set(key, value);
+}
+
+export async function lookupHallmarks(
   input: ProviderInput,
   marks: string[],
 ): Promise<{ label: string; confidence: number; matchedMark: string }[]> {
@@ -142,6 +167,13 @@ async function lookupHallmarks(
     const normalized = mark.trim();
     if (!normalized) continue;
 
+    const cacheKey = normalized.toLowerCase();
+    const cached = hallmarkLookupCache.get(cacheKey);
+    if (cached) {
+      results.push(...cached);
+      continue;
+    }
+
     const { data, error } = await input.serviceClient
       .from("reference_hallmarks")
       .select("mark_code, country, assay_office, metal_type, fineness, period_start, period_end")
@@ -150,17 +182,20 @@ async function lookupHallmarks(
 
     if (error || !data) continue;
 
+    const matchesForMark: { label: string; confidence: number; matchedMark: string }[] = [];
     for (const row of data) {
       const exact = row.mark_code.toLowerCase() === normalized.toLowerCase();
       const label = [row.metal_type, row.fineness, row.assay_office, row.country]
         .filter(Boolean)
         .join(" · ");
-      results.push({
+      matchesForMark.push({
         label: label || row.mark_code,
         confidence: exact ? 0.9 : 0.55,
         matchedMark: normalized,
       });
     }
+    cacheHallmarkLookup(cacheKey, matchesForMark);
+    results.push(...matchesForMark);
   }
 
   return results.sort((a, b) => b.confidence - a.confidence);

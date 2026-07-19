@@ -31,42 +31,45 @@ export async function generatePdfForScan(scanId: string, lang: Lang): Promise<bo
   const fr = (scanData as { final_result?: any } | null)?.final_result;
   if (!fr || fr.insufficientConfidence || !fr.bestMatch) return false;
 
-  // First specimen photo (private bucket → signed URL).
-  let photoUrl: string | null = null;
-  const { data: img } = await supabase
-    .from("scan_images")
-    .select("original_storage_path")
-    .eq("scan_id", scanId)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  const path = (img as { original_storage_path?: string } | null)?.original_storage_path;
-  if (path) {
-    const { data: signed } = await supabase.storage.from("scan-images").createSignedUrl(path, 3600);
-    if (signed?.signedUrl) photoUrl = signed.signedUrl;
-  }
-
-  // Hallmark (only when the OCR provider transcribed a mark).
-  let hallmark: PdfReportData["hallmark"] = null;
-  const { data: hm } = await supabase
-    .from("scan_ai_responses")
-    .select("candidate_label, reasoning, raw_response")
-    .eq("scan_id", scanId)
-    .eq("provider", "hallmark_ocr")
-    .limit(1)
-    .maybeSingle();
-  if (hm) {
-    const raw = (hm as { raw_response?: { marks?: unknown } }).raw_response;
-    const marks = Array.isArray(raw?.marks) ? (raw!.marks as string[]) : [];
-    const matchedLabel = (hm as { candidate_label?: string | null }).candidate_label ?? null;
-    if (marks.length > 0 || matchedLabel) {
-      hallmark = { marks, matchedLabel, note: (hm as { reasoning?: string | null }).reasoning ?? null };
-    }
-  }
-
-  // Live market valuation — the same additive estimate the results screen shows
-  // (it is derived, not stored, so we recompute it for an up-to-date figure).
-  const valuation = await estimateValue(fr.bestMatch, fr.confidenceScore, lang).catch(() => null);
+  // Photo, hallmark data, and market valuation are all independent of each
+  // other — nothing downstream renders until the whole report is assembled,
+  // so run all three concurrently instead of one after another.
+  const [photoUrl, hallmark, valuation] = await Promise.all([
+    // First specimen photo (private bucket → signed URL).
+    (async (): Promise<string | null> => {
+      const { data: img } = await supabase
+        .from("scan_images")
+        .select("original_storage_path")
+        .eq("scan_id", scanId)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      const path = (img as { original_storage_path?: string } | null)?.original_storage_path;
+      if (!path) return null;
+      const { data: signed } = await supabase.storage.from("scan-images").createSignedUrl(path, 3600);
+      return signed?.signedUrl ?? null;
+    })(),
+    // Hallmark (only when the OCR provider transcribed a mark).
+    (async (): Promise<PdfReportData["hallmark"]> => {
+      const { data: hm } = await supabase
+        .from("scan_ai_responses")
+        .select("candidate_label, reasoning, raw_response")
+        .eq("scan_id", scanId)
+        .eq("provider", "hallmark_ocr")
+        .limit(1)
+        .maybeSingle();
+      if (!hm) return null;
+      const raw = (hm as { raw_response?: { marks?: unknown } }).raw_response;
+      const marks = Array.isArray(raw?.marks) ? (raw!.marks as string[]) : [];
+      const matchedLabel = (hm as { candidate_label?: string | null }).candidate_label ?? null;
+      if (marks.length === 0 && !matchedLabel) return null;
+      return { marks, matchedLabel, note: (hm as { reasoning?: string | null }).reasoning ?? null };
+    })(),
+    // Live market valuation — the same additive estimate the results screen
+    // shows (it is derived, not stored, so we recompute it for an up-to-date
+    // figure).
+    estimateValue(fr.bestMatch, fr.confidenceScore, lang).catch(() => null),
+  ]);
 
   const alts = ((candidateData as { rank: number; label: string; weighted_confidence: number; confidence_band: string }[]) ?? []).filter(
     (c) => c.rank > 1,

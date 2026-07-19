@@ -7,6 +7,7 @@ import {
   buildIdentificationPrompt,
   createAbstainResult,
   fetchImageAsBase64,
+  fetchWithRetry,
   parseJsonCandidateResponse,
 } from "./promptShared.ts";
 
@@ -48,7 +49,7 @@ export const geminiVisionProvider: VisionProvider = {
         generationConfig: { temperature: 0.2, responseMimeType: "application/json" },
       };
 
-      const res = await fetch(
+      const res = await fetchWithRetry(
         `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
       );

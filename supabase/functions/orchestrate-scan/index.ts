@@ -39,7 +39,10 @@ import type { ProviderInput, ProviderResult, VisionProvider } from "./providers/
 import { runEnsemble } from "./ensemble.ts";
 import { buildExplanations } from "./explanationSynthesis.ts";
 
-const PROVIDER_TIMEOUT_MS = 25_000;
+// Was 25s — shortened so one slow vendor can't drag out the user's wait; the
+// remaining providers still contribute normally (see withTimeout below), and
+// a timed-out provider simply abstains rather than blocking the scan.
+const PROVIDER_TIMEOUT_MS = 15_000;
 const SIGNED_URL_TTL_SECONDS = 60 * 10; // long enough for every provider call
 
 // Auto Scan Lock threshold — the ensemble confidence at/above which the mobile
@@ -350,59 +353,54 @@ export async function processScan(params: {
     ensembleScansEnabled,
   });
 
-  const results: ProviderResult[] = await Promise.all(
-    applicableProviders.map((provider) => withTimeout(provider, input)),
-  );
-
-  // Per-provider outcome log: this is the ground truth for "is Gemini/OpenAI/
-  // Claude actually being called, and did it succeed?" — each line reports the
-  // provider, whether it produced a candidate, its confidence, latency, and the
-  // exact failure reason (missing key, HTTP error, timeout, parse error) when it
-  // abstained. Grep the deployed function logs by `"stage":"provider_result"`.
-  for (const r of results) {
-    log(r.error ? "warn" : "info", "orchestrate-scan", "provider result", {
-      scanId,
-      stage: "provider_result",
-      provider: r.provider,
-      identified: r.candidate !== null,
-      label: r.candidate?.label ?? null,
-      confidence: r.candidate?.confidence ?? null,
-      latencyMs: r.latencyMs,
-      reason: r.error ?? null,
-    });
-  }
-
   // Auto Scan Lock makes this endpoint re-entrant: the Live Scan may call it
   // multiple times against the SAME scanId as it progressively collects more
   // evidence, until confidence crosses the auto-lock threshold. Clear any prior
-  // AI rows for this scan before re-persisting so a re-evaluation replaces
-  // (rather than duplicates) the previous provider responses and candidates.
-  // A first-time scan simply deletes zero rows. Kept backward-compatible: the
-  // single-call flow behaves exactly as before.
+  // AI rows for this scan BEFORE the fan-out below (not after) so a
+  // re-evaluation replaces rather than duplicates previous responses, and so
+  // the progressive inserts that follow don't get wiped out immediately after
+  // landing. A first-time scan simply deletes zero rows.
   await Promise.all([
     serviceClient.from("scan_ai_responses").delete().eq("scan_id", scanId),
     serviceClient.from("scan_candidates").delete().eq("scan_id", scanId),
   ]);
 
-  // Stage 7 (partial): persist every raw provider response, including
-  // failures/timeouts, before computing the ensemble — so the audit trail
-  // exists even if something goes wrong in the ensemble step itself.
-  if (results.length > 0) {
-    await serviceClient.from("scan_ai_responses").insert(
-      results.map((r) => ({
-        scan_id: scanId,
-        provider: r.provider,
-        candidate_label: r.candidate?.label ?? null,
-        confidence: r.candidate?.confidence ?? null,
-        reasoning: r.reasoning || null,
-        alternatives: r.alternatives,
-        raw_response: r.raw ?? null,
-        analysis: r.analysis ?? null,
-        latency_ms: r.latencyMs,
-        error: r.error ?? null,
-      })),
-    );
-  }
+  // Stage 7 (partial): persist — and log — each provider's raw response the
+  // moment ITS OWN call settles, not after every provider finishes. This is
+  // what lets the mobile app poll scan_ai_responses mid-scan for real
+  // progressive results (see capture.tsx) instead of a blank wait, while every
+  // result is still gathered into `results` for the ensemble step below,
+  // completely unchanged. Grep deployed logs by `"stage":"provider_result"`.
+  const results: ProviderResult[] = await Promise.all(
+    applicableProviders.map(async (provider) => {
+      const result = await withTimeout(provider, input);
+      log(result.error ? "warn" : "info", "orchestrate-scan", "provider result", {
+        scanId,
+        stage: "provider_result",
+        provider: result.provider,
+        identified: result.candidate !== null,
+        label: result.candidate?.label ?? null,
+        confidence: result.candidate?.confidence ?? null,
+        latencyMs: result.latencyMs,
+        reason: result.error ?? null,
+      });
+      await serviceClient.from("scan_ai_responses").insert([
+        {
+          scan_id: scanId,
+          provider: result.provider,
+          candidate_label: result.candidate?.label ?? null,
+          confidence: result.candidate?.confidence ?? null,
+          reasoning: result.reasoning || null,
+          alternatives: result.alternatives,
+          raw_response: result.raw ?? null,
+          analysis: result.analysis ?? null,
+          latency_ms: result.latencyMs,
+          error: result.error ?? null,
+        },
+      ]);
+      return result;
+    }),
+  );
 
   const weightByProvider = new Map(applicableProviders.map((p) => [p.name, p.baseWeight]));
   const ensemble = runEnsemble(results, weightByProvider);

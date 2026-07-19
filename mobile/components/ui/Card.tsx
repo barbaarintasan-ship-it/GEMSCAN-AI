@@ -9,7 +9,9 @@ type Props = {
   accent?: boolean; // gold-tinted border, for highlighted/primary cards
 };
 
-export function Card({ children, style, noPadding, accent }: Props) {
+// Memoized: Card is used heavily inside FlatList rows (History) and
+// re-rendered result screens — its own render is pure given its props.
+export const Card = React.memo(function Card({ children, style, noPadding, accent }: Props) {
   return (
     <View
       style={[
@@ -23,7 +25,7 @@ export function Card({ children, style, noPadding, accent }: Props) {
       {children}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   card: {

@@ -63,17 +63,20 @@ export default function HistoryScreen() {
   const canPdf = sub?.features?.pdfReports ?? false;
   const [pdfBusyId, setPdfBusyId] = useState<string | null>(null);
 
-  async function onGeneratePdf(id: string) {
-    if (pdfBusyId) return;
-    setPdfBusyId(id);
-    try {
-      await generatePdfForScan(id, so ? "so" : "en");
-    } catch {
-      /* generation/share failed or was dismissed — no-op */
-    } finally {
-      setPdfBusyId(null);
-    }
-  }
+  const onGeneratePdf = useCallback(
+    async (id: string) => {
+      if (pdfBusyId) return;
+      setPdfBusyId(id);
+      try {
+        await generatePdfForScan(id, so ? "so" : "en");
+      } catch {
+        /* generation/share failed or was dismissed — no-op */
+      } finally {
+        setPdfBusyId(null);
+      }
+    },
+    [pdfBusyId, so],
+  );
 
   const load = useCallback(async () => {
     if (!session?.user.id) return;
@@ -157,19 +160,26 @@ export default function HistoryScreen() {
     return { text: fr.bestMatch, muted: false };
   }
 
+  // Compute each item's display line ONCE per items/language change, rather
+  // than recomputing it again in every renderItem call for every visible row.
+  const itemsWithLine = useMemo(
+    () => items.map((item) => ({ ...item, line: resultLine(item) })),
+    // resultLine is a plain function redefined every render (uses t());
+    // adding it here would defeat the memo since it'd never be stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items],
+  );
+
   // Client-side search over already-loaded items — no new API call, no change
   // to what a scan is or how it's fetched, just filtering the display list.
   const filteredItems = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((item) => resultLine(item).text.toLowerCase().includes(q));
-    // resultLine is a plain function redefined every render (uses t());
-    // adding it here would defeat the memo since it'd never be stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, query]);
+    if (!q) return itemsWithLine;
+    return itemsWithLine.filter((item) => item.line.text.toLowerCase().includes(q));
+  }, [itemsWithLine, query]);
 
-  function renderItem({ item }: { item: HistoryItem }) {
-    const line = resultLine(item);
+  const renderItem = useCallback(({ item }: { item: (typeof itemsWithLine)[number] }) => {
+    const line = item.line;
     const fr = item.final_result;
     const showConfidence = !line.muted && fr;
     const when = new Date(item.created_at);
@@ -239,7 +249,11 @@ export default function HistoryScreen() {
         <Ionicons name="chevron-forward" size={20} color="#8A8A8E" />
       </Pressable>
     );
-  }
+  }, [router, canPdf, pdfBusyId, onGeneratePdf, so]);
+
+  // Hooks must run unconditionally on every render — declared here, before
+  // the loading/error/empty early returns below.
+  const locatedCount = useMemo(() => items.filter((i) => i.location).length, [items]);
 
   if (loading) {
     return (
@@ -273,8 +287,6 @@ export default function HistoryScreen() {
       </View>
     );
   }
-
-  const locatedCount = items.filter((i) => i.location).length;
 
   return (
     <FlatList

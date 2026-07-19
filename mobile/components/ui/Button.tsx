@@ -56,7 +56,9 @@ const VARIANT: Record<ButtonVariant, { container: ViewStyle; textColor: string }
   },
 };
 
-export function Button({
+// Memoized: pure given its props — used repeatedly across result/settings
+// screens, several inside cards that re-render independently of the button.
+export const Button = React.memo(function Button({
   title,
   onPress,
   variant = "primary",
@@ -106,7 +108,7 @@ export function Button({
       )}
     </AnimatedPressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   base: { borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },

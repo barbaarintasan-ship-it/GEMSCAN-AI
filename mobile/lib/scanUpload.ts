@@ -8,11 +8,73 @@
 // module so the upload/orchestration contract is easy to audit.
 import { decode } from "base64-arraybuffer";
 import * as FileSystem from "expo-file-system";
+import * as ImageManipulator from "expo-image-manipulator";
 import { supabase } from "./supabase";
 import type { BoundingBox, CoarseClassification } from "./onDeviceDetection";
 import type { QualityAssessment } from "../components/ImageProcessorGL";
 
 const FUNCTIONS_URL = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL!;
+
+// The "original" photo is kept purely for storage/audit — AI providers only
+// ever see the "processed" (enhanced, ImageProcessorGL.ENHANCE_OUTPUT_SIZE =
+// 1024px) image (orchestrate-scan/index.ts signs `processed_storage_path ??
+// original_storage_path`). So resizing/re-encoding the original here has ZERO
+// effect on identification quality — it only cuts upload time/bandwidth for
+// a copy that's never sent to any AI model.
+const ORIGINAL_MAX_WIDTH = 1600;
+const ORIGINAL_COMPRESS = 0.8;
+
+// Resize + re-encode the full-sensor-resolution original down to a much
+// smaller upload without visible quality loss, preferring WebP (smaller than
+// JPEG at equivalent visual quality) and falling back to JPEG — same
+// dimension cap either way — if WebP encoding isn't available on this device.
+// Never throws: on any failure this returns the original URI unmodified, so
+// an optimization here can never block a scan from completing.
+async function prepareOriginalForUpload(
+  uri: string,
+): Promise<{ uri: string; ext: "webp" | "jpg"; contentType: "image/webp" | "image/jpeg" }> {
+  try {
+    const webp = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: ORIGINAL_MAX_WIDTH } }],
+      { compress: ORIGINAL_COMPRESS, format: ImageManipulator.SaveFormat.WEBP },
+    );
+    return { uri: webp.uri, ext: "webp", contentType: "image/webp" };
+  } catch {
+    try {
+      const jpeg = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: ORIGINAL_MAX_WIDTH } }],
+        { compress: ORIGINAL_COMPRESS, format: ImageManipulator.SaveFormat.JPEG },
+      );
+      return { uri: jpeg.uri, ext: "jpg", contentType: "image/jpeg" };
+    } catch {
+      return { uri, ext: "jpg", contentType: "image/jpeg" };
+    }
+  }
+}
+
+// Runs `items` through `fn` with at most `limit` in flight at once — full
+// parallelism speeds up a multi-angle upload significantly, but running all
+// (up to 8 images x 2 files) at once would hold that many base64 buffers in
+// memory simultaneously on a mobile device. Bounded concurrency gets most of
+// the speedup with a fixed memory ceiling.
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const i = nextIndex++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(new Array(Math.min(limit, items.length)).fill(0).map(() => worker()));
+  return results;
+}
 
 export type CapturedAngleImage = {
   angle: "front" | "back" | "left" | "right" | "top" | "bottom" | "macro" | "wet";
@@ -50,11 +112,11 @@ export async function createScan(params: {
   return data.id as string;
 }
 
-async function uploadFile(path: string, uri: string): Promise<void> {
+async function uploadFile(path: string, uri: string, contentType: string): Promise<void> {
   const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
   const { error } = await supabase.storage
     .from("scan-images")
-    .upload(path, decode(base64), { contentType: "image/jpeg", upsert: true });
+    .upload(path, decode(base64), { contentType, upsert: true });
   if (error) throw new Error(`Upload failed for ${path}: ${error.message}`);
 }
 
@@ -64,12 +126,15 @@ export async function uploadScanImage(scanId: string, image: CapturedAngleImage)
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Must be signed in to upload a scan image");
 
-  const originalPath = `${user.id}/${scanId}/${image.angle}-original.jpg`;
+  // Only the original is resized/re-encoded here — the processed (AI-facing)
+  // image's own size/quality (set by ImageProcessorGL.enhance()) is untouched.
+  const prepared = await prepareOriginalForUpload(image.originalUri);
+  const originalPath = `${user.id}/${scanId}/${image.angle}-original.${prepared.ext}`;
   const processedPath = `${user.id}/${scanId}/${image.angle}-processed.jpg`;
 
   await Promise.all([
-    uploadFile(originalPath, image.originalUri),
-    uploadFile(processedPath, image.processedUri),
+    uploadFile(originalPath, prepared.uri, prepared.contentType),
+    uploadFile(processedPath, image.processedUri, "image/jpeg"),
   ]);
 
   const { error } = await supabase.from("scan_images").insert({
@@ -181,6 +246,13 @@ export async function runOrchestration(
   onDeviceHint: CoarseClassification | null,
   scanType: ScanType = "standard",
   explanationStyle: ExplanationStyle = "simple",
+  // Lets the caller cancel the in-flight request (e.g. the user navigated
+  // away from the analyzing screen) instead of it running to completion
+  // uselessly. Deliberately NOT retried client-side on failure — a retry
+  // after a server-side success-but-lost-response could double-consume a
+  // Deep Scan credit, so any failure here (including a real network error)
+  // is surfaced to the caller as-is rather than silently re-attempted.
+  signal?: AbortSignal,
 ): Promise<OrchestrateScanResponse> {
   const {
     data: { session },
@@ -197,6 +269,7 @@ export async function runOrchestration(
     // "deep" = the metered 3-AI ensemble (spends a Deep Scan credit).
     // explanationStyle is the user's Dual Explanation Mode preference.
     body: JSON.stringify({ scanId, onDeviceHint, scanType, explanationStyle }),
+    signal,
   });
 
   const body = await res.json();
