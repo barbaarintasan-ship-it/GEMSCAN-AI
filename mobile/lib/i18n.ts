@@ -4,12 +4,12 @@
 // the `profiles.locale` check constraint in migration 0001. The active language
 // is persisted locally in AsyncStorage so the choice survives restarts even
 // offline, and is best-effort mirrored to profiles.locale (see setAppLanguage)
-// so the website stays in sync. On first launch we fall back to the device
-// locale, then English.
+// so the website stays in sync. English is the default on first launch
+// (deliberately not device-locale-detected); Somali is always available as a
+// manual choice via the in-app language switcher (see settings.tsx).
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getLocales } from "expo-localization";
 import { supabase } from "./supabase";
 import en from "../locales/en.json";
 import so from "../locales/so.json";
@@ -17,16 +17,12 @@ import so from "../locales/so.json";
 export const LANGUAGE_STORAGE_KEY = "gemscan.language";
 export type AppLanguage = "en" | "so";
 
-function deviceLanguage(): AppLanguage {
-  return getLocales()[0]?.languageCode === "so" ? "so" : "en";
-}
-
 i18n.use(initReactI18next).init({
   resources: {
     en: { translation: en },
     so: { translation: so },
   },
-  lng: deviceLanguage(),
+  lng: "en",
   fallbackLng: "en",
   interpolation: { escapeValue: false },
   // React Native's JS runtime may lack Intl.PluralRules; the v3 JSON format

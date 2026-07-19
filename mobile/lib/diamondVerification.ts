@@ -5,15 +5,20 @@
 // 0009_diamond_verification.sql, RLS: client can insert/update its own
 // verification row but never write a verdict) and `high_value_report_purchases`
 // (migration 0010, RLS: client can only ever insert its own 'pending' row).
-// The verify-high-value Edge Function itself is no longer called directly
-// from here — it now only runs server-side, triggered by the payment webhook
+// The verify-high-value Edge Function is never called directly for the FIRST
+// evaluation — that only runs server-side, triggered by the payment webhook
 // once a purchase is marked 'paid' (see supabase/functions/
-// high-value-report-webhook). Never touches scans/scan_images/orchestrate-scan.
+// high-value-report-webhook). It IS called directly (with the user's own
+// session) for free re-evaluations after editing answers post-payment — the
+// function itself now requires a 'paid' purchase row to exist before it will
+// run at all, so this can't be used to skip payment. Never touches
+// scans/scan_images/orchestrate-scan.
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { decode } from "base64-arraybuffer";
 import * as FileSystem from "expo-file-system";
 import { supabase } from "./supabase";
 
+const FUNCTIONS_URL = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL!;
 const DRAFT_KEY_PREFIX = "gemscan.verification.";
 
 export type VerificationAnswers = {
@@ -198,16 +203,54 @@ export async function getHighValueReportPurchase(
   return (data as HighValueReportPurchase | undefined) ?? null;
 }
 
-// Reads a previously-completed verdict directly (RLS select-own — no Edge
-// Function round-trip needed for a read), e.g. when resuming a session whose
-// AI call already finished.
-export async function getVerificationVerdict(verificationId: string): Promise<VerificationVerdict | null> {
+export type VerificationVerdictRecord = { verdict: VerificationVerdict; createdAt: string };
+
+// Reads the MOST RECENT verdict directly (RLS select-own — no Edge Function
+// round-trip needed for a read), e.g. when resuming a session whose AI call
+// already finished. Ordered by created_at desc rather than assuming
+// uniqueness: a free re-evaluation after editing answers (see
+// requestVerificationReEvaluation) inserts a NEW row rather than replacing
+// the old one, so this verification can have more than one verdict over
+// time — always show the latest. Returns createdAt too (not just the verdict
+// itself) so callers can show the REAL evaluation date — e.g. in the PDF
+// export — instead of substituting "now" for a verdict that was actually
+// produced days earlier.
+export async function getVerificationVerdict(verificationId: string): Promise<VerificationVerdictRecord | null> {
   const { data } = await supabase
     .from("diamond_verification_verdicts")
-    .select("verdict")
+    .select("verdict, created_at")
     .eq("verification_id", verificationId)
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
-  return (data?.verdict as VerificationVerdict | undefined) ?? null;
+  if (!data) return null;
+  return { verdict: data.verdict as VerificationVerdict, createdAt: data.created_at as string };
+}
+
+// Free re-evaluation after the user edits their answers post-payment. Calls
+// verify-high-value directly with the user's own session — that function now
+// requires a 'paid' high_value_report_purchases row for this verification
+// before it will run, so this can only ever be used once the $5 has actually
+// been paid (any number of times after that, at no extra charge).
+export async function requestVerificationReEvaluation(verificationId: string): Promise<VerificationVerdict> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) throw new Error("Must be signed in to re-evaluate");
+
+  const res = await fetch(`${FUNCTIONS_URL}/verify-high-value`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ verificationId }),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body?.verdict) {
+    throw new Error(body?.error ?? `verify-high-value failed with status ${res.status}`);
+  }
+  return body.verdict as VerificationVerdict;
 }
 
 // Local-first draft (mirrors lib/i18n.ts / lib/explanationStyle.ts's

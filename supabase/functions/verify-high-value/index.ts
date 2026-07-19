@@ -23,6 +23,11 @@ import type { VerificationAnswers, VerificationImagePaths, VerificationVerdict }
 
 const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-flash-latest";
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
+// Evaluations per report purchase: the first, payment-triggered one plus up
+// to 2 free re-runs after editing answers — not unlimited. Enforced
+// atomically by reserve_hvr_evaluation_slot (migration 0012), not by reading
+// then later incrementing a counter (that was racy — see 0012's comment).
+const MAX_EVALUATIONS_PER_PURCHASE = 3;
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -80,6 +85,25 @@ export async function handleRequest(req: Request): Promise<Response> {
       .maybeSingle();
     if (verificationError || !verification) {
       return jsonResponse({ error: "Verification not found" }, 404);
+    }
+
+    // This is the only real enforcement of the $5 paywall — the app itself
+    // only ever calls this endpoint once payment has gone through (either
+    // the FIRST time via the payment webhook, or on a later free
+    // re-evaluation after the user edits their answers), but that's just UI
+    // behavior. Require an actual 'paid' high_value_report_purchases row for
+    // this verification so the endpoint can't be reached for a free
+    // evaluation by calling it directly. This is a fast-fail convenience
+    // check only (skip the scan/hallmark reads below for an obviously-unpaid
+    // call) — the real, race-safe cap enforcement is the atomic reservation
+    // inside processVerification.
+    const { data: purchase } = await callerClient
+      .from("high_value_report_purchases")
+      .select("status")
+      .eq("verification_id", verificationId)
+      .maybeSingle();
+    if (!purchase || purchase.status !== "paid") {
+      return jsonResponse({ error: "Payment required for this report" }, 402);
     }
 
     const { data: scan, error: scanError } = await callerClient
@@ -162,76 +186,123 @@ export async function processVerification(params: {
   const { verificationId, verification, scan, hallmark, serviceClient } = params;
   const finalResult = scan.final_result;
 
+  // Atomically check-and-reserve an evaluation slot BEFORE any AI work — one
+  // guarded UPDATE (migration 0012) so two concurrent calls for the same
+  // purchase can't both read "under the cap" and both slip through (the
+  // race the previous read-then-later-increment design had). A null result
+  // means the purchase isn't paid, doesn't exist, or is already at the cap.
+  const { data: reservedCount, error: reserveError } = await serviceClient.rpc(
+    "reserve_hvr_evaluation_slot",
+    { p_verification_id: verificationId, p_max: MAX_EVALUATIONS_PER_PURCHASE },
+  );
+  if (reserveError) {
+    logError("verify-high-value", new Error(reserveError.message), { verificationId, stage: "reserve_slot" });
+    return jsonResponse({ error: "Could not verify evaluation eligibility" }, 500);
+  }
+  if (reservedCount == null) {
+    return jsonResponse(
+      { error: `Evaluation limit reached (${MAX_EVALUATIONS_PER_PURCHASE} per report)` },
+      429,
+    );
+  }
+  // From here on, a slot is reserved — any early return due to a failure
+  // below must release it first, so a transient failure never permanently
+  // costs the user one of their 3 evaluations.
+  async function releaseSlot() {
+    const { error } = await serviceClient.rpc("release_hvr_evaluation_slot", {
+      p_verification_id: verificationId,
+    });
+    if (error) {
+      logError("verify-high-value", new Error(error.message), { verificationId, stage: "release_slot" });
+    }
+  }
+
   const imagePaths = (verification.image_paths ?? {}) as VerificationImagePaths;
   const imageLabels = Object.keys(imagePaths).filter(
     (k) => imagePaths[k as keyof VerificationImagePaths],
   );
-  const signedImages = await Promise.all(
-    imageLabels.map(async (label) => {
-      const path = imagePaths[label as keyof VerificationImagePaths]!;
-      const { data, error } = await serviceClient.storage
-        .from("scan-images")
-        .createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
-      if (error || !data) throw new Error(`Failed to sign verification image ${label}: ${error?.message}`);
-      return { label, url: data.signedUrl };
-    }),
-  );
 
-  const apiKey = Deno.env.get("GEMINI_API_KEY");
-  if (!apiKey) return jsonResponse({ error: "Verification AI is not configured" }, 500);
-
-  const prompt = buildVerificationPrompt({
-    previousResult: {
-      bestMatch: String(finalResult.bestMatch),
-      confidenceScore: Number(finalResult.confidenceScore ?? 0),
-      confidenceBand: (finalResult.confidenceBand as "low" | "medium" | "high") ?? "low",
-      reasoning: (finalResult.reasoning as string | null) ?? null,
-      alternatives: Array.isArray(finalResult.alternatives)
-        ? (finalResult.alternatives as { label: string; weightedConfidence: number }[]).map((a) => ({
-            label: a.label,
-            confidence: a.weightedConfidence,
-          }))
-        : [],
-    },
-    hallmark,
-    answers: (verification.answers ?? {}) as VerificationAnswers,
-    imageLabels: signedImages.map((i) => i.label),
-    location: scan.capture_location ?? null,
-  });
-
-  const imageParts = await Promise.all(
-    signedImages.map(async (img) => {
-      const { base64, mimeType } = await fetchImageAsBase64(img.url);
-      return { inline_data: { mime_type: mimeType, data: base64 } };
-    }),
-  );
-
-  const geminiRes = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }, ...imageParts] }],
-        generationConfig: { temperature: 0.2, responseMimeType: "application/json" },
-      }),
-    },
-  );
-  const geminiRaw = await geminiRes.json();
-  if (!geminiRes.ok) {
-    logError("verify-high-value", new Error(geminiRaw?.error?.message ?? "Gemini API error"), {
-      verificationId,
-    });
-    return jsonResponse({ error: "Verification AI request failed" }, 502);
-  }
-
-  const text = geminiRaw?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  // Everything from here through the Gemini call/parse can fail in ways
+  // that must release the reserved slot (a thrown image-signing error, a
+  // missing API key, a Gemini HTTP error, or a parse error) — wrapped in one
+  // try/catch so no failure path can forget to release it.
   let verdict: VerificationVerdict;
   try {
-    verdict = parseVerificationResponse(text);
+    const signedImages = await Promise.all(
+      imageLabels.map(async (label) => {
+        const path = imagePaths[label as keyof VerificationImagePaths]!;
+        const { data, error } = await serviceClient.storage
+          .from("scan-images")
+          .createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
+        if (error || !data) throw new Error(`Failed to sign verification image ${label}: ${error?.message}`);
+        return { label, url: data.signedUrl };
+      }),
+    );
+
+    const apiKey = Deno.env.get("GEMINI_API_KEY");
+    if (!apiKey) {
+      await releaseSlot();
+      return jsonResponse({ error: "Verification AI is not configured" }, 500);
+    }
+
+    const prompt = buildVerificationPrompt({
+      previousResult: {
+        bestMatch: String(finalResult.bestMatch),
+        confidenceScore: Number(finalResult.confidenceScore ?? 0),
+        confidenceBand: (finalResult.confidenceBand as "low" | "medium" | "high") ?? "low",
+        reasoning: (finalResult.reasoning as string | null) ?? null,
+        alternatives: Array.isArray(finalResult.alternatives)
+          ? (finalResult.alternatives as { label: string; weightedConfidence: number }[]).map((a) => ({
+              label: a.label,
+              confidence: a.weightedConfidence,
+            }))
+          : [],
+      },
+      hallmark,
+      answers: (verification.answers ?? {}) as VerificationAnswers,
+      imageLabels: signedImages.map((i) => i.label),
+      location: scan.capture_location ?? null,
+    });
+
+    const imageParts = await Promise.all(
+      signedImages.map(async (img) => {
+        const { base64, mimeType } = await fetchImageAsBase64(img.url);
+        return { inline_data: { mime_type: mimeType, data: base64 } };
+      }),
+    );
+
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }, ...imageParts] }],
+          generationConfig: { temperature: 0.2, responseMimeType: "application/json" },
+        }),
+      },
+    );
+    const geminiRaw = await geminiRes.json();
+    if (!geminiRes.ok) {
+      logError("verify-high-value", new Error(geminiRaw?.error?.message ?? "Gemini API error"), {
+        verificationId,
+      });
+      await releaseSlot();
+      return jsonResponse({ error: "Verification AI request failed" }, 502);
+    }
+
+    const text = geminiRaw?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    try {
+      verdict = parseVerificationResponse(text);
+    } catch (err) {
+      logError("verify-high-value", err, { verificationId, stage: "parse" });
+      await releaseSlot();
+      return jsonResponse({ error: "Could not parse verification result" }, 502);
+    }
   } catch (err) {
-    logError("verify-high-value", err, { verificationId, stage: "parse" });
-    return jsonResponse({ error: "Could not parse verification result" }, 502);
+    logError("verify-high-value", err, { verificationId, stage: "sign_or_call" });
+    await releaseSlot();
+    return jsonResponse({ error: (err as Error).message }, 500);
   }
 
   const { error: insertError } = await serviceClient.from("diamond_verification_verdicts").insert([
@@ -243,6 +314,7 @@ export async function processVerification(params: {
   ]);
   if (insertError) {
     logError("verify-high-value", new Error(insertError.message), { verificationId, stage: "persist" });
+    await releaseSlot();
   }
 
   await serviceClient.from("diamond_verifications").update({ status: "completed" }).eq("id", verificationId);

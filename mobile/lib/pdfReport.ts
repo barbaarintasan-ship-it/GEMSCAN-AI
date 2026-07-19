@@ -201,6 +201,37 @@ const QR_PLACEHOLDER_SVG = `<svg width="60" height="60" viewBox="0 0 60 60" xmln
   <rect x="40" y="48" width="4" height="4" fill="#1B2A4A"/>
 </svg>`;
 
+// Round company seal, styled like a stamped authenticity/notary mark —
+// placed near the disclaimer, not the header, so it reads as "this report
+// was issued by us" rather than "this is an official certificate" (the
+// disclaimer directly below it already says it explicitly is not one). The
+// circular-text arcs use opposite sweep directions deliberately: the top arc
+// sweeps clockwise (text reads upright left-to-right over the top) while the
+// bottom arc sweeps counter-clockwise (text reads upright left-to-right
+// under the bottom) — using the same sweep for both would render the bottom
+// text upside-down and mirrored.
+const SEAL_SVG = `<svg width="150" height="150" viewBox="0 0 150 150" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <path id="sealTopArc" d="M 20,75 A 55,55 0 1 1 130,75" fill="none"/>
+    <path id="sealBottomArc" d="M 20,75 A 55,55 0 1 0 130,75" fill="none"/>
+  </defs>
+  <circle cx="75" cy="75" r="70" fill="none" stroke="#C9A227" stroke-width="1.5" opacity="0.85"/>
+  <circle cx="75" cy="75" r="62" fill="none" stroke="#C9A227" stroke-width="2.5"/>
+  <circle cx="75" cy="75" r="44" fill="none" stroke="#C9A227" stroke-width="1"/>
+  <text font-size="8.2" fill="#C9A227" font-family="Georgia, serif" font-weight="700" letter-spacing="2.2">
+    <textPath href="#sealTopArc" startOffset="50%" text-anchor="middle">GEMSCAN LAB COMPANY</textPath>
+  </text>
+  <text font-size="6.5" fill="#C9A227" font-family="Georgia, serif" font-weight="600" letter-spacing="0.8">
+    <textPath href="#sealBottomArc" startOffset="50%" text-anchor="middle">GEM IDENTIFICATION LAB</textPath>
+  </text>
+  <g transform="translate(75,75)">
+    <polygon points="0,-18 15,-10 0,20 -15,-10" fill="none" stroke="#C9A227" stroke-width="1.5"/>
+    <polygon points="0,-18 15,-10 -15,-10" fill="none" stroke="#C9A227" stroke-width="1"/>
+  </g>
+  <circle cx="46" cy="75" r="1.6" fill="#C9A227"/>
+  <circle cx="104" cy="75" r="1.6" fill="#C9A227"/>
+</svg>`;
+
 // ── HTML builder (pure) ──────────────────────────────────────────────────
 // `data.images` are expected to already be data: URIs here.
 export function buildReportHtml(data: PdfReportData, lang: Lang): string {
@@ -533,6 +564,10 @@ export function buildReportHtml(data: PdfReportData, lang: Lang): string {
     font-size: 10.5px; color: #6b7280; line-height: 1.7;
   }
   .disclaimer-block strong { color: #1B2A4A; }
+
+  .seal-row { display: flex; justify-content: flex-end; margin-top: 8px; page-break-inside: avoid; }
+  .seal-mark { width: 92px; height: 92px; transform: rotate(-8deg); opacity: 0.92; }
+  .seal-mark svg { width: 100%; height: 100%; }
 </style>
 </head>
 <body>
@@ -578,6 +613,10 @@ export function buildReportHtml(data: PdfReportData, lang: Lang): string {
     ${nextTestsHtml}
 
     ${recommendationsHtml}
+
+    <div class="seal-row">
+      <div class="seal-mark">${SEAL_SVG}</div>
+    </div>
 
     <div class="disclaimer-block">
       <strong>${t("Disclaimer", "Ogeysiis")}:</strong>

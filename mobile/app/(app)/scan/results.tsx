@@ -342,7 +342,6 @@ export default function ResultsScreen() {
   // the result looks diamond-family, OR the AI's own valuation signals
   // rare/collectible/high-value/uncertain — reusing signals already computed
   // on this screen rather than a new AI call to decide.
-  const [verificationDismissed, setVerificationDismissed] = useState(false);
   const showDiamondVerification = useMemo(() => {
     const fr = scan?.final_result;
     if (!fr || fr.insufficientConfidence || !fr.bestMatch) return false;
@@ -615,18 +614,18 @@ export default function ResultsScreen() {
       )}
 
       {/* ── Advanced Diamond Verification trigger ─────────────────────────── */}
-      {showDiamondVerification && !verificationDismissed && (
+      {showDiamondVerification && (
         <Card accent style={styles.verifyCard}>
           <View style={styles.verifyHeader}>
             <Ionicons name="diamond" size={18} color={colors.gold} />
             <Text style={styles.verifyTitle}>
-              {L("Possible High Value Stone Detected", "Dhagax Qiimo Sare leh Ayaa Suurtagal ah")}
+              {L("You May Have Found a High-Value Stone", "Dhagax Qiimo Sare leh Ayaa Suurtogal ah inaad Heshay")}
             </Text>
           </View>
           <Text style={styles.body}>
             {L(
-              "This stone may require additional verification before a reliable conclusion can be made.",
-              "Dhagaxan waxa laga yaabaa inuu u baahdo xaqiijin dheeraad ah ka hor inta aan la gaarin gunaanad la aamini karo.",
+              "This stone looks like it could be extremely valuable, but it needs additional verification and a few more questions from us before we can give you a conclusive report. Tap the button below and answer the questions.",
+              "Dhagaxan wuxuu u eg yahay dhagax aad iyo aad qaali u ah, hase ahaatee wuxuu u baahan yahay xaqiijin dheeraad ah inaan ku samayno oo su'aalo dheeraad ah ku weydiino, ka hor inta aanaan ku siin warbixin gunaanad ah. Haddaba riix badhanka hoose oo su'aalaha nooga jawaab.",
             )}
           </Text>
           <View style={styles.verifyButtonRow}>
@@ -636,12 +635,6 @@ export default function ResultsScreen() {
               size="sm"
               onPress={() => router.push({ pathname: "/(app)/scan/verify", params: { scanId } })}
               style={{ flex: 1 }}
-            />
-            <Button
-              title={L("Skip", "Ka bood")}
-              variant="ghost"
-              size="sm"
-              onPress={() => setVerificationDismissed(true)}
             />
           </View>
         </Card>

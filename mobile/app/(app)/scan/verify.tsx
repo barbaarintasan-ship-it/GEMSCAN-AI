@@ -33,6 +33,7 @@ import {
   startHighValueReportPurchase,
   getHighValueReportPurchase,
   getVerificationVerdict,
+  requestVerificationReEvaluation,
   getLocalDraft,
   setLocalDraft,
   clearLocalDraft,
@@ -43,6 +44,8 @@ import {
   type HighValueReportPurchase,
 } from "../../../lib/diamondVerification";
 import { EXTERNAL_PURCHASES_ENABLED, buildHighValueReportPaymentUrl } from "../../../lib/appLinks";
+import { generateAndShareVerificationPdf } from "../../../lib/verificationPdfReport";
+import { supabase } from "../../../lib/supabase";
 import { Card } from "../../../components/ui/Card";
 import { Button } from "../../../components/ui/Button";
 import { ConfidenceBadge } from "../../../components/ui/ConfidenceBadge";
@@ -286,6 +289,15 @@ export default function DiamondVerificationScreen() {
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [purchase, setPurchase] = useState<HighValueReportPurchase | null>(null);
   const [verdict, setVerdict] = useState<VerificationVerdict | null>(null);
+  const [verdictGeneratedAt, setVerdictGeneratedAt] = useState<string>(new Date().toISOString());
+  const [photoStoragePath, setPhotoStoragePath] = useState<string | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  // True once the user taps "Edit Answers" on an already-paid report — marks
+  // that the next time the submit step has no verdict, it should actively
+  // request a fresh (free) evaluation rather than passively wait on the
+  // payment webhook (which only ever runs once, for the first payment).
+  const [hasEditedAfterVerdict, setHasEditedAfterVerdict] = useState(false);
+  const [reEvaluating, setReEvaluating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -296,10 +308,37 @@ export default function DiamondVerificationScreen() {
         setVerificationId(sessionData.id);
         setImagePaths(sessionData.imagePaths);
 
+        // Specimen photo, for the PDF export — same lookup results.tsx uses
+        // (scan_images, earliest first). Store the raw storage PATH, not a
+        // signed URL: the user may not download the PDF until well after a
+        // trip out to the external payment page and back, and a signed URL
+        // minted now would have expired by then — the download handler
+        // signs a fresh one right before it's needed instead.
+        const { data: img } = await supabase
+          .from("scan_images")
+          .select("original_storage_path")
+          .eq("scan_id", scanId)
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        const path = (img as { original_storage_path?: string } | null)?.original_storage_path;
+        if (path) setPhotoStoragePath(path);
+
         if (sessionData.status === "completed") {
-          const v = await getVerificationVerdict(sessionData.id);
+          // Also hydrate purchase (not just verdict) — "Edit Answers" relies
+          // on `purchase` already being set to know a re-evaluation is free,
+          // and without it the create-purchase effect below would otherwise
+          // needlessly re-fire on the first edit of a reopened session.
+          const [p, v] = await Promise.all([
+            getHighValueReportPurchase(sessionData.id),
+            getVerificationVerdict(sessionData.id),
+          ]);
+          setPurchase(p);
           setAnswers(sessionData.answers);
-          setVerdict(v);
+          if (v) {
+            setVerdict(v.verdict);
+            setVerdictGeneratedAt(v.createdAt);
+          }
           setStepIndex(STEPS.length - 1);
         } else {
           const draft = await getLocalDraft(scanId);
@@ -316,7 +355,10 @@ export default function DiamondVerificationScreen() {
             setPurchase(p);
             if (p?.status === "paid") {
               const v = await getVerificationVerdict(sessionData.id);
-              if (v) setVerdict(v);
+              if (v) {
+                setVerdict(v.verdict);
+                setVerdictGeneratedAt(v.createdAt);
+              }
             }
           }
         }
@@ -423,12 +465,83 @@ export default function DiamondVerificationScreen() {
       if (p) setPurchase(p);
       if (p?.status === "paid") {
         const v = await getVerificationVerdict(verificationId);
-        if (v) setVerdict(v);
+        if (v) {
+          setVerdict(v.verdict);
+          setVerdictGeneratedAt(v.createdAt);
+        }
       }
     } catch (err) {
       setErrorMsg((err as Error).message);
     } finally {
       setCheckingStatus(false);
+    }
+  }
+
+  async function handleDownloadPdf() {
+    if (!verdict || !verificationId) return;
+    setPdfBusy(true);
+    setErrorMsg(null);
+    try {
+      // Sign fresh right before use rather than reusing a URL from wizard
+      // mount — by the time the user downloads (often after a round trip to
+      // the external payment page), an earlier signed URL may have expired.
+      let freshPhotoUri: string | null = null;
+      if (photoStoragePath) {
+        const { data: signed } = await supabase.storage
+          .from("scan-images")
+          .createSignedUrl(photoStoragePath, 3600);
+        freshPhotoUri = signed?.signedUrl ?? null;
+      }
+      const rec = RECOMMENDATION_LABELS[verdict.recommendation] ?? RECOMMENDATION_LABELS.cannot_determine;
+      await generateAndShareVerificationPdf(
+        {
+          scanId,
+          verificationId,
+          generatedAt: verdictGeneratedAt,
+          photoUri: freshPhotoUri,
+          verdict,
+          recommendationLabel: L(rec.en, rec.so),
+        },
+        so ? "so" : "en",
+      );
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
+  // "Edit Answers" from the verdict screen — jumps back into the
+  // questionnaire with existing answers still filled in. The purchase stays
+  // 'paid', so no new payment is needed; reaching the submit step again will
+  // request a fresh (free) evaluation instead of waiting on the webhook.
+  function handleEditAnswers() {
+    setVerdict(null);
+    setHasEditedAfterVerdict(true);
+    setStepIndex(0);
+  }
+
+  async function handleReEvaluate() {
+    if (!verificationId) return;
+    setReEvaluating(true);
+    setErrorMsg(null);
+    try {
+      const v = await requestVerificationReEvaluation(verificationId);
+      setVerdict(v);
+      setVerdictGeneratedAt(new Date().toISOString());
+      setHasEditedAfterVerdict(false);
+    } catch (err) {
+      const message = (err as Error).message;
+      setErrorMsg(
+        message.toLowerCase().includes("evaluation limit reached")
+          ? L(
+              "You've used all 3 included evaluations for this report.",
+              "Waxaad isticmaashay dhammaan 3-da qiimayn ee ku jira warbixintan.",
+            )
+          : message,
+      );
+    } finally {
+      setReEvaluating(false);
     }
   }
 
@@ -521,12 +634,57 @@ export default function DiamondVerificationScreen() {
 
       {step.kind === "submit" &&
         (verdict ? (
-          <VerdictDisplay verdict={verdict} L={L} />
+          <View style={{ gap: spacing.md }}>
+            <VerdictDisplay verdict={verdict} L={L} />
+            {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
+            <Button
+              title={L("Edit Answers", "Wax ka beddel Jawaabaha")}
+              variant="outline"
+              icon={<Ionicons name="create-outline" size={18} color={colors.gold} />}
+              onPress={handleEditAnswers}
+            />
+            <Text style={styles.disclaimer}>
+              {L(
+                "Made a mistake? Edit any answer and get an updated evaluation — free, since you've already paid for this report. Up to 3 evaluations total per report.",
+                "Khalad ma samaysay? Wax ka beddel jawaab kasta oo hel qiimayn cusub — bilaash ah, maadaama aad horeyba u bixisay warbixintan. Ugu badnaan 3 qiimayn oo warbixintan ah.",
+              )}
+            </Text>
+            <Button
+              title={L("Download / Share PDF Report", "Soo deji / Wadaag Warbixin PDF")}
+              variant="outline"
+              icon={<Ionicons name="document-text-outline" size={18} color={colors.gold} />}
+              onPress={handleDownloadPdf}
+              loading={pdfBusy}
+            />
+            <Text style={styles.disclaimer}>
+              {L(
+                "Tip: to download it, choose \"Save to Files\" (iOS) or \"Save\"/\"Download\" (Android) in the share menu that opens.",
+                "Tallo: si aad u soo dejiso, dooro \"Save to Files\" (iOS) ama \"Save\"/\"Download\" (Android) menu-ga wadaagida oo furma.",
+              )}
+            </Text>
+          </View>
         ) : creatingPurchase || !purchase ? (
           <Card style={styles.stepCard}>
             <Text style={styles.stepTitle}>{L(step.titleEn, step.titleSo)}</Text>
             <ActivityIndicator color={colors.gold} />
             {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
+          </Card>
+        ) : purchase.status === "paid" && hasEditedAfterVerdict ? (
+          <Card style={styles.stepCard}>
+            <Text style={styles.stepTitle}>{L(step.titleEn, step.titleSo)}</Text>
+            <Text style={styles.stepSubtitle}>
+              {L(
+                "We'll re-run the expert evaluation with your updated answers — free, no additional payment.",
+                "Waxaan dib u samayn doonaa qiimaynta khibradda ee leh jawaabahaaga cusub — bilaash, lacag dheeraad ah lama rabo.",
+              )}
+            </Text>
+            {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
+            <Button
+              title={L("Get Updated Evaluation", "Hel Qiimaynta Cusub")}
+              variant="primary"
+              loading={reEvaluating}
+              onPress={handleReEvaluate}
+            />
           </Card>
         ) : purchase.status === "paid" ? (
           <Card style={styles.stepCard}>

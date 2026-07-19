@@ -53,7 +53,13 @@ equivalent, keep the international term and add a brief Somali gloss in parenthe
 The "label" field and every "alternatives[].label" field must STILL be the specimen's \
 canonical scientific/common name in English (e.g. "Quartz", "Diamond") — never translate \
 those two fields, even though everything else is in Somali.`
-    : `Write all narrative/explanation text in clear English.`;
+    : `Write ALL narrative/explanation text — "reasoning", "simpleExplanation", every prose field \
+inside "expertExplanation", "imageObservations", "warnings", and "recommendations" — in clear, \
+natural ENGLISH. Do NOT write these fields in Somali or any other language, even if the location \
+hint above points to Somalia or a Somali-speaking region — the find location does not change what \
+language to write in. Short technical values that are language-agnostic (e.g. "mohsHardness": "7", \
+"chemicalComposition": "SiO2", "refractiveIndex": "1.54-1.55") stay as their standard scientific \
+notation regardless.`;
 
   return `You are a gemology/mineralogy/numismatics identification assistant for GemScan AI, \
 a consumer app for identifying NATURALLY OCCURRING or otherwise physical specimens: \

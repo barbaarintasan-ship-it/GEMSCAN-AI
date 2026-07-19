@@ -12,9 +12,14 @@ import { processVerification } from "./index.ts";
 // deno-lint-ignore no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
-function createMockServiceClient() {
+function createMockServiceClient(opts: { reservedCount?: number | null } = {}) {
   const inserted: Record<string, unknown[]> = {};
   const updates: Record<string, unknown[]> = {};
+  // Defaults to "a slot is available" (1) so tests that aren't specifically
+  // exercising the cap don't need to know reserve_hvr_evaluation_slot exists.
+  // NOTE: use "in" rather than "??" — null is the deliberate "at cap" value
+  // a caller passes, and "??" would treat that null the same as "not passed".
+  const reservedCount = "reservedCount" in opts ? opts.reservedCount : 1;
 
   // deno-lint-ignore no-explicit-any
   function makeQueryBuilder(table: string): any {
@@ -30,6 +35,7 @@ function createMockServiceClient() {
     };
   }
 
+  const rpcCalls: { fn: string; args: unknown }[] = [];
   const client = {
     from: (table: string) => makeQueryBuilder(table),
     storage: {
@@ -38,9 +44,16 @@ function createMockServiceClient() {
           Promise.resolve({ data: { signedUrl: `https://signed.example/${path}` }, error: null }),
       }),
     },
+    rpc: (fn: string, args: unknown) => {
+      rpcCalls.push({ fn, args });
+      if (fn === "reserve_hvr_evaluation_slot") {
+        return Promise.resolve({ data: reservedCount, error: null });
+      }
+      return Promise.resolve({ data: null, error: null });
+    },
   };
 
-  return { client: client as unknown as SupabaseClient, inserted, updates };
+  return { client: client as unknown as SupabaseClient, inserted, updates, rpcCalls };
 }
 
 function mockFetch(geminiResponseText: string, geminiOk = true) {
@@ -106,7 +119,7 @@ function baseParams(serviceClient: SupabaseClient): Parameters<typeof processVer
 
 Deno.test("processVerification: persists the verdict and marks the verification completed via service_role only", async () => {
   Deno.env.set("GEMINI_API_KEY", "test-key");
-  const { client, inserted, updates } = createMockServiceClient();
+  const { client, inserted, updates, rpcCalls } = createMockServiceClient();
   const { restore } = mockFetch(JSON.stringify(VALID_VERDICT));
 
   try {
@@ -125,6 +138,16 @@ Deno.test("processVerification: persists the verdict and marks the verification 
     );
     assertEquals(updates["diamond_verifications"]?.length, 1);
     assertEquals((updates["diamond_verifications"] as Array<{ status: string }>)[0].status, "completed");
+
+    // Reserves an evaluation slot atomically up front (before any AI work),
+    // and does NOT release it on a successful run.
+    assertEquals(rpcCalls.length, 1);
+    assertEquals(rpcCalls[0].fn, "reserve_hvr_evaluation_slot");
+    assertEquals(
+      (rpcCalls[0].args as { p_verification_id: string; p_max: number }).p_verification_id,
+      "verification-1",
+    );
+    assertEquals((rpcCalls[0].args as { p_max: number }).p_max, 3);
   } finally {
     restore();
   }
@@ -150,15 +173,35 @@ Deno.test("processVerification: still produces a verdict when no verification ph
   }
 });
 
-Deno.test("processVerification: returns 502 (not a crash) when Gemini errors, and writes no verdict", async () => {
+Deno.test("processVerification: returns 502 (not a crash) when Gemini errors, writes no verdict, and releases the reserved slot", async () => {
   Deno.env.set("GEMINI_API_KEY", "test-key");
-  const { client, inserted } = createMockServiceClient();
+  const { client, inserted, rpcCalls } = createMockServiceClient();
   const { restore } = mockFetch(JSON.stringify({ error: { message: "rate limited" } }), false);
 
   try {
     const response = await processVerification(baseParams(client));
     assertEquals(response.status, 502);
     assertEquals(inserted["diamond_verification_verdicts"], undefined);
+    // A failed Gemini call must not permanently cost the user one of their 3
+    // evaluations — the slot reserved up front is given back.
+    assertEquals(rpcCalls.map((c) => c.fn), ["reserve_hvr_evaluation_slot", "release_hvr_evaluation_slot"]);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("processVerification: rejects with 429 when the purchase is already at its evaluation cap", async () => {
+  Deno.env.set("GEMINI_API_KEY", "test-key");
+  const { client, rpcCalls } = createMockServiceClient({ reservedCount: null });
+  const { restore } = mockFetch(JSON.stringify(VALID_VERDICT));
+
+  try {
+    const response = await processVerification(baseParams(client));
+    const body = await response.json();
+    assertEquals(response.status, 429);
+    assertEquals(typeof body.error, "string");
+    // Never calls Gemini at all once the atomic reservation says "no slot".
+    assertEquals(rpcCalls.map((c) => c.fn), ["reserve_hvr_evaluation_slot"]);
   } finally {
     restore();
   }

@@ -24,9 +24,17 @@ function baseInput(overrides: Partial<ProviderInput> = {}): ProviderInput {
   };
 }
 
-Deno.test("buildIdentificationPrompt: defaults to English with no Somali instruction", () => {
+Deno.test("buildIdentificationPrompt: defaults to English with an explicit, forceful instruction", () => {
   const prompt = buildIdentificationPrompt(baseInput({ lang: "en" }));
-  assertStringIncludes(prompt, "Write all narrative/explanation text in clear English.");
+  assertStringIncludes(prompt, "in clear, natural ENGLISH");
+  // The English instruction is deliberately just as explicit/forceful as the
+  // Somali one below (naming every field, an explicit "Do NOT" counter-
+  // instruction) — a short generic "write in English" sentence was found to
+  // be followed less reliably by the model than the longer Somali branch,
+  // especially when the location hint points to a Somali-speaking region.
+  assertStringIncludes(prompt, "Do NOT write these fields in Somali or any other language");
+  assertStringIncludes(prompt, "reasoning");
+  assertStringIncludes(prompt, "simpleExplanation");
 });
 
 Deno.test("buildIdentificationPrompt: instructs Somali narrative text when lang is 'so'", () => {
