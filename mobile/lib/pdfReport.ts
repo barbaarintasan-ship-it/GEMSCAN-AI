@@ -10,6 +10,12 @@
 // Images are embedded as base64 data URIs (not left as remote signed URLs) so
 // the specimen photo always renders in the exported PDF, even offline or after
 // the signed URL expires mid-render.
+//
+// VISUAL DESIGN NOTE (laboratory-report redesign): only buildReportHtml's
+// markup/CSS changed here — `PdfReportData` and every field it reads are
+// unchanged, and generateAndSharePdf's download/share/print behavior is
+// unchanged. This file has zero knowledge of scans/subscriptions/credits/AI
+// providers; it only ever renders whatever data.ts already hands it.
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
@@ -53,15 +59,24 @@ export type PdfReportData = {
 
 type Lang = "en" | "so";
 
+// Status/band colors — used for the confidence badge, the confidence bar
+// fill, and any other colored status indicator in the report.
 const BAND_COLOR: Record<string, string> = {
-  high: "#2E7D32",
-  medium: "#C9A227",
-  low: "#8A8A8E",
+  high: "#1E7A46",
+  medium: "#B8860B",
+  low: "#8A8F98",
+};
+const BAND_BG: Record<string, string> = {
+  high: "#E6F4EC",
+  medium: "#FBF1DC",
+  low: "#EFE9D8",
 };
 
-// Labeled technical fields for the Expert report table, in display order —
-// mirrors app/(app)/scan/results.tsx's EXPERT_FIELD_ORDER.
-const EXPERT_FIELDS: { key: keyof ExpertExplanationDTO; en: string; so: string }[] = [
+// Grouped expert fields for the laboratory-style sections below — this is a
+// PRESENTATION regrouping only. Every key here is the exact same
+// ExpertExplanationDTO field the old flat "Gemological Analysis" table read;
+// none are new, none are dropped, none are computed differently.
+const PHYSICAL_FIELDS: { key: keyof ExpertExplanationDTO; en: string; so: string }[] = [
   { key: "mineralSpecies", en: "Mineral species", so: "Nooca macdanta" },
   { key: "variety", en: "Variety", so: "Nooca gaarka ah" },
   { key: "crystalSystem", en: "Crystal system", so: "Nidaamka kiristaalka" },
@@ -73,16 +88,21 @@ const EXPERT_FIELDS: { key: keyof ExpertExplanationDTO; en: string; so: string }
   { key: "fracture", en: "Fracture", so: "Jabka" },
   { key: "luster", en: "Luster", so: "Dhalaalka" },
   { key: "transparency", en: "Transparency", so: "Dhaafsanaanta" },
+];
+const ANALYSIS_FIELDS: { key: keyof ExpertExplanationDTO; en: string; so: string }[] = [
   { key: "diagnosticCharacteristics", en: "Diagnostic characteristics", so: "Astaamaha lagu aqoonsado" },
   { key: "geologicalOrigin", en: "Geological origin", so: "Asalka juqraafiga" },
   { key: "commonTreatments", en: "Common treatments", so: "Daaweynta caadiga ah" },
   { key: "syntheticIndicators", en: "Synthetic indicators", so: "Calaamadaha macmalka ah" },
   { key: "commonImitations", en: "Common imitations", so: "Ku-daydka caadiga ah" },
-  { key: "confidenceReasoning", en: "Confidence reasoning", so: "Sababta kalsoonida" },
-  { key: "recommendedLabTests", en: "Recommended lab tests", so: "Baaritaannada shaybaarka la talinayo" },
+];
+const MARKET_FIELDS: { key: keyof ExpertExplanationDTO; en: string; so: string }[] = [
   { key: "marketDemand", en: "Market demand", so: "Baahida suuqa" },
   { key: "wholesaleEstimate", en: "Wholesale estimate", so: "Qiyaasta jumlada" },
   { key: "retailEstimate", en: "Retail estimate", so: "Qiyaasta tafaariiqda" },
+];
+const RECOMMENDATION_FIELDS: { key: keyof ExpertExplanationDTO; en: string; so: string }[] = [
+  { key: "confidenceReasoning", en: "Confidence reasoning", so: "Sababta kalsoonida" },
   { key: "investmentConsiderations", en: "Investment considerations", so: "Tixgelinta maalgashiga" },
 ];
 
@@ -133,38 +153,186 @@ function money(n: number): string {
   return `USD ${Math.round(n).toLocaleString("en-US")}`;
 }
 
+// Renders a `{ key, en, so }` field group as a kv table, skipping any field
+// the data doesn't have — never fabricates a value. Returns "" if nothing in
+// the group is present, so callers can skip the whole section.
+function fieldGroupRows(
+  fields: { key: keyof ExpertExplanationDTO; en: string; so: string }[],
+  expert: ExpertExplanationDTO,
+  t: (en: string, so: string) => string,
+): string {
+  return fields
+    .filter(({ key }) => expert[key])
+    .map(({ key, en, so }) => `<tr><th>${t(en, so)}</th><td>${esc(expert[key])}</td></tr>`)
+    .join("");
+}
+
+// Small decorative gem mark for the masthead — an inline SVG rather than an
+// emoji so it renders consistently (color, weight) across the different
+// print engines each platform's share sheet ultimately uses.
+const GEM_MARK_SVG = `<svg width="34" height="34" viewBox="0 0 34 34" xmlns="http://www.w3.org/2000/svg">
+  <polygon points="17,1 30,11 17,33 4,11" fill="#1B2A4A"/>
+  <polygon points="17,1 30,11 17,15 4,11" fill="#8C99AE"/>
+  <polygon points="4,11 17,15 17,33" fill="#2C4270"/>
+  <polygon points="30,11 17,15 17,33" fill="#1B2A4A"/>
+  <polygon points="10,6 24,6 30,11 4,11" fill="#C7CCD1"/>
+</svg>`;
+
+// Decorative QR-shaped placeholder (NOT a real, scannable code — there is no
+// verification URL/service behind it yet). Deliberately labeled as such in
+// the markup so nobody mistakes it for a working verification link.
+const QR_PLACEHOLDER_SVG = `<svg width="60" height="60" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+  <rect width="60" height="60" fill="#FFFFFF"/>
+  <rect x="2" y="2" width="16" height="16" fill="none" stroke="#1B2A4A" stroke-width="3"/>
+  <rect x="7" y="7" width="6" height="6" fill="#1B2A4A"/>
+  <rect x="42" y="2" width="16" height="16" fill="none" stroke="#1B2A4A" stroke-width="3"/>
+  <rect x="47" y="7" width="6" height="6" fill="#1B2A4A"/>
+  <rect x="2" y="42" width="16" height="16" fill="none" stroke="#1B2A4A" stroke-width="3"/>
+  <rect x="7" y="47" width="6" height="6" fill="#1B2A4A"/>
+  <rect x="24" y="2" width="4" height="4" fill="#1B2A4A"/>
+  <rect x="32" y="6" width="4" height="4" fill="#1B2A4A"/>
+  <rect x="24" y="24" width="4" height="4" fill="#1B2A4A"/>
+  <rect x="32" y="24" width="4" height="4" fill="#1B2A4A"/>
+  <rect x="24" y="32" width="4" height="4" fill="#1B2A4A"/>
+  <rect x="40" y="32" width="4" height="4" fill="#1B2A4A"/>
+  <rect x="48" y="40" width="4" height="4" fill="#1B2A4A"/>
+  <rect x="24" y="48" width="4" height="4" fill="#1B2A4A"/>
+  <rect x="32" y="48" width="4" height="4" fill="#1B2A4A"/>
+  <rect x="40" y="48" width="4" height="4" fill="#1B2A4A"/>
+</svg>`;
+
 // ── HTML builder (pure) ──────────────────────────────────────────────────
 // `data.images` are expected to already be data: URIs here.
 export function buildReportHtml(data: PdfReportData, lang: Lang): string {
   const t = (en: string, so: string) => (lang === "so" ? so : en);
   const band = data.confidenceBand;
-  const bandColor = BAND_COLOR[band] ?? "#8A8A8E";
+  const bandColor = BAND_COLOR[band] ?? BAND_COLOR.low;
+  const bandBg = BAND_BG[band] ?? BAND_BG.low;
   const bandWord =
     lang === "so"
       ? { high: "SARE", medium: "DHEXE", low: "HOOSE" }[band]
-      : band.toUpperCase();
+      : { high: "HIGH", medium: "MEDIUM", low: "LOW" }[band];
+  const confidencePct = Math.max(0, Math.min(100, Math.round(data.confidencePct)));
 
-  const when = data.createdAt ? new Date(data.createdAt) : null;
-  const whenStr = when ? when.toLocaleString(lang === "so" ? "so-SO" : "en-GB") : "";
-  const reportId = (data.scanId ?? "").slice(0, 8).toUpperCase();
+  const issued = data.createdAt ? new Date(data.createdAt) : null;
+  const issuedStr = issued ? issued.toLocaleDateString(lang === "so" ? "so-SO" : "en-GB") : "—";
+  const verifiedStr = new Date().toLocaleDateString(lang === "so" ? "so-SO" : "en-GB");
+  const reportId = (data.scanId ?? "").slice(0, 8).toUpperCase() || "N/A";
+  const languageLabel = lang === "so" ? "Soomaali" : "English";
 
-  // Images
+  // ── Specimen photo(s) — larger, framed, moved below the report-identity
+  // block (see layout order at the bottom of this function).
   const imgs = (data.images ?? []).filter((i) => i.uri && i.uri.startsWith("data:"));
-  const imagesHtml = imgs.length
-    ? `<div class="images">${imgs
-        .map(
-          (im) =>
-            `<figure><img src="${im.uri}" alt="specimen"/>${
-              im.caption ? `<figcaption>${esc(im.caption)}</figcaption>` : ""
-            }</figure>`,
-        )
-        .join("")}</div>`
+  const photoHtml = imgs.length
+    ? `<section class="block photo-block">
+         <div class="section-head"><span class="section-icon">📷</span><h2>${t("Specimen Photograph", "Sawirka Shayga")}</h2></div>
+         <div class="photo-frame ${imgs.length === 1 ? "photo-frame--single" : ""}">
+           ${imgs
+             .map(
+               (im) =>
+                 `<figure><img src="${im.uri}" alt="specimen"/>${
+                   im.caption ? `<figcaption>${esc(im.caption)}</figcaption>` : ""
+                 }</figure>`,
+             )
+             .join("")}
+         </div>
+       </section>`
     : "";
 
-  // Alternatives
+  // ── Primary Identification + Confidence ──────────────────────────────
+  const primaryIdHtml = `
+    <section class="block">
+      <div class="section-head"><span class="section-icon">🔎</span><h2>${t("Primary Identification", "Aqoonsiga Ugu Horreeya")}</h2></div>
+      <div class="id-card">
+        <div class="id-label">${t("Best Match", "Aqoonsiga ugu fiican")}</div>
+        <h1 class="id-title">${esc(data.bestMatch)}</h1>
+        <span class="badge" style="background:${bandBg};color:${bandColor};border-color:${bandColor}">
+          ${bandWord} ${t("CONFIDENCE", "KALSOONI")}
+        </span>
+      </div>
+    </section>
+    <section class="block">
+      <div class="section-head"><span class="section-icon">📊</span><h2>${t("Confidence", "Kalsooni")}</h2></div>
+      <div class="conf-row">
+        <div class="conf-bar-track"><div class="conf-bar-fill" style="width:${confidencePct}%;background:${bandColor}"></div></div>
+        <div class="conf-pct" style="color:${bandColor}">${confidencePct}%</div>
+      </div>
+    </section>`;
+
+  // ── Executive Summary — synthesized ONLY from fields already in `data`
+  // (bestMatch/band/confidencePct), never new AI-generated text.
+  const executiveSummaryHtml = `
+    <section class="block">
+      <div class="section-head"><span class="section-icon">📋</span><h2>${t("Executive Summary", "Soo Koobid Guud")}</h2></div>
+      <p class="exec-summary">
+        ${t(
+          `This specimen was identified as <strong>${esc(data.bestMatch)}</strong> with ${bandWord.toLowerCase()} confidence (${confidencePct}%), based on advanced photographic analysis.`,
+          `Shayga waxaa loo aqoonsaday <strong>${esc(data.bestMatch)}</strong> oo leh kalsooni ${bandWord.toLowerCase()} ah (${confidencePct}%), oo ku salaysan falanqaynta sawirrada ee horumarsan.`,
+        )}
+      </p>
+    </section>`;
+
+  // ── Physical Characteristics / AI Expert Analysis / Recommended Next
+  // Tests / Professional Recommendations — all read from the SAME
+  // expertExplanation object the old flat table used; just regrouped.
+  const wantExpert = data.explanationStyle === "expert";
+  const expert = data.expertExplanation ?? null;
+
+  let physicalHtml = "";
+  let analysisHtml = "";
+  let nextTestsHtml = "";
+  let recommendationsHtml = "";
+
+  if (expert) {
+    const physicalRows = fieldGroupRows(PHYSICAL_FIELDS, expert, t);
+    if (physicalRows) {
+      physicalHtml = `<section class="block">
+          <div class="section-head"><span class="section-icon">🔬</span><h2>${t("Physical Characteristics", "Sifooyinka Jireed")}</h2></div>
+          <table class="kv">${physicalRows}</table>
+        </section>`;
+    }
+
+    const analysisRows = fieldGroupRows(ANALYSIS_FIELDS, expert, t);
+    // Simple-mode reports show simpleExplanation as free text here instead of
+    // the structured expert breakdown, matching the old fallback behavior.
+    if (analysisRows || (!wantExpert && data.simpleExplanation)) {
+      analysisHtml = `<section class="block">
+          <div class="section-head"><span class="section-icon">🧪</span><h2>${t("Expert Analysis", "Falanqaynta Khibradda")}</h2></div>
+          ${!wantExpert && data.simpleExplanation ? `<p class="body-text">${esc(data.simpleExplanation)}</p>` : ""}
+          ${analysisRows ? `<table class="kv">${analysisRows}</table>` : ""}
+        </section>`;
+    }
+
+    if (expert.recommendedLabTests) {
+      nextTestsHtml = `<section class="block">
+          <div class="section-head"><span class="section-icon">🧫</span><h2>${t("Recommended Next Tests", "Baaritaannada Xiga ee la Talinayo")}</h2></div>
+          <p class="body-text">${esc(expert.recommendedLabTests)}</p>
+        </section>`;
+    }
+
+    const recRows = fieldGroupRows(RECOMMENDATION_FIELDS, expert, t);
+    if (recRows) {
+      recommendationsHtml = `<section class="block">
+          <div class="section-head"><span class="section-icon">✅</span><h2>${t("Professional Recommendations", "Talooyinka Xirfadeed")}</h2></div>
+          <table class="kv">${recRows}</table>
+        </section>`;
+    }
+  } else if (data.simpleExplanation) {
+    analysisHtml = `<section class="block">
+        <div class="section-head"><span class="section-icon">🧪</span><h2>${t("Expert Analysis", "Falanqaynta Khibradda")}</h2></div>
+        <p class="body-text">${esc(data.simpleExplanation)}</p>
+       </section>`;
+  } else if (data.reasoning) {
+    analysisHtml = `<section class="block">
+         <div class="section-head"><span class="section-icon">🧪</span><h2>${t("Expert Analysis", "Falanqaynta Khibradda")}</h2></div>
+         <p class="body-text">${esc(data.reasoning)}</p>
+       </section>`;
+  }
+
+  // ── Alternative Identifications ──────────────────────────────────────
   const altsHtml = data.alternatives.length
     ? `<section class="block">
-         <h2>${t("Alternative Matches", "Ikhtiyaarro Kale")}</h2>
+         <div class="section-head"><span class="section-icon">🔁</span><h2>${t("Alternative Identifications", "Aqoonsiyo Kale oo Suurtagal ah")}</h2></div>
          <table class="alts">
            <thead><tr>
              <th>#</th>
@@ -185,9 +353,11 @@ export function buildReportHtml(data: PdfReportData, lang: Lang): string {
        </section>`
     : "";
 
-  // Market value
+  // ── Estimated Market Value (numeric valuation + any qualitative market
+  // fields the expert breakdown has) ───────────────────────────────────
   let valueHtml = "";
   const v = data.valuation;
+  const marketRows = expert ? fieldGroupRows(MARKET_FIELDS, expert, t) : "";
   if (v && !v.lowConfidence && (v.minUsd != null || v.typicalUsd != null)) {
     const rangeLine =
       v.minUsd != null && v.premiumUsd != null
@@ -200,11 +370,12 @@ export function buildReportHtml(data: PdfReportData, lang: Lang): string {
         ? `<div class="value-sub">${t("Typical value", "Qiimaha caadiga")}: ~ ${money(v.typicalUsd)}</div>`
         : "";
     valueHtml = `<section class="block">
-        <h2>${t("Estimated Market Value", "Qiimaha Suuqa (Qiyaas)")}</h2>
+        <div class="section-head"><span class="section-icon">💰</span><h2>${t("Estimated Market Value", "Qiimaha Suuqa (Qiyaas)")}</h2></div>
         <div class="value-card">
           ${rangeLine}
           ${typicalLine}
           ${v.note ? `<div class="value-note">${esc(v.note)}</div>` : ""}
+          ${marketRows ? `<table class="kv value-kv">${marketRows}</table>` : ""}
           <div class="estimate-tag">${t(
             "ESTIMATE ONLY — based on photographs, not an official appraisal",
             "QIYAAS KALIYA — ku saleysan sawirro, maaha qiimayn rasmi ah",
@@ -213,21 +384,22 @@ export function buildReportHtml(data: PdfReportData, lang: Lang): string {
       </section>`;
   } else {
     valueHtml = `<section class="block">
-        <h2>${t("Estimated Market Value", "Qiimaha Suuqa (Qiyaas)")}</h2>
+        <div class="section-head"><span class="section-icon">💰</span><h2>${t("Estimated Market Value", "Qiimaha Suuqa (Qiyaas)")}</h2></div>
         <p class="muted">${t(
           "More photographs or laboratory testing are required for an accurate valuation.",
           "Sawirro dheeraad ah ama baaritaan shaybaar ayaa loo baahan yahay qiimayn sax ah.",
         )}</p>
+        ${marketRows ? `<table class="kv">${marketRows}</table>` : ""}
       </section>`;
   }
 
-  // Hallmark (only if detected)
+  // ── Hallmark (only if detected) ──────────────────────────────────────
   let hallmarkHtml = "";
   const h = data.hallmark;
   const hasHallmark = h && ((h.marks && h.marks.length) || h.matchedLabel);
   if (hasHallmark) {
     hallmarkHtml = `<section class="block">
-        <h2>${t("Hallmark Information", "Macluumaadka Hallmark-ka")}</h2>
+        <div class="section-head"><span class="section-icon">🏷️</span><h2>${t("Hallmark Information", "Macluumaadka Hallmark-ka")}</h2></div>
         <table class="kv">
           ${
             h!.marks && h!.marks.length
@@ -248,157 +420,181 @@ export function buildReportHtml(data: PdfReportData, lang: Lang): string {
       </section>`;
   }
 
-  // AI analysis / notes — Dual Explanation Modes: render whichever style was
-  // requested, falling back to the other if it's the only one available, and
-  // finally to the legacy free-text `reasoning` for pre-feature scans.
-  const wantExpert = data.explanationStyle === "expert";
-  let notesHtml = "";
-  if (wantExpert && data.expertExplanation) {
-    const rows = EXPERT_FIELDS.filter(({ key }) => data.expertExplanation![key])
-      .map(({ key, en, so }) => `<tr><th>${t(en, so)}</th><td>${esc(data.expertExplanation![key])}</td></tr>`)
-      .join("");
-    notesHtml = `<section class="block">
-        <h2>${t("Gemological Analysis", "Falanqaynta Dhagaxa")}</h2>
-        <table class="kv">${rows}</table>
-      </section>`;
-  } else if (data.simpleExplanation) {
-    notesHtml = `<section class="block">
-        <h2>${t("AI Analysis & Notes", "Falanqaynta AI & Fiirooyin")}</h2>
-        <p>${esc(data.simpleExplanation)}</p>
-       </section>`;
-  } else if (data.expertExplanation) {
-    const rows = EXPERT_FIELDS.filter(({ key }) => data.expertExplanation![key])
-      .map(({ key, en, so }) => `<tr><th>${t(en, so)}</th><td>${esc(data.expertExplanation![key])}</td></tr>`)
-      .join("");
-    notesHtml = `<section class="block">
-        <h2>${t("Gemological Analysis", "Falanqaynta Dhagaxa")}</h2>
-        <table class="kv">${rows}</table>
-      </section>`;
-  } else if (data.reasoning) {
-    notesHtml = `<section class="block">
-         <h2>${t("AI Analysis & Notes", "Falanqaynta AI & Fiirooyin")}</h2>
-         <p>${esc(data.reasoning)}</p>
-       </section>`;
-  }
-
   return `<!DOCTYPE html>
 <html lang="${lang}">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>GemScan ${t("Identification Report", "Warbixinta Aqoonsiga")}</title>
+<title>GemScan Lab ${t("Identification Report", "Warbixinta Aqoonsiga")}</title>
 <style>
-  @page { size: A4; margin: 16mm 14mm; }
+  @page { size: A4; margin: 18mm 16mm 26mm 16mm; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
     font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    color: #1c1c1e; font-size: 12.5px; line-height: 1.55; background: #fff;
+    color: #1B2430; font-size: 12.5px; line-height: 1.6; background: #FAF8F2;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
-  .doc { max-width: 800px; margin: 0 auto; padding: 8px; }
+  .doc { max-width: 800px; margin: 0 auto; padding: 4px; }
 
+  /* ── Masthead — report identity, first thing on the page ─────────── */
   header.masthead {
     display: flex; justify-content: space-between; align-items: flex-start;
-    border-bottom: 3px solid #C9A227; padding-bottom: 12px; margin-bottom: 18px;
+    background: #0F1E3A; color: #fff; border-radius: 14px;
+    padding: 22px 26px; margin-bottom: 20px;
   }
-  .brand { font-size: 22px; font-weight: 800; color: #0B0B0C; }
-  .brand .gem { color: #C9A227; }
-  .brand-sub { font-size: 11px; color: #6b571a; letter-spacing: .4px; text-transform: uppercase; margin-top: 2px; }
-  .meta { text-align: right; font-size: 11px; color: #666; line-height: 1.7; }
-  .meta b { color: #1c1c1e; }
+  .brand-row { display: flex; align-items: center; gap: 12px; }
+  .brand-mark { flex: none; width: 40px; height: 40px; }
+  .brand-mark svg { width: 100%; height: 100%; }
+  .brand-text .brand-name { font-size: 21px; font-weight: 800; letter-spacing: .3px; }
+  .brand-text .brand-company { font-size: 10.5px; color: #C7CCD1; letter-spacing: .6px; text-transform: uppercase; margin-top: 2px; }
+  .brand-text .brand-tagline { font-size: 11px; color: #9AA5B8; margin-top: 6px; }
 
-  .hero { margin: 4px 0 16px; }
-  .hero .id-label { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: #8A8A8E; }
-  .hero h1 { font-size: 26px; margin: 2px 0 8px; color: #0B0B0C; }
-  .band {
-    display: inline-block; color: #fff; font-weight: 800; font-size: 11px;
-    padding: 5px 12px; border-radius: 999px; letter-spacing: .4px;
-  }
+  .id-meta { text-align: right; display: flex; align-items: flex-start; gap: 14px; }
+  .id-meta-list { font-size: 10.5px; color: #C7CCD1; line-height: 1.9; }
+  .id-meta-list b { color: #fff; }
+  .qr-box { flex: none; text-align: center; }
+  .qr-box .qr-caption { font-size: 8px; color: #8C99AE; margin-top: 4px; max-width: 62px; }
 
-  .images { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 4px; }
-  .images figure { margin: 0; width: calc(50% - 5px); }
-  .images img {
-    width: 100%; height: 220px; object-fit: cover; border-radius: 10px;
-    border: 1px solid #e5e0d2; background: #f3f0e8;
-  }
-  .images figcaption { font-size: 10px; color: #888; margin-top: 3px; text-align: center; }
-  .images figure:only-child img { height: 300px; }
-
-  section.block { margin: 16px 0; page-break-inside: avoid; }
+  section.block { margin: 0 0 18px; page-break-inside: avoid; }
+  .section-head { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #E1D9C4; padding-bottom: 6px; margin-bottom: 10px; }
+  .section-icon { font-size: 14px; line-height: 1; }
   section.block h2 {
-    font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: #6b571a;
-    border-bottom: 1px solid #eadfc4; padding-bottom: 5px; margin: 0 0 8px;
+    font-size: 12.5px; text-transform: uppercase; letter-spacing: .6px; color: #4A5568;
+    margin: 0; font-weight: 700;
   }
-  section.block p { margin: 0; }
-  .muted { color: #888; }
+  .body-text { margin: 0 0 8px; color: #333; }
+  .muted { color: #8A8F98; }
 
+  /* ── Executive Summary ────────────────────────────────────────────── */
+  .exec-summary { background: #F1ECDF; border-left: 3px solid #1B2A4A; border-radius: 8px; padding: 14px 16px; margin: 0; color: #222; }
+
+  /* ── Photo (moved lower, larger, framed) ──────────────────────────── */
+  .photo-frame { display: flex; flex-wrap: wrap; gap: 12px; }
+  .photo-frame figure {
+    margin: 0; width: calc(50% - 6px); background: #F1ECDF; border: 1px solid #E1D9C4;
+    border-radius: 12px; padding: 8px;
+  }
+  .photo-frame--single figure { width: 100%; }
+  .photo-frame img { width: 100%; height: 320px; object-fit: cover; border-radius: 8px; display: block; }
+  .photo-frame--single img { height: 380px; }
+  .photo-frame figcaption { font-size: 10px; color: #8A8F98; margin-top: 6px; text-align: center; }
+
+  /* ── Primary Identification ───────────────────────────────────────── */
+  .id-card { background: #F1ECDF; border-radius: 10px; padding: 16px 18px; }
+  .id-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: #8A8F98; }
+  .id-title { font-size: 25px; margin: 3px 0 10px; color: #0F1E3A; }
+  .badge {
+    display: inline-block; font-weight: 800; font-size: 10.5px;
+    padding: 5px 13px; border-radius: 999px; letter-spacing: .4px; border: 1px solid;
+  }
+
+  /* ── Confidence bar ────────────────────────────────────────────────── */
+  .conf-row { display: flex; align-items: center; gap: 12px; }
+  .conf-bar-track { flex: 1; height: 10px; background: #E7E0CF; border-radius: 999px; overflow: hidden; }
+  .conf-bar-fill { height: 100%; border-radius: 999px; }
+  .conf-pct { font-size: 15px; font-weight: 800; width: 48px; text-align: right; }
+
+  /* ── Tables ────────────────────────────────────────────────────────── */
   table { width: 100%; border-collapse: collapse; }
-  table.alts th, table.alts td { text-align: left; padding: 7px 8px; border-bottom: 1px solid #eee; font-size: 12px; }
-  table.alts thead th { color: #8A8A8E; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; border-bottom: 1px solid #e5e0d2; }
-  table.alts .num { text-align: right; font-weight: 700; color: #6b571a; }
-  table.kv th { text-align: left; width: 38%; vertical-align: top; padding: 6px 8px; color: #666; font-weight: 600; }
-  table.kv td { padding: 6px 8px; }
-  .chip { display: inline-block; background: #f6f1e3; border: 1px solid #d8ca9c; color: #6b571a;
+  table.alts th, table.alts td { text-align: left; padding: 7px 8px; border-bottom: 1px solid #EFE9D8; font-size: 12px; }
+  table.alts thead th { color: #8A8F98; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; border-bottom: 1px solid #E1D9C4; }
+  table.alts .num { text-align: right; font-weight: 700; color: #1B2A4A; }
+  table.kv th { text-align: left; width: 38%; vertical-align: top; padding: 6px 8px; color: #666; font-weight: 600; font-size: 11.5px; }
+  table.kv td { padding: 6px 8px; font-size: 12px; }
+  table.value-kv { margin-top: 10px; }
+  .chip { display: inline-block; background: #EFE9D8; border: 1px solid #C7CCD1; color: #1B2A4A;
           border-radius: 6px; padding: 2px 8px; font-weight: 700; font-family: monospace; }
 
-  .value-card { background: #fbfaf6; border: 1px solid #eadfc4; border-radius: 12px; padding: 14px; }
-  .value-figure { font-size: 22px; font-weight: 800; color: #9a7d1f; }
+  /* ── Market value ──────────────────────────────────────────────────── */
+  .value-card { background: #F1ECDF; border: 1px solid #E1D9C4; border-radius: 12px; padding: 16px; }
+  .value-figure { font-size: 23px; font-weight: 800; color: #0F1E3A; }
   .value-sub { font-size: 12.5px; color: #444; margin-top: 2px; }
   .value-note { font-size: 12px; color: #555; margin-top: 6px; }
   .estimate-tag {
-    display: inline-block; margin-top: 10px; background: #fff3d6; color: #7a5c00;
-    border: 1px solid #e6cf85; border-radius: 6px; padding: 4px 10px; font-size: 10.5px; font-weight: 700;
+    display: inline-block; margin-top: 10px; background: #FBF1DC; color: #7A5C00;
+    border: 1px solid #E6CF85; border-radius: 6px; padding: 4px 10px; font-size: 10.5px; font-weight: 700;
   }
 
-  footer.disclaimer {
-    margin-top: 24px; border-top: 1px solid #e5e0d2; padding-top: 12px;
-    font-size: 10.5px; color: #8a8a8e; line-height: 1.6;
+  /* ── Footer (repeats on every printed page via position:fixed — the
+       underlying print engines here don't support CSS Paged Media page-
+       counter boxes, so "Page X of Y" numbering isn't included; see the
+       written summary). ───────────────────────────────────────────────── */
+  footer.doc-footer {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    border-top: 1px solid #E1D9C4; padding: 10px 16px 0;
+    font-size: 9.5px; color: #8A8F98; display: flex; justify-content: space-between;
   }
-  footer.disclaimer strong { color: #6b571a; }
+  footer.doc-footer .f-left b { color: #1B2A4A; }
+  footer.doc-footer .f-right { text-align: right; }
+
+  .disclaimer-block {
+    margin-top: 20px; border-top: 1px solid #E1D9C4; padding-top: 12px;
+    font-size: 10.5px; color: #6b7280; line-height: 1.7;
+  }
+  .disclaimer-block strong { color: #1B2A4A; }
 </style>
 </head>
 <body>
   <div class="doc">
     <header class="masthead">
-      <div>
-        <div class="brand"><span class="gem">💎 Gem</span>Scan</div>
-        <div class="brand-sub">${t("Identification Report", "Warbixinta Aqoonsiga")}</div>
+      <div class="brand-row">
+        <div class="brand-mark">${GEM_MARK_SVG}</div>
+        <div class="brand-text">
+          <div class="brand-name">GemScan Lab Company</div>
+          <div class="brand-company">${t("Professional Gem Identification Report", "Warbixin Aqoonsi Dhagxaan oo Khibrad leh")}</div>
+        </div>
       </div>
-      <div class="meta">
-        ${reportId ? `<div>${t("Report", "Warbixin")} #<b>${esc(reportId)}</b></div>` : ""}
-        ${whenStr ? `<div>${t("Scanned", "La baaray")}: <b>${esc(whenStr)}</b></div>` : ""}
-        <div>${t("Generated", "La sameeyay")}: <b>${esc(
-          new Date().toLocaleString(lang === "so" ? "so-SO" : "en-GB"),
-        )}</b></div>
+      <div class="id-meta">
+        <div class="id-meta-list">
+          <div>${t("Report No.", "Lambarka Warbixinta")}: <b>${esc(reportId)}</b></div>
+          <div>${t("Issue Date", "Taariikhda Bixinta")}: <b>${esc(issuedStr)}</b></div>
+          <div>${t("Verification Date", "Taariikhda Xaqiijinta")}: <b>${esc(verifiedStr)}</b></div>
+          <div>${t("Language", "Luqadda")}: <b>${esc(languageLabel)}</b></div>
+        </div>
+        <div class="qr-box">
+          ${QR_PLACEHOLDER_SVG}
+          <div class="qr-caption">${t("Verification QR — coming soon", "QR Xaqiijin — dhawaan")}</div>
+        </div>
       </div>
     </header>
 
-    <div class="hero">
-      <div class="id-label">${t("Best Match", "Aqoonsiga ugu fiican")}</div>
-      <h1>${esc(data.bestMatch)}</h1>
-      <span class="band" style="background:${bandColor}">${bandWord} ${t(
-        "CONFIDENCE",
-        "KALSOONI",
-      )} · ${Math.round(data.confidencePct)}%</span>
-    </div>
+    ${executiveSummaryHtml}
 
-    ${imagesHtml}
+    ${photoHtml}
 
-    ${notesHtml}
+    ${primaryIdHtml}
+
+    ${physicalHtml}
 
     ${altsHtml}
+
+    ${analysisHtml}
 
     ${valueHtml}
 
     ${hallmarkHtml}
 
-    <footer class="disclaimer">
+    ${nextTestsHtml}
+
+    ${recommendationsHtml}
+
+    <div class="disclaimer-block">
       <strong>${t("Disclaimer", "Ogeysiis")}:</strong>
       ${t(
-        "This report is generated by GemScan's AI identification system from photographs provided by the user. It is NOT an official laboratory certificate and NOT a professional appraisal. Identifications and values shown are estimates and may be inaccurate. For high-value items, always seek a certified gemologist or accredited laboratory before buying, selling, insuring, or modifying the item.",
-        "Warbixintan waxaa soo saaray nidaamka aqoonsiga AI ee GemScan iyada oo lagu saleeyay sawirro uu bixiyay isticmaaluhu. MAAHA shahaado shaybaar rasmi ah, MAANA ahan qiimayn xirfadeed. Aqoonsiga iyo qiimayaasha la muujiyay waa qiyaas, wayna khaldami karaan. Waxyaabaha qiimaha weyn leh, mar walba la tasho khabiir dhagxaan oo shahaado leh ama shaybaar aqoonsan ka hor iibsashada, iibinta, caymiska, ama wax ka beddelka.",
+        "This report was generated by the GemScan Lab Company digital laboratory system, from photographs provided by the user. This report provides a professional laboratory-based assessment — it is NOT an official laboratory certificate and does not constitute absolute certainty. For legal certification, insurance, or commercial transactions, independent laboratory confirmation is recommended.",
+        "Warbixintan waxaa soo saaray nidaamka shaybaarka dhijitaalka ah ee GemScan Lab Company, iyada oo lagu saleeyay sawirro uu bixiyay isticmaaluhu. Warbixintani waxay bixisaa qiimayn shaybaar oo xirfadeed ah — MAAHA shahaado shaybaar rasmi ah, mana tilmaamayso hubaal buuxa. Waxyaabaha lagu sameynayo shahaadayn sharci, caymis, ama macaamil ganacsi, waxaa lagula talinayaa xaqiijin shaybaar madax-banaan.",
       )}
+    </div>
+
+    <footer class="doc-footer">
+      <div class="f-left">
+        <b>GemScan Lab Company</b> — ${t("Gem Identification Laboratory", "Shaybaar Aqoonsi Dhagxaan")}<br/>
+        gemscan.ai &nbsp;·&nbsp; support@gemscan.ai
+      </div>
+      <div class="f-right">
+        ${t("Report ID", "Aqoonsiga Warbixinta")}: ${esc(reportId)}
+      </div>
     </footer>
   </div>
 </body>

@@ -503,15 +503,23 @@ export default function ResultsScreen() {
 
       {/* ── Professional PDF Report (Pro / Gem Collector only) ───────────── */}
       {canPdf ? (
-        <Button
-          title={L("Download / Share PDF Report", "Soo deji / Wadaag Warbixin PDF")}
-          variant="outline"
-          icon={<Ionicons name="document-text-outline" size={18} color={colors.gold} />}
-          onPress={downloadPdf}
-          loading={pdfBusy}
-          style={styles.actionButton}
-          accessibilityLabel={L("Generate professional PDF report", "Samee warbixin PDF xirfadeed")}
-        />
+        <>
+          <Button
+            title={L("Download / Share PDF Report", "Soo deji / Wadaag Warbixin PDF")}
+            variant="outline"
+            icon={<Ionicons name="document-text-outline" size={18} color={colors.gold} />}
+            onPress={downloadPdf}
+            loading={pdfBusy}
+            style={styles.actionButton}
+            accessibilityLabel={L("Generate professional PDF report", "Samee warbixin PDF xirfadeed")}
+          />
+          <Text style={styles.disclaimer}>
+            {L(
+              "Tip: to download it, choose \"Save to Files\" (iOS) or \"Save\"/\"Download\" (Android) in the share menu that opens.",
+              "Tallo: si aad u soo dejiso, dooro \"Save to Files\" (iOS) ama \"Save\"/\"Download\" (Android) menu-ga wadaagida oo furma.",
+            )}
+          </Text>
+        </>
       ) : EXTERNAL_PURCHASES_ENABLED ? (
         // Locked for Free/Explorer (Android/web only — iOS hides the CTA per
         // App Store Guideline 3.1.1).

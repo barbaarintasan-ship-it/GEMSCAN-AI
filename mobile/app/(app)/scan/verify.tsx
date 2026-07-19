@@ -1,14 +1,20 @@
 // Advanced Diamond Verification wizard — a second, OPTIONAL stage offered
 // from results.tsx's "Possible High Value Stone Detected" card. Collects a
 // structured questionnaire (hardness, transparency, fire, sparkle, shape,
-// color, weight, magnet, fog, UV, loupe) plus a few extra photos, then makes
-// ONE additional AI call (verify-high-value) for a final expert verdict.
-// Never reruns or replaces the original scan.
+// color, weight, magnet, fog, UV, loupe) plus a few extra photos. The
+// questionnaire itself stays free; the final expert verdict (evidence score,
+// identification, supporting/conflicting evidence, PDF) is a $5 premium
+// report gated behind a paywall — see PaywallCard below. The single
+// additional AI call (verify-high-value) is DEFERRED until a payment webhook
+// marks the purchase 'paid' (supabase/functions/high-value-report-webhook);
+// this screen never calls it directly. Never reruns or replaces the
+// original scan.
 import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
   Pressable,
+  Linking,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
@@ -23,7 +29,9 @@ import {
   startVerification,
   saveVerificationProgress,
   uploadVerificationImage,
-  submitVerification,
+  markVerificationSubmitted,
+  startHighValueReportPurchase,
+  getHighValueReportPurchase,
   getVerificationVerdict,
   getLocalDraft,
   setLocalDraft,
@@ -32,7 +40,9 @@ import {
   type VerificationImagePaths,
   type VerificationImageLabel,
   type VerificationVerdict,
+  type HighValueReportPurchase,
 } from "../../../lib/diamondVerification";
+import { EXTERNAL_PURCHASES_ENABLED, buildHighValueReportPaymentUrl } from "../../../lib/appLinks";
 import { Card } from "../../../components/ui/Card";
 import { Button } from "../../../components/ui/Button";
 import { ConfidenceBadge } from "../../../components/ui/ConfidenceBadge";
@@ -67,46 +77,47 @@ const STEPS: StepDef[] = [
     kind: "choice",
     key: "scratchesGlass",
     titleEn: "Can the stone scratch glass?",
-    titleSo: "Dhagaxu ma jeexi karaa muraayadda?",
+    titleSo: "Dhagaxani ma xoqi karaa muraayadda?",
     options: YES_NO_NA,
   },
   {
     kind: "choice",
     key: "scratchesSteel",
     titleEn: "Can it scratch steel?",
-    titleSo: "Ma jeexi karaa bir?",
+    titleSo: "Dhagaxani ma xoqi karaa birta?",
     options: YES_NO_NA,
   },
   {
     kind: "choice",
     key: "scratchedByAnotherObject",
     titleEn: "Has another object scratched this stone?",
-    titleSo: "Shay kale miyuu jeexay dhagaxan?",
+    titleSo: "Shay kale ma xoqay dhagaxani?",
     options: YES_NO_NA,
   },
   {
     kind: "choice",
     key: "transparency",
     titleEn: "Transparency",
-    titleSo: "Dhaafsanaanta",
+    titleSo: "Hufnaanta",
     options: [
-      { value: "transparent", en: "Completely transparent", so: "Gebi ahaanba dhaafsan" },
-      { value: "slightly_cloudy", en: "Slightly cloudy", so: "Xoogaa daruuran" },
-      { value: "opaque", en: "Opaque", so: "Aan dhaafsanayn" },
+      { value: "transparent", en: "Completely transparent", so: "Gebi ahaanba hufan" },
+      { value: "slightly_cloudy", en: "Slightly cloudy", so: "Wax yar oo cawlan" },
+      { value: "opaque", en: "Opaque", so: "Aan hufnayn ama nadiif ahayn" },
     ],
   },
   {
     kind: "choice",
     key: "fire",
     titleEn: "Fire (Dispersion)",
-    titleSo: "Dabka (Kala-firdhinta)",
+    titleSo: "Kala-firdhinta Iftiinka",
     subtitleEn: "When exposed to sunlight or a flashlight, how strong are the rainbow flashes?",
-    subtitleSo: "Marka qorraxda ama toosh lagu ifiyo, sideed u xoog badan yihiin ifafaalaha qaanso-roobaadka?",
+    subtitleSo:
+      "Marka qorraxda ama toosh lagu ifiyo, sidee ayay u xoog badan yihiin midabbada qaanso-roobaadka ee ka muuqda dhagaxa gudihiisa?",
     options: [
       { value: "very_strong", en: "Very strong", so: "Aad u xoog badan" },
       { value: "moderate", en: "Moderate", so: "Dhexdhexaad" },
       { value: "weak", en: "Weak", so: "Daciif" },
-      { value: "none", en: "None", so: "Midna" },
+      { value: "none", en: "None", so: "Midna ama malaha" },
     ],
   },
   {
@@ -126,8 +137,8 @@ const STEPS: StepDef[] = [
     titleEn: "Shape",
     titleSo: "Qaabka",
     options: [
-      { value: "rough_crystal", en: "Rough crystal", so: "Kiristaal ceyriin ah" },
-      { value: "cut_gemstone", en: "Cut gemstone", so: "Dhagax la gooyay" },
+      { value: "rough_crystal", en: "Rough crystal", so: "Kiristaal dabiici ah" },
+      { value: "cut_gemstone", en: "Cut gemstone", so: "Dhagax la gooyay ama jabay" },
       { value: "cabochon", en: "Cabochon", so: "Cabochon" },
       { value: "unknown", en: "Unknown", so: "Lama oga" },
     ],
@@ -142,34 +153,39 @@ const STEPS: StepDef[] = [
       { value: "colorless", en: "Colorless/White", so: "Midab la'aan/Cad" },
       { value: "yellow", en: "Yellow", so: "Jaalle" },
       { value: "brown", en: "Brown", so: "Bunni" },
-      { value: "gray", en: "Gray", so: "Boodheed" },
+      { value: "gray", en: "Gray", so: "Boodhe" },
       { value: "black", en: "Black", so: "Madow" },
-      { value: "pink", en: "Pink", so: "Casaan khafiif" },
+      { value: "pink", en: "Pink", so: "Casaan khafiif ah" },
       { value: "blue", en: "Blue", so: "Buluug" },
       { value: "green", en: "Green", so: "Cagaar" },
       { value: "other", en: "Other", so: "Kale" },
     ],
   },
-  { kind: "weight", titleEn: "Weight (optional)", titleSo: "Miisaanka (ikhtiyaari)" },
+  {
+    kind: "weight",
+    titleEn: "Weight (optional)",
+    titleSo: "Miisaanka (ikhtiyaari) hoos geli miisaanka dhagaxa",
+  },
   {
     kind: "choice",
     key: "magnetAttracts",
     titleEn: "Magnet Test",
     titleSo: "Tijaabada Magnetka",
     subtitleEn: "Does a magnet attract it?",
-    subtitleSo: "Magnet miyuu soo jiitaa?",
+    subtitleSo: "Magnetku ma soo jiitaa dhagaxan?",
     options: YES_NO_NA,
   },
   {
     kind: "choice",
     key: "fogClearTime",
     titleEn: "Fog Test",
-    titleSo: "Tijaabada Ceeriggooska",
+    titleSo: "Tijaabada Ceeryaamada",
     subtitleEn: "Breathe onto the stone. How quickly does the fog disappear?",
-    subtitleSo: "Neefso dhagaxa. Immisa dhakhso ayuu ceeriggooska ka baxaa?",
+    subtitleSo:
+      "Ku neefso dhagaxa, neefsi aad ceeryaamo ku smaynayso. Intee ayeey ku qaataa inay ceeryaamadu ka baaba'do dhagaxa?",
     options: [
       { value: "immediately", en: "Immediately", so: "Isla markiiba" },
-      { value: "1_2_seconds", en: "1-2 seconds", so: "1-2 ilbiriqsi" },
+      { value: "1_2_seconds", en: "1-2 seconds", so: "1–2 ilbiriqsi" },
       { value: "longer", en: "Longer", so: "Waqti dheer" },
       { value: "not_tested", en: "Not tested", so: "Lama tijaabin" },
     ],
@@ -178,9 +194,9 @@ const STEPS: StepDef[] = [
     kind: "choice",
     key: "uvReaction",
     titleEn: "UV Light (optional)",
-    titleSo: "Iftiinka UV (ikhtiyaari)",
+    titleSo: "Iftiinka UV ama Qoraxda (ikhtiyaari)",
     subtitleEn: "Reaction under UV light",
-    subtitleSo: "Falcelinta hoos iftiinka UV",
+    subtitleSo: "Sidee ayuu uga falceliyaa iftiinka UV-ga ama qoraxda marka lagu eego?",
     options: [
       { value: "blue", en: "Blue", so: "Buluug" },
       { value: "green", en: "Green", so: "Cagaar" },
@@ -195,26 +211,34 @@ const STEPS: StepDef[] = [
     titleEn: "Loupe Inspection",
     titleSo: "Baaritaanka Loupe-ka",
     subtitleEn: "What do you see?",
-    subtitleSo: "Maxaad aragtaa?",
+    subtitleSo: "Maxaad ku aragtay?",
     options: [
-      { value: "natural_inclusions", en: "Natural inclusions", so: "Waxyaalo dabiici ah oo ku jira" },
+      { value: "natural_inclusions", en: "Natural inclusions", so: "Waxyaabo dabiici ah oo gudaha ku jira" },
       { value: "perfectly_clean", en: "Perfectly clean", so: "Gebi ahaanba nadiif" },
-      { value: "bubbles", en: "Bubbles", so: "Buufis (bubbles)" },
+      { value: "bubbles", en: "Bubbles", so: "Xumbooyin hawo (Bubbles)" },
       { value: "unknown", en: "Unknown", so: "Lama oga" },
     ],
   },
-  { kind: "photos", titleEn: "Additional Photos (optional)", titleSo: "Sawirro Dheeraad ah (ikhtiyaari)" },
-  { kind: "submit", titleEn: "Final Expert Evaluation", titleSo: "Qiimaynta Khibradda Kama Dambaysta ah" },
+  {
+    kind: "photos",
+    titleEn: "Additional Photos (optional)",
+    titleSo: "Sawirro Dheeraad ah (ikhtiyaari) ka qaad sawiro muuqda oo dheeraad oo hoos soo geli",
+  },
+  {
+    kind: "submit",
+    titleEn: "Final Expert Evaluation",
+    titleSo: "Qiimaynta Khabiirka ee Kama Dambaysta ah",
+  },
 ];
 
 const PHOTO_LABELS: { key: VerificationImageLabel; en: string; so: string }[] = [
-  { key: "macro", en: "Macro", so: "Dhow (Macro)" },
+  { key: "macro", en: "Macro", so: "Sawir dhow (Macro)" },
   { key: "side", en: "Side", so: "Dhinaca" },
-  { key: "top", en: "Top", so: "Dusha" },
+  { key: "top", en: "Top", so: "Dusha sare" },
   { key: "bottom", en: "Bottom", so: "Hoosta" },
-  { key: "edge", en: "Edge", so: "Xagafka" },
+  { key: "edge", en: "Edge", so: "Geeska" },
   { key: "flash", en: "Flash photo", so: "Sawir Flash ah" },
-  { key: "wet", en: "Wet (optional)", so: "Qoyan (ikhtiyaari)" },
+  { key: "wet", en: "Wet (optional)", so: "Sawir dhagaxa qoyan ah (ikhtiyaari)" },
 ];
 
 const RECOMMENDATION_LABELS: Record<string, { en: string; so: string }> = {
@@ -258,7 +282,9 @@ export default function DiamondVerificationScreen() {
   const [weightText, setWeightText] = useState("");
   const [imagePaths, setImagePaths] = useState<VerificationImagePaths>({});
   const [uploadingLabel, setUploadingLabel] = useState<VerificationImageLabel | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [creatingPurchase, setCreatingPurchase] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [purchase, setPurchase] = useState<HighValueReportPurchase | null>(null);
   const [verdict, setVerdict] = useState<VerificationVerdict | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -281,6 +307,18 @@ export default function DiamondVerificationScreen() {
           setAnswers(resolvedAnswers);
           if (resolvedAnswers.weightValue != null) setWeightText(String(resolvedAnswers.weightValue));
           setStepIndex(Math.min(draft?.stepIndex ?? 0, STEPS.length - 1));
+
+          // Resuming a session that already reached the paywall once — read
+          // back its purchase (and verdict, if the payment already went
+          // through) instead of creating a duplicate purchase row.
+          if (sessionData.status === "submitted") {
+            const p = await getHighValueReportPurchase(sessionData.id);
+            setPurchase(p);
+            if (p?.status === "paid") {
+              const v = await getVerificationVerdict(sessionData.id);
+              if (v) setVerdict(v);
+            }
+          }
         }
       } catch (err) {
         setErrorMsg((err as Error).message);
@@ -290,6 +328,29 @@ export default function DiamondVerificationScreen() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanId]);
+
+  // Reaching the last step marks the (free) questionnaire submitted and
+  // opens a 'pending' report purchase — no AI call happens here. This
+  // replaces the old "tap Get Final Evaluation to run the AI" step: there's
+  // nothing left to opt into, the paywall below is the only next action.
+  useEffect(() => {
+    if (loadingSession || !verificationId || !scanId || verdict || purchase) return;
+    if (stepIndex !== STEPS.length - 1) return;
+    (async () => {
+      setCreatingPurchase(true);
+      setErrorMsg(null);
+      try {
+        await markVerificationSubmitted(verificationId);
+        const p = await startHighValueReportPurchase(verificationId, scanId);
+        setPurchase(p);
+        await clearLocalDraft(scanId);
+      } catch (err) {
+        setErrorMsg((err as Error).message);
+      } finally {
+        setCreatingPurchase(false);
+      }
+    })();
+  }, [stepIndex, verificationId, scanId, verdict, purchase, loadingSession]);
 
   function persist(nextStepIndex: number, nextAnswers: VerificationAnswers, nextImagePaths: VerificationImagePaths) {
     if (scanId) setLocalDraft(scanId, { stepIndex: nextStepIndex, answers: nextAnswers }).catch(() => {});
@@ -345,18 +406,29 @@ export default function DiamondVerificationScreen() {
     }
   }
 
-  async function handleSubmit() {
-    if (!verificationId || !scanId) return;
-    setSubmitting(true);
+  function handlePay(method: "mobile" | "card") {
+    if (!purchase) return;
+    Linking.openURL(buildHighValueReportPaymentUrl(purchase.id, method)).catch(() => {});
+  }
+
+  // "I've paid — check status": re-reads the purchase row (RLS select-own).
+  // Not a bypass — it only reflects whatever the payment webhook has
+  // actually written; there is no client-side way to mark a purchase paid.
+  async function handleCheckPaymentStatus() {
+    if (!verificationId) return;
+    setCheckingStatus(true);
     setErrorMsg(null);
     try {
-      const v = await submitVerification(verificationId);
-      setVerdict(v);
-      await clearLocalDraft(scanId);
+      const p = await getHighValueReportPurchase(verificationId);
+      if (p) setPurchase(p);
+      if (p?.status === "paid") {
+        const v = await getVerificationVerdict(verificationId);
+        if (v) setVerdict(v);
+      }
     } catch (err) {
       setErrorMsg((err as Error).message);
     } finally {
-      setSubmitting(false);
+      setCheckingStatus(false);
     }
   }
 
@@ -405,8 +477,8 @@ export default function DiamondVerificationScreen() {
           <ChoiceGroup
             layout="chips"
             options={[
-              { value: "grams", label: L("grams", "garaam") },
-              { value: "carats", label: L("carats", "qiraad") },
+              { value: "grams", label: L("grams", "Garaam") },
+              { value: "carats", label: L("carats", "Karaad") },
             ]}
             value={answers.weightUnit ?? "grams"}
             onChange={(v) => setAnswer("weightUnit", v)}
@@ -420,7 +492,7 @@ export default function DiamondVerificationScreen() {
           <Text style={styles.stepSubtitle}>
             {L(
               "All photos are optional — add whichever you can.",
-              "Dhammaan sawirradu waa ikhtiyaari — ku dar kuwa aad awoodo.",
+              "Dhammaan sawirradu waa ikhtiyaari — ku dar inta aad awooddo.",
             )}
           </Text>
           {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
@@ -450,23 +522,42 @@ export default function DiamondVerificationScreen() {
       {step.kind === "submit" &&
         (verdict ? (
           <VerdictDisplay verdict={verdict} L={L} />
-        ) : (
+        ) : creatingPurchase || !purchase ? (
           <Card style={styles.stepCard}>
             <Text style={styles.stepTitle}>{L(step.titleEn, step.titleSo)}</Text>
-            <Text style={styles.stepSubtitle}>
-              {L(
-                "We'll combine your original scan with everything you just answered for one final expert evaluation. This may take up to 30 seconds.",
-                "Waxaan isku dari doonaa baaritaankaagii hore iyo dhammaan waxa aad ka jawaabtay hal qiimayn khibrad leh oo kama dambays ah. Waxay qaadan kartaa ilaa 30 ilbiriqsi.",
-              )}
-            </Text>
+            <ActivityIndicator color={colors.gold} />
+            {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
+          </Card>
+        ) : purchase.status === "paid" ? (
+          <Card style={styles.stepCard}>
+            <Text style={styles.stepTitle}>{L(step.titleEn, step.titleSo)}</Text>
+            <View style={styles.processingRow}>
+              <ActivityIndicator color={colors.gold} />
+              <Text style={styles.stepSubtitle}>
+                {L(
+                  "Payment confirmed — preparing your expert report…",
+                  "Lacag-bixinta waa la xaqiijiyay — waxaan diyaarinaynaa warbixintaada khibradda leh…",
+                )}
+              </Text>
+            </View>
             {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
             <Button
-              title={L("Get Final Evaluation", "Hel Qiimaynta Kama Dambaysta ah")}
-              variant="primary"
-              loading={submitting}
-              onPress={handleSubmit}
+              title={L("Check again", "Mar kale hubi")}
+              variant="outline"
+              loading={checkingStatus}
+              onPress={handleCheckPaymentStatus}
             />
           </Card>
+        ) : (
+          <PaywallCard
+            titleEn={step.titleEn}
+            titleSo={step.titleSo}
+            L={L}
+            checkingStatus={checkingStatus}
+            errorMsg={errorMsg}
+            onPay={handlePay}
+            onCheckStatus={handleCheckPaymentStatus}
+          />
         ))}
 
       {!verdict && (
@@ -487,6 +578,79 @@ export default function DiamondVerificationScreen() {
         />
       )}
     </ScrollView>
+  );
+}
+
+// $5 High-Value Verification Report paywall. Buttons only ever open the
+// GemScan website (Linking.openURL) — there is no in-app charge, no IAP, and
+// no way for this screen to fabricate a "paid" status; EXTERNAL_PURCHASES_ENABLED
+// hides the purchase CTA entirely on iOS (App Store Guideline 3.1.1), same as
+// PremiumGate/UpgradePrompt already do for subscriptions.
+function PaywallCard({
+  titleEn,
+  titleSo,
+  L,
+  checkingStatus,
+  errorMsg,
+  onPay,
+  onCheckStatus,
+}: {
+  titleEn: string;
+  titleSo: string;
+  L: (en: string, so: string) => string;
+  checkingStatus: boolean;
+  errorMsg: string | null;
+  onPay: (method: "mobile" | "card") => void;
+  onCheckStatus: () => void;
+}) {
+  return (
+    <Card accent style={styles.stepCard}>
+      <Text style={styles.stepTitle}>{L(titleEn, titleSo)}</Text>
+      <Text style={styles.stepSubtitle}>
+        {L(
+          "This gemstone appears valuable enough for an advanced expert verification report.",
+          "Dhagaxan wuxuu u muuqdaa mid qiimo u leh oo u baahan warbixin khibrad khabiir oo horumarsan.",
+        )}
+      </Text>
+      <Text style={styles.body}>
+        {L(
+          "We'll combine your original scan with everything you just answered for one final expert evaluation — evidence score, identification, supporting and conflicting evidence, recommended next tests, and a downloadable PDF.",
+          "Waxaan isku dari doonaa baaritaankii hore, jawaabahaaga, iyo dhammaan xogta aad bixisay si aan kuu siino qiimayn khabiir oo kama dambays ah — dhibcaha caddaynta, aqoonsiga, caddaynta taageeraysa iyo ka soo horjeedda, baaritaannada xiga ee la talinayo, iyo warbixin PDF ah oo la soo dejin karo.",
+        )}
+      </Text>
+
+      {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
+
+      {!EXTERNAL_PURCHASES_ENABLED ? (
+        <Text style={styles.disclaimer}>
+          {L(
+            "This report isn't available for purchase in this version of the app.",
+            "Warbixintan lama heli karo iibsiga ee nooca app-kan.",
+          )}
+        </Text>
+      ) : (
+        <>
+          <Button
+            title={L("Mobile Pay", "Mobile Pay")}
+            variant="primary"
+            icon={<Ionicons name="phone-portrait-outline" size={18} color="#0B0B0C" />}
+            onPress={() => onPay("mobile")}
+          />
+          <Button
+            title={L("Card Pay", "Card Pay")}
+            variant="outline"
+            icon={<Ionicons name="card-outline" size={18} color={colors.gold} />}
+            onPress={() => onPay("card")}
+          />
+          <Button
+            title={L("I've paid — check status", "Waan bixiyay — hubi xaaladda")}
+            variant="outline"
+            loading={checkingStatus}
+            onPress={onCheckStatus}
+          />
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -629,6 +793,7 @@ const styles = StyleSheet.create({
   stepCard: { gap: spacing.sm },
   stepTitle: { ...typo.heading },
   stepSubtitle: { ...typo.bodySmall },
+  processingRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   body: { ...typo.body },
   bodySmall: { ...typo.bodySmall },
   weightInput: {

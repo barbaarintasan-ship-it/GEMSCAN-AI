@@ -1,16 +1,19 @@
 // Advanced Diamond Verification (High-Value Expert Workflow) — the mobile
 // contract for this feature, kept separate from scanUpload.ts exactly like
-// explanationStyle.ts is kept separate from i18n.ts. Talks to the new
+// explanationStyle.ts is kept separate from i18n.ts. Talks to the
 // `diamond_verifications` / `diamond_verification_verdicts` tables (migration
 // 0009_diamond_verification.sql, RLS: client can insert/update its own
-// verification row but never write a verdict) and the new `verify-high-value`
-// Edge Function. Never touches scans/scan_images/orchestrate-scan.
+// verification row but never write a verdict) and `high_value_report_purchases`
+// (migration 0010, RLS: client can only ever insert its own 'pending' row).
+// The verify-high-value Edge Function itself is no longer called directly
+// from here — it now only runs server-side, triggered by the payment webhook
+// once a purchase is marked 'paid' (see supabase/functions/
+// high-value-report-webhook). Never touches scans/scan_images/orchestrate-scan.
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { decode } from "base64-arraybuffer";
 import * as FileSystem from "expo-file-system";
 import { supabase } from "./supabase";
 
-const FUNCTIONS_URL = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL!;
 const DRAFT_KEY_PREFIX = "gemscan.verification.";
 
 export type VerificationAnswers = {
@@ -140,29 +143,59 @@ export async function uploadVerificationImage(
   return path;
 }
 
-// Marks the questionnaire submitted, then calls verify-high-value ONCE for
-// the final expert verdict.
-export async function submitVerification(verificationId: string): Promise<VerificationVerdict> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) throw new Error("Must be signed in to submit verification");
-
+// Marks the questionnaire submitted. This used to also call verify-high-value
+// immediately; that AI call is now DEFERRED behind the $5 report paywall (see
+// startHighValueReportPurchase below) — it only runs once a payment webhook
+// marks the purchase 'paid' (supabase/functions/high-value-report-webhook).
+export async function markVerificationSubmitted(verificationId: string): Promise<void> {
   await supabase.from("diamond_verifications").update({ status: "submitted" }).eq("id", verificationId);
+}
 
-  const res = await fetch(`${FUNCTIONS_URL}/verify-high-value`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ verificationId }),
-  });
-  const body = await res.json().catch(() => null);
-  if (!res.ok || !body?.verdict) {
-    throw new Error(body?.error ?? `verify-high-value failed with status ${res.status}`);
-  }
-  return body.verdict as VerificationVerdict;
+export type HighValueReportPurchase = {
+  id: string;
+  status: "pending" | "paid";
+};
+
+// Idempotent, mirroring startVerification's existing-row-first pattern:
+// returns the existing purchase for this verification if the user already
+// reached the paywall once, else creates a fresh 'pending' row. Never
+// inserts as 'paid' — RLS enforces that (migration 0010).
+export async function startHighValueReportPurchase(
+  verificationId: string,
+  scanId: string,
+): Promise<HighValueReportPurchase> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Must be signed in to start a report purchase");
+
+  const { data: existing } = await supabase
+    .from("high_value_report_purchases")
+    .select("id, status")
+    .eq("verification_id", verificationId)
+    .maybeSingle();
+  if (existing) return existing as HighValueReportPurchase;
+
+  const { data, error } = await supabase
+    .from("high_value_report_purchases")
+    .insert({ verification_id: verificationId, scan_id: scanId, user_id: user.id, status: "pending" })
+    .select("id, status")
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "Failed to start report purchase");
+  return data as HighValueReportPurchase;
+}
+
+// Re-read of the purchase status (RLS select-own) — used by the paywall's
+// "I've paid — check status" button after the user returns from the website.
+export async function getHighValueReportPurchase(
+  verificationId: string,
+): Promise<HighValueReportPurchase | null> {
+  const { data } = await supabase
+    .from("high_value_report_purchases")
+    .select("id, status")
+    .eq("verification_id", verificationId)
+    .maybeSingle();
+  return (data as HighValueReportPurchase | undefined) ?? null;
 }
 
 // Reads a previously-completed verdict directly (RLS select-own — no Edge

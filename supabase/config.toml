@@ -68,3 +68,9 @@ verify_jwt = false
 
 [functions.mobile-money-webhook]
 verify_jwt = false
+
+# $5 High-Value Report payment webhook — same convention as the two webhooks
+# above: the caller is a payment gateway, verified via its own HMAC signature
+# (X-Gateway-Signature), not a Supabase JWT.
+[functions.high-value-report-webhook]
+verify_jwt = false

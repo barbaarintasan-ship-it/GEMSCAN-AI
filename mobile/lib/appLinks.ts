@@ -5,6 +5,21 @@ import { Platform } from "react-native";
 export const PAYMENT_URL =
   process.env.EXPO_PUBLIC_PAYMENT_URL ?? "https://barbaarintasan.com/gemscanpayment";
 
+// Placeholder destination for the $5 High-Value Verification Report paywall
+// (see app/(app)/scan/verify.tsx). Same "app never charges anyone" rule as
+// PAYMENT_URL above — this only ever gets opened via Linking.openURL(), never
+// called from within the app.
+export const HIGH_VALUE_REPORT_PAYMENT_URL =
+  process.env.EXPO_PUBLIC_HIGH_VALUE_REPORT_PAYMENT_URL ??
+  "https://barbaarintasan.com/gemscan-report-payment";
+
+// `purchaseId` is the high_value_report_purchases row id — the reference the
+// website page (and eventually the payment gateway webhook) uses to mark that
+// specific report as paid.
+export function buildHighValueReportPaymentUrl(purchaseId: string, method: "mobile" | "card"): string {
+  return `${HIGH_VALUE_REPORT_PAYMENT_URL}?ref=${encodeURIComponent(purchaseId)}&method=${method}`;
+}
+
 // Apple App Store Guideline 3.1.1 forbids unlocking in-app digital content via
 // an EXTERNAL purchase flow or steering users to it (buttons, links, or even
 // "subscribe on our website" wording). Since GemScan intentionally sells its
