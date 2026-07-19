@@ -46,7 +46,10 @@ export const claudeVisionProvider: VisionProvider = {
         },
         body: JSON.stringify({
           model: CLAUDE_MODEL,
-          max_tokens: 512,
+          // Was 512 — too small once the response also carries the full Dual
+          // Explanation Modes payload (Simple + the ~20-field Expert report),
+          // which silently truncated the JSON and failed parsing.
+          max_tokens: 1800,
           temperature: 0.2,
           messages: [
             {
@@ -72,6 +75,7 @@ export const claudeVisionProvider: VisionProvider = {
         reasoning: parsed.reasoning,
         latencyMs: Date.now() - start,
         raw,
+        analysis: parsed.analysis,
       };
     } catch (err) {
       return createAbstainResult("claude_vision", start, (err as Error).message);

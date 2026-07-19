@@ -13,6 +13,7 @@
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
+import type { ExplanationStyle, ExpertExplanationDTO } from "./scanUpload";
 
 export type PdfReportImage = { uri: string; caption?: string };
 
@@ -36,11 +37,18 @@ export type PdfReportData = {
   bestMatch: string;
   confidencePct: number; // 0-100
   confidenceBand: "low" | "medium" | "high";
-  reasoning?: string | null; // AI analysis / notes
+  reasoning?: string | null; // AI analysis / notes (legacy fallback)
   alternatives: { label: string; confidencePct: number; band?: string | null }[];
   valuation?: PdfValuation | null;
   hallmark?: PdfHallmark | null;
   images: PdfReportImage[]; // remote (signed) or local file:// URIs
+  // Dual Explanation Modes: which style to render, plus whichever of the two
+  // write-ups are available. `explanationStyle` picks which one is shown;
+  // when the one it names is missing, the report falls back to whichever it
+  // has, then to `reasoning`.
+  explanationStyle?: ExplanationStyle | null;
+  simpleExplanation?: string | null;
+  expertExplanation?: ExpertExplanationDTO | null;
 };
 
 type Lang = "en" | "so";
@@ -50,6 +58,33 @@ const BAND_COLOR: Record<string, string> = {
   medium: "#C9A227",
   low: "#8A8A8E",
 };
+
+// Labeled technical fields for the Expert report table, in display order —
+// mirrors app/(app)/scan/results.tsx's EXPERT_FIELD_ORDER.
+const EXPERT_FIELDS: { key: keyof ExpertExplanationDTO; en: string; so: string }[] = [
+  { key: "mineralSpecies", en: "Mineral species", so: "Nooca macdanta" },
+  { key: "variety", en: "Variety", so: "Nooca gaarka ah" },
+  { key: "crystalSystem", en: "Crystal system", so: "Nidaamka kiristaalka" },
+  { key: "chemicalComposition", en: "Chemical composition", so: "Dhismaha kiimikada" },
+  { key: "mohsHardness", en: "Mohs hardness", so: "Adkaanta Mohs" },
+  { key: "specificGravity", en: "Specific gravity", so: "Miisaanka gaarka ah" },
+  { key: "refractiveIndex", en: "Refractive index", so: "Tirada dib-u-jiitanka" },
+  { key: "cleavage", en: "Cleavage", so: "Kala-goynta" },
+  { key: "fracture", en: "Fracture", so: "Jabka" },
+  { key: "luster", en: "Luster", so: "Dhalaalka" },
+  { key: "transparency", en: "Transparency", so: "Dhaafsanaanta" },
+  { key: "diagnosticCharacteristics", en: "Diagnostic characteristics", so: "Astaamaha lagu aqoonsado" },
+  { key: "geologicalOrigin", en: "Geological origin", so: "Asalka juqraafiga" },
+  { key: "commonTreatments", en: "Common treatments", so: "Daaweynta caadiga ah" },
+  { key: "syntheticIndicators", en: "Synthetic indicators", so: "Calaamadaha macmalka ah" },
+  { key: "commonImitations", en: "Common imitations", so: "Ku-daydka caadiga ah" },
+  { key: "confidenceReasoning", en: "Confidence reasoning", so: "Sababta kalsoonida" },
+  { key: "recommendedLabTests", en: "Recommended lab tests", so: "Baaritaannada shaybaarka la talinayo" },
+  { key: "marketDemand", en: "Market demand", so: "Baahida suuqa" },
+  { key: "wholesaleEstimate", en: "Wholesale estimate", so: "Qiyaasta jumlada" },
+  { key: "retailEstimate", en: "Retail estimate", so: "Qiyaasta tafaariiqda" },
+  { key: "investmentConsiderations", en: "Investment considerations", so: "Tixgelinta maalgashiga" },
+];
 
 // ── helpers ──────────────────────────────────────────────────────────────
 function esc(s: unknown): string {
@@ -213,13 +248,38 @@ export function buildReportHtml(data: PdfReportData, lang: Lang): string {
       </section>`;
   }
 
-  // AI analysis / notes
-  const notesHtml = data.reasoning
-    ? `<section class="block">
+  // AI analysis / notes — Dual Explanation Modes: render whichever style was
+  // requested, falling back to the other if it's the only one available, and
+  // finally to the legacy free-text `reasoning` for pre-feature scans.
+  const wantExpert = data.explanationStyle === "expert";
+  let notesHtml = "";
+  if (wantExpert && data.expertExplanation) {
+    const rows = EXPERT_FIELDS.filter(({ key }) => data.expertExplanation![key])
+      .map(({ key, en, so }) => `<tr><th>${t(en, so)}</th><td>${esc(data.expertExplanation![key])}</td></tr>`)
+      .join("");
+    notesHtml = `<section class="block">
+        <h2>${t("Gemological Analysis", "Falanqaynta Dhagaxa")}</h2>
+        <table class="kv">${rows}</table>
+      </section>`;
+  } else if (data.simpleExplanation) {
+    notesHtml = `<section class="block">
+        <h2>${t("AI Analysis & Notes", "Falanqaynta AI & Fiirooyin")}</h2>
+        <p>${esc(data.simpleExplanation)}</p>
+       </section>`;
+  } else if (data.expertExplanation) {
+    const rows = EXPERT_FIELDS.filter(({ key }) => data.expertExplanation![key])
+      .map(({ key, en, so }) => `<tr><th>${t(en, so)}</th><td>${esc(data.expertExplanation![key])}</td></tr>`)
+      .join("");
+    notesHtml = `<section class="block">
+        <h2>${t("Gemological Analysis", "Falanqaynta Dhagaxa")}</h2>
+        <table class="kv">${rows}</table>
+      </section>`;
+  } else if (data.reasoning) {
+    notesHtml = `<section class="block">
          <h2>${t("AI Analysis & Notes", "Falanqaynta AI & Fiirooyin")}</h2>
          <p>${esc(data.reasoning)}</p>
-       </section>`
-    : "";
+       </section>`;
+  }
 
   return `<!DOCTYPE html>
 <html lang="${lang}">

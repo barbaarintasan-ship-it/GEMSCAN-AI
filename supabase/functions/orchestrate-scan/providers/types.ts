@@ -24,10 +24,52 @@ export type ProviderInput = {
   // Optional coarse, user-supplied location (already fuzzed client-side per
   // the location-fuzzing policy in 05-Monetization-Legal-Payments.md).
   location: { lat: number; lng: number; label?: string } | null;
+  // The user's chosen Dual Explanation Mode for this scan (see
+  // 03-AI-Architecture-and-Data-Sources.md). Providers are asked to write
+  // BOTH a Simple and an Expert explanation regardless, so History/PDF can
+  // switch later, but give this one the most depth/care.
+  explanationStyle: "simple" | "expert";
   // service_role-scoped client, for providers that need to query reference
   // data (e.g. hallmark OCR matching against `reference_hallmarks`). Never
   // exposed to, or created by, the mobile app.
   serviceClient: SupabaseClient;
+};
+
+// The full gemological/mineralogical write-up behind Dual Explanation Modes.
+// All string fields (LLM prose) — deliberately flat and untyped-numeric so
+// parsing stays defensive (see promptShared.ts) the same way `confidence`
+// already is the only field that needs numeric coercion.
+export type ExpertAnalysis = {
+  mineralSpecies: string;
+  variety: string;
+  crystalSystem: string;
+  chemicalComposition: string;
+  mohsHardness: string;
+  specificGravity: string;
+  refractiveIndex: string;
+  cleavage: string;
+  fracture: string;
+  luster: string;
+  transparency: string;
+  diagnosticCharacteristics: string;
+  geologicalOrigin: string;
+  commonTreatments: string;
+  syntheticIndicators: string;
+  commonImitations: string;
+  confidenceReasoning: string;
+  recommendedLabTests: string;
+  marketDemand: string;
+  wholesaleEstimate: string;
+  retailEstimate: string;
+  investmentConsiderations: string;
+};
+
+export type FullAnalysis = {
+  simpleExplanation: string;
+  expertExplanation: ExpertAnalysis;
+  imageObservations: string;
+  warnings: string;
+  recommendations: string;
 };
 
 export type ProviderCandidate = {
@@ -43,6 +85,10 @@ export type ProviderResult = {
   latencyMs: number;
   error?: string;
   raw?: unknown; // full raw response, persisted to scan_ai_responses for audit
+  // Dual Explanation Modes structured write-up, when this provider produced
+  // one (only the general vision providers do). Null/absent for on-device,
+  // hallmark OCR, and geological context, and for any abstained result.
+  analysis?: FullAnalysis | null;
 };
 
 export interface VisionProvider {

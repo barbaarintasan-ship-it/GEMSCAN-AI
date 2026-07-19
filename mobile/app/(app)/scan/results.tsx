@@ -19,6 +19,7 @@ import { estimateValue, type Valuation } from "../../../lib/valuation";
 import { EXPERT_WHATSAPP, HIGH_VALUE_THRESHOLD_USD, hasExpertContact } from "../../../lib/expertConfig";
 import { useSubscriptionStatus } from "../../../lib/subscription";
 import { generateAndSharePdf, type PdfReportData } from "../../../lib/pdfReport";
+import type { ExplanationStyle, ExpertExplanationDTO } from "../../../lib/scanUpload";
 import { EXTERNAL_PURCHASES_ENABLED, PAYMENT_URL } from "../../../lib/appLinks";
 import LocationMap from "../../../components/LocationMap";
 import { Card } from "../../../components/ui/Card";
@@ -47,8 +48,40 @@ type ScanRow = {
     insufficientConfidence: boolean;
     message: string | null;
     suggestions: string[];
+    explanationStyle?: ExplanationStyle | null;
+    simpleExplanation?: string | null;
+    expertExplanation?: ExpertExplanationDTO | null;
+    imageObservations?: string | null;
+    warnings?: string | null;
+    recommendations?: string | null;
   } | null;
 };
+
+// Labeled technical fields shown in the Expert view, in display order.
+const EXPERT_FIELD_ORDER: { key: keyof ExpertExplanationDTO; label: string; labelSo: string }[] = [
+  { key: "mineralSpecies", label: "Mineral species", labelSo: "Nooca macdanta" },
+  { key: "variety", label: "Variety", labelSo: "Nooca gaarka ah" },
+  { key: "crystalSystem", label: "Crystal system", labelSo: "Nidaamka kiristaalka" },
+  { key: "chemicalComposition", label: "Chemical composition", labelSo: "Dhismaha kiimikada" },
+  { key: "mohsHardness", label: "Mohs hardness", labelSo: "Adkaanta Mohs" },
+  { key: "specificGravity", label: "Specific gravity", labelSo: "Miisaanka gaarka ah" },
+  { key: "refractiveIndex", label: "Refractive index", labelSo: "Tirada dib-u-jiitanka" },
+  { key: "cleavage", label: "Cleavage", labelSo: "Kala-goynta" },
+  { key: "fracture", label: "Fracture", labelSo: "Jabka" },
+  { key: "luster", label: "Luster", labelSo: "Dhalaalka" },
+  { key: "transparency", label: "Transparency", labelSo: "Dhaafsanaanta" },
+  { key: "diagnosticCharacteristics", label: "Diagnostic characteristics", labelSo: "Astaamaha lagu aqoonsado" },
+  { key: "geologicalOrigin", label: "Geological origin", labelSo: "Asalka juqraafiga" },
+  { key: "commonTreatments", label: "Common treatments", labelSo: "Daaweynta caadiga ah" },
+  { key: "syntheticIndicators", label: "Synthetic indicators", labelSo: "Calaamadaha macmalka ah" },
+  { key: "commonImitations", label: "Common imitations", labelSo: "Ku-daydka caadiga ah" },
+  { key: "confidenceReasoning", label: "Confidence reasoning", labelSo: "Sababta kalsoonida" },
+  { key: "recommendedLabTests", label: "Recommended lab tests", labelSo: "Baaritaannada shaybaarka la talinayo" },
+  { key: "marketDemand", label: "Market demand", labelSo: "Baahida suuqa" },
+  { key: "wholesaleEstimate", label: "Wholesale estimate", labelSo: "Qiyaasta jumlada" },
+  { key: "retailEstimate", label: "Retail estimate", labelSo: "Qiyaasta tafaariiqda" },
+  { key: "investmentConsiderations", label: "Investment considerations", labelSo: "Tixgelinta maalgashiga" },
+];
 
 const BAND_COLOR: Record<string, string> = {
   high: "#2E7D32",
@@ -74,6 +107,11 @@ export default function ResultsScreen() {
   const [sharing, setSharing] = useState(false);
   const shareCardRef = React.useRef<ViewShot>(null);
 
+  // Dual Explanation Modes: which view the user is currently looking at.
+  // Initialized from the style the scan was run with, then freely
+  // switchable (History reuses this same screen for past scans too).
+  const [viewStyle, setViewStyle] = useState<ExplanationStyle>("simple");
+
   // Professional PDF report (Pro / "Gem Collector" tier only).
   const { data: sub } = useSubscriptionStatus();
   const canPdf = sub?.features?.pdfReports ?? false;
@@ -97,9 +135,13 @@ export default function ResultsScreen() {
           .eq("scan_id", scanId)
           .order("rank", { ascending: true }),
       ]);
-      setScan(scanData as ScanRow | null);
+      const row = scanData as ScanRow | null;
+      setScan(row);
       setCandidates((candidateData as ScanCandidate[]) ?? []);
       setIsLoading(false);
+      if (row?.final_result?.explanationStyle) {
+        setViewStyle(row.final_result.explanationStyle);
+      }
 
       // Load one specimen photo (the front/original of the first image) for the
       // shareable card. The bucket is private, so sign the path.
@@ -230,6 +272,9 @@ export default function ResultsScreen() {
         confidencePct: Math.round(fr.confidenceScore * 100),
         confidenceBand: fr.confidenceBand,
         reasoning: fr.reasoning,
+        explanationStyle: viewStyle,
+        simpleExplanation: fr.simpleExplanation,
+        expertExplanation: fr.expertExplanation,
         alternatives: alts.map((c) => ({
           label: c.label,
           confidencePct: Math.round(c.weighted_confidence * 100),
@@ -335,6 +380,76 @@ export default function ResultsScreen() {
           )}
         </Text>
       </Card>
+
+      {/* ── Dual Explanation Modes: Simple / Expert ───────────────────────── */}
+      {(finalResult.simpleExplanation || finalResult.expertExplanation) && (
+        <Card style={styles.explanationCard}>
+          {finalResult.simpleExplanation && finalResult.expertExplanation && (
+            <View style={styles.styleToggle}>
+              <Pressable
+                style={[styles.styleToggleOption, viewStyle === "simple" && styles.styleToggleOptionActive]}
+                onPress={() => setViewStyle("simple")}
+              >
+                <Text style={[styles.styleToggleText, viewStyle === "simple" && styles.styleToggleTextActive]}>
+                  {L("Simple", "Fudud")}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.styleToggleOption, viewStyle === "expert" && styles.styleToggleOptionActive]}
+                onPress={() => setViewStyle("expert")}
+              >
+                <Text style={[styles.styleToggleText, viewStyle === "expert" && styles.styleToggleTextActive]}>
+                  {L("Expert", "Khibrad")}
+                </Text>
+              </Pressable>
+            </View>
+          )}
+
+          {viewStyle === "simple" && finalResult.simpleExplanation ? (
+            <Text style={styles.body}>{finalResult.simpleExplanation}</Text>
+          ) : viewStyle === "expert" && finalResult.expertExplanation ? (
+            <View style={{ gap: 8 }}>
+              {EXPERT_FIELD_ORDER.map(({ key, label, labelSo }) => {
+                const value = finalResult.expertExplanation![key];
+                if (!value) return null;
+                return (
+                  <View key={key} style={styles.expertRow}>
+                    <Text style={styles.expertLabel}>{L(label, labelSo)}</Text>
+                    <Text style={styles.expertValue}>{value}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            // Only one style is available (older scan, or the other side
+            // wasn't returned) — show whichever we have.
+            <Text style={styles.body}>
+              {finalResult.simpleExplanation ??
+                (finalResult.expertExplanation
+                  ? EXPERT_FIELD_ORDER.map(({ key, label, labelSo }) => {
+                      const value = finalResult.expertExplanation![key];
+                      return value ? `${L(label, labelSo)}: ${value}` : null;
+                    })
+                      .filter(Boolean)
+                      .join("\n")
+                  : "")}
+            </Text>
+          )}
+
+          {!!finalResult.warnings && (
+            <View style={styles.explanationCallout}>
+              <Ionicons name="alert-circle-outline" size={14} color="#C9A227" />
+              <Text style={styles.explanationCalloutText}>{finalResult.warnings}</Text>
+            </View>
+          )}
+          {!!finalResult.recommendations && (
+            <View style={styles.explanationCallout}>
+              <Ionicons name="bulb-outline" size={14} color={colors.textFaint} />
+              <Text style={styles.explanationCalloutText}>{finalResult.recommendations}</Text>
+            </View>
+          )}
+        </Card>
+      )}
 
       {/* Share the result as one image (photo + data, no location). */}
       <Button
@@ -627,6 +742,36 @@ const styles = StyleSheet.create({
   bestMatch: { fontSize: 28, fontWeight: "800", color: colors.text },
   heroCard: { alignItems: "flex-start", gap: spacing.sm, marginBottom: spacing.xs },
   actionButton: { marginTop: spacing.xs },
+  explanationCard: { gap: spacing.sm, marginBottom: spacing.xs },
+  styleToggle: {
+    flexDirection: "row",
+    backgroundColor: "#1F1F22",
+    borderRadius: 999,
+    padding: 3,
+    alignSelf: "flex-start",
+  },
+  styleToggleOption: { paddingVertical: 6, paddingHorizontal: 16, borderRadius: 999 },
+  styleToggleOptionActive: { backgroundColor: "#C9A227" },
+  styleToggleText: { color: "#C9C9CC", fontWeight: "700", fontSize: 13 },
+  styleToggleTextActive: { color: "#0B0B0C" },
+  expertRow: { gap: 2 },
+  expertLabel: {
+    color: colors.gold,
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  expertValue: { color: "#F5F1E8", fontSize: 13.5, lineHeight: 19 },
+  explanationCallout: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderSubtle,
+  },
+  explanationCalloutText: { flex: 1, color: "#C9C9CC", fontSize: 12.5, lineHeight: 18 },
   pdfLockedCard: { marginTop: spacing.sm, gap: spacing.sm },
   pdfLockedHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
   pdfLockedTitle: { color: "#F5F1E8", fontWeight: "800", fontSize: 16, flex: 1, lineHeight: 21 },

@@ -63,6 +63,7 @@ export const openaiVisionProvider: VisionProvider = {
         reasoning: parsed.reasoning,
         latencyMs: Date.now() - start,
         raw,
+        analysis: parsed.analysis,
       };
     } catch (err) {
       return createAbstainResult("openai_vision", start, (err as Error).message);

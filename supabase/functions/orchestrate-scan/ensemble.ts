@@ -57,7 +57,7 @@ function confidenceBand(score: number): "low" | "medium" | "high" {
 // normalization, not semantic matching — providers are prompted to return
 // concise canonical names, and Stage 4's on-device hint / reference-data
 // matches already tend to be canonical.
-function normalizeLabel(label: string): string {
+export function normalizeLabel(label: string): string {
   return label.trim().toLowerCase().replace(/\s+/g, " ");
 }
 

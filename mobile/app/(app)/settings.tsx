@@ -24,6 +24,8 @@ import { useAuth } from "../../lib/auth";
 import { supabase } from "../../lib/supabase";
 import { useSubscriptionStatus } from "../../lib/subscription";
 import { setAppLanguage, type AppLanguage } from "../../lib/i18n";
+import { getStoredExplanationStyle, setExplanationStyle } from "../../lib/explanationStyle";
+import type { ExplanationStyle } from "../../lib/scanUpload";
 import { checkForUpdate } from "../../lib/appUpdate";
 import { SectionLabel } from "../../components/ui/SectionLabel";
 import { colors, spacing, radius } from "../../lib/theme";
@@ -38,6 +40,7 @@ export default function SettingsScreen() {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [showDataUsage, setShowDataUsage] = useState(false);
+  const [explanationStyle, setExplanationStyleState] = useState<ExplanationStyle>("simple");
   const [signingOut, setSigningOut] = useState(false);
   const [versionTaps, setVersionTaps] = useState(0);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -114,6 +117,22 @@ export default function SettingsScreen() {
     await setAppLanguage(lang);
   }
 
+  useEffect(() => {
+    let active = true;
+    getStoredExplanationStyle().then((stored) => {
+      if (active && stored) setExplanationStyleState(stored);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function handleExplanationStyle(style: ExplanationStyle) {
+    if (style === explanationStyle) return;
+    setExplanationStyleState(style);
+    await setExplanationStyle(style);
+  }
+
   async function handleLogout() {
     setSigningOut(true);
     await signOut();
@@ -153,6 +172,26 @@ export default function SettingsScreen() {
           <Text style={styles.rowValue}>{t("settings.somali")}</Text>
           {currentLang === "so" && <Ionicons name="checkmark" size={20} color="#C9A227" />}
         </Pressable>
+      </View>
+
+      {/* Explanation Style (Dual Explanation Modes) */}
+      <SectionLabel>{t("settings.explanationStyleSection")}</SectionLabel>
+      <View style={styles.card}>
+        <Pressable style={styles.selectRow} onPress={() => handleExplanationStyle("simple")}>
+          <View style={styles.rowLeft}>
+            <Text style={styles.rowValue}>{t("settings.explanationSimple")}</Text>
+          </View>
+          {explanationStyle === "simple" && <Ionicons name="checkmark" size={20} color="#C9A227" />}
+        </Pressable>
+        <Text style={styles.privacyBody}>{t("settings.explanationSimpleDesc")}</Text>
+        <View style={styles.divider} />
+        <Pressable style={styles.selectRow} onPress={() => handleExplanationStyle("expert")}>
+          <View style={styles.rowLeft}>
+            <Text style={styles.rowValue}>{t("settings.explanationExpert")}</Text>
+          </View>
+          {explanationStyle === "expert" && <Ionicons name="checkmark" size={20} color="#C9A227" />}
+        </Pressable>
+        <Text style={styles.privacyBody}>{t("settings.explanationExpertDesc")}</Text>
       </View>
 
       {/* Privacy */}

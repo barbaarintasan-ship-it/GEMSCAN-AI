@@ -37,6 +37,7 @@ import {
 import { providerRegistry } from "./providers/providerRegistry.ts";
 import type { ProviderInput, ProviderResult, VisionProvider } from "./providers/types.ts";
 import { runEnsemble } from "./ensemble.ts";
+import { buildExplanations } from "./explanationSynthesis.ts";
 
 const PROVIDER_TIMEOUT_MS = 25_000;
 const SIGNED_URL_TTL_SECONDS = 60 * 10; // long enough for every provider call
@@ -88,12 +89,17 @@ export async function handleRequest(req: Request): Promise<Response> {
     // 3-AI ensemble (metered with credits). Default to standard so a missing/
     // malformed field can NEVER accidentally trigger the expensive path.
     const scanType: "standard" | "deep" = requestBody?.scanType === "deep" ? "deep" : "standard";
+    // Dual Explanation Modes preference for this scan — defaults to "simple"
+    // for any missing/malformed value so it can never fail a scan.
+    const explanationStyle: "simple" | "expert" =
+      requestBody?.explanationStyle === "expert" ? "expert" : "simple";
     if (!scanId || typeof scanId !== "string") {
       return jsonResponse({ error: "Missing or invalid scanId" }, 400);
     }
     log("info", "orchestrate-scan", "scan requested", {
       scanId,
       scanType,
+      explanationStyle,
       hasOnDeviceHint: onDeviceHint !== null,
     });
 
@@ -228,6 +234,7 @@ export async function handleRequest(req: Request): Promise<Response> {
         scan,
         images,
         onDeviceHint,
+        explanationStyle,
         serviceClient,
         ensembleScansEnabled,
       });
@@ -268,6 +275,10 @@ export async function processScan(params: {
   // (handleRequest). Passed as a value — NOT re-read from the request — because
   // the body stream has already been consumed by the time we get here.
   onDeviceHint: ProviderInput["onDeviceHint"];
+  // Dual Explanation Modes preference for this scan. Defaults to "simple" in
+  // handleRequest for any missing/malformed value; threaded through the same
+  // way onDeviceHint is.
+  explanationStyle?: "simple" | "expert";
   serviceClient: SupabaseClient;
   ensembleScansEnabled: boolean;
   // Optional override of the real provider registry, so tests can exercise
@@ -275,8 +286,16 @@ export async function processScan(params: {
   // instead of hitting real AI vendor APIs.
   providers?: VisionProvider[];
 }): Promise<Response> {
-  const { scanId, scan, images, onDeviceHint, serviceClient, ensembleScansEnabled, providers } =
-    params;
+  const {
+    scanId,
+    scan,
+    images,
+    onDeviceHint,
+    explanationStyle = "simple",
+    serviceClient,
+    ensembleScansEnabled,
+    providers,
+  } = params;
 
   const processingStartedAt = new Date();
   await serviceClient
@@ -317,6 +336,7 @@ export async function processScan(params: {
     specimenCategory: scan.specimen_category,
     onDeviceHint,
     location: (scan.capture_location as ProviderInput["location"]) ?? null,
+    explanationStyle,
     serviceClient,
   };
 
@@ -377,6 +397,7 @@ export async function processScan(params: {
         reasoning: r.reasoning || null,
         alternatives: r.alternatives,
         raw_response: r.raw ?? null,
+        analysis: r.analysis ?? null,
         latency_ms: r.latencyMs,
         error: r.error ?? null,
       })),
@@ -403,6 +424,15 @@ export async function processScan(params: {
   const processingCompletedAt = new Date();
   const totalDurationMs = processingCompletedAt.getTime() - processingStartedAt.getTime();
 
+  // Dual Explanation Modes: pick whichever provider's already-generated
+  // Simple/Expert write-up best represents the winning candidate. Purely
+  // additive to finalResult — does not affect bestMatch/confidence/ranking.
+  const explanations = buildExplanations(
+    ensemble.candidates[0]?.label ?? null,
+    results,
+    weightByProvider,
+  );
+
   const finalResult = {
     bestMatch: ensemble.candidates[0]?.label ?? null,
     confidenceScore: ensemble.candidates[0]?.weightedConfidence ?? 0,
@@ -412,6 +442,12 @@ export async function processScan(params: {
     insufficientConfidence: ensemble.insufficientConfidence,
     message: ensemble.message,
     suggestions: ensemble.suggestions,
+    explanationStyle,
+    simpleExplanation: explanations?.simpleExplanation ?? null,
+    expertExplanation: explanations?.expertExplanation ?? null,
+    imageObservations: explanations?.imageObservations ?? null,
+    warnings: explanations?.warnings ?? null,
+    recommendations: explanations?.recommendations ?? null,
   };
 
   await serviceClient
@@ -420,6 +456,7 @@ export async function processScan(params: {
       status: "completed",
       final_result: finalResult,
       confidence_band: ensemble.candidates[0]?.confidenceBand ?? null,
+      explanation_style: explanationStyle,
       processing_completed_at: processingCompletedAt.toISOString(),
       total_duration_ms: totalDurationMs,
     })

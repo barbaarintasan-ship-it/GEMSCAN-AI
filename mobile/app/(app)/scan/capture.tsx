@@ -28,10 +28,13 @@ import {
   OrchestrationError,
   type CapturedAngleImage,
   type ScanType,
+  type ExplanationStyle,
 } from "../../../lib/scanUpload";
+import { getStoredExplanationStyle, setExplanationStyle } from "../../../lib/explanationStyle";
 import { isScanLimitError } from "../../../lib/appLinks";
 import { useSubscriptionStatus } from "../../../lib/subscription";
 import ScanTypeChooser from "../../../components/ScanTypeChooser";
+import ExplanationStyleChooser from "../../../components/ExplanationStyleChooser";
 import type { CoarseClassification } from "../../../lib/onDeviceDetection";
 import { ScanTipsCard } from "../../../components/ui/ScanTipsCard";
 import { ProgressChecklist, type ProgressStep } from "../../../components/ui/ProgressChecklist";
@@ -133,6 +136,11 @@ export default function CaptureScreen() {
   const pendingHintRef = useRef<CoarseClassification | null>(null);
   const deepRemaining = creditsExhausted ? 0 : (sub?.deepScan.remaining ?? 0);
 
+  // Dual Explanation Modes: "Choose Explanation Style" is asked once, before
+  // the user's first-ever scan, then remembered (lib/explanationStyle.ts).
+  const [styleChooserVisible, setStyleChooserVisible] = useState(false);
+  const explanationStyleRef = useRef<ExplanationStyle>("simple");
+
   const currentStep = ANGLE_STEPS[stepIndex];
   const isLastStep = stepIndex === ANGLE_STEPS.length - 1;
 
@@ -223,7 +231,25 @@ export default function CaptureScreen() {
       pendingHintRef.current = null;
     }
     setRecommendDeep(isHighValueHint(pendingHintRef.current));
+
+    // First-ever scan: ask "Choose Explanation Style" before the scan-type
+    // sheet. Already chosen (remembered from Settings or a prior scan): skip
+    // straight to the scan-type sheet as before.
+    const stored = await getStoredExplanationStyle();
+    if (stored) {
+      explanationStyleRef.current = stored;
+      setChooserVisible(true);
+    } else {
+      setStyleChooserVisible(true);
+    }
+  }
+
+  async function handleChooseExplanationStyle(style: ExplanationStyle) {
+    explanationStyleRef.current = style;
+    setStyleChooserVisible(false);
     setChooserVisible(true);
+    // Persist in the background — the scan-type sheet doesn't need to wait.
+    setExplanationStyle(style).catch(() => {});
   }
 
   async function handleAnalyze(scanType: ScanType) {
@@ -233,8 +259,9 @@ export default function CaptureScreen() {
     try {
       const location = await getPreciseLocation();
       const onDeviceHint = pendingHintRef.current;
+      const explanationStyle = explanationStyleRef.current;
 
-      const scanId = await createScan({ specimenCategory: null, location });
+      const scanId = await createScan({ specimenCategory: null, location, explanationStyle });
 
       for (const image of capturedImages) {
         // Stage 3's final step: background segmentation. Currently a
@@ -246,7 +273,7 @@ export default function CaptureScreen() {
       }
 
       setStage("analyzing");
-      const result = await runOrchestration(scanId, onDeviceHint, scanType);
+      const result = await runOrchestration(scanId, onDeviceHint, scanType, explanationStyle);
       setStage("finalizing");
       router.replace({
         pathname: "/(app)/scan/results",
@@ -361,6 +388,8 @@ export default function CaptureScreen() {
           </Pressable>
         )}
       </ScrollView>
+
+      <ExplanationStyleChooser visible={styleChooserVisible} onChoose={handleChooseExplanationStyle} />
 
       <ScanTypeChooser
         visible={chooserVisible}

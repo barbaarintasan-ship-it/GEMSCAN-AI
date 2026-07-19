@@ -79,6 +79,9 @@ export async function generatePdfForScan(scanId: string, lang: Lang): Promise<bo
     confidencePct: Math.round(fr.confidenceScore * 100),
     confidenceBand: fr.confidenceBand,
     reasoning: fr.reasoning ?? null,
+    explanationStyle: fr.explanationStyle ?? null,
+    simpleExplanation: fr.simpleExplanation ?? null,
+    expertExplanation: fr.expertExplanation ?? null,
     alternatives: alts.map((c) => ({
       label: c.label,
       confidencePct: Math.round(c.weighted_confidence * 100),

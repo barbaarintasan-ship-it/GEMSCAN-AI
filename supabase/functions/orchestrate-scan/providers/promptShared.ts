@@ -1,11 +1,18 @@
 // Shared helpers used by every cloud vision provider adapter.
-import type { ProviderInput, ProviderResult } from "./types.ts";
+import type { ExpertAnalysis, FullAnalysis, ProviderInput, ProviderResult } from "./types.ts";
 
 // The same identification prompt (adapted per-vendor for message format) is
 // sent to every general-purpose vision model, so their outputs are as
 // comparable as possible for the ensemble stage. Each model is explicitly
 // told to abstain rather than guess, and to always return machine-parseable
 // JSON — never prose — so index.ts never depends on fragile text parsing.
+//
+// Dual Explanation Modes (see 03-AI-Architecture-and-Data-Sources.md): every
+// model is asked to write BOTH a Simple (beginner-friendly) and an Expert
+// (full gemological report) explanation on every call, regardless of the
+// user's preference — that's what lets History/PDF switch between modes
+// later without a re-scan. The user's actual preference just decides which
+// one gets the model's primary depth and care.
 export function buildIdentificationPrompt(input: ProviderInput): string {
   const angles = input.images.map((i) => i.angle).join(", ");
   const categoryHint = input.specimenCategory
@@ -21,6 +28,7 @@ export function buildIdentificationPrompt(input: ProviderInput): string {
       (input.location.label ? ` (${input.location.label})` : "") +
       `. You may use this to favor geologically/geographically plausible candidates.`
     : "No location was supplied.";
+  const preferredStyle = input.explanationStyle === "expert" ? "Expert" : "Simple";
 
   return `You are a gemology/mineralogy/numismatics identification assistant for GemScan AI, \
 a consumer app for identifying NATURALLY OCCURRING or otherwise physical specimens: \
@@ -37,9 +45,36 @@ confidence and say so in your reasoning. Do not claim certified appraisal-grade 
 you are not a substitute for GIA/AGL certification, XRF analysis, or treatment/synthetic \
 detection, and you must not attempt to determine natural-vs-synthetic origin.
 
+The user's preferred explanation style for this scan is: ${preferredStyle}. Write BOTH \
+"simpleExplanation" and "expertExplanation" below regardless — the app may let the user switch \
+views later — but give the ${preferredStyle} one your most depth and care.
+
+For "simpleExplanation": write as if explaining to a curious 12-year-old with no gemology \
+background, in plain English, 4-8 short sentences. Cover: what this object probably is, why you \
+think that (in simple terms), whether it's common or rare, whether it might be valuable, whether \
+extra testing is recommended, one simple care tip, and — if you are not very confident — a simple \
+warning about that uncertainty.
+
+For "expertExplanation": write for gemologists, collectors, dealers, and jewelry professionals, \
+using proper technical terminology, no oversimplification. Fill in every field below as \
+accurately as you can from the photos; if a field genuinely cannot be determined from images \
+alone, say so briefly (e.g. "requires XRF" or "not determinable from photographs") rather than \
+inventing a number.
+
 Respond with ONLY minified JSON, no markdown, matching exactly this shape:
 {"label": string, "confidence": number between 0 and 1, "reasoning": string (1-3 sentences), \
-"alternatives": [{"label": string, "confidence": number}, ... up to 4 items]}`;
+"alternatives": [{"label": string, "confidence": number}, ... up to 4 items], \
+"simpleExplanation": string, \
+"expertExplanation": {"mineralSpecies": string, "variety": string, "crystalSystem": string, \
+"chemicalComposition": string, "mohsHardness": string, "specificGravity": string, \
+"refractiveIndex": string, "cleavage": string, "fracture": string, "luster": string, \
+"transparency": string, "diagnosticCharacteristics": string, "geologicalOrigin": string, \
+"commonTreatments": string, "syntheticIndicators": string, "commonImitations": string, \
+"confidenceReasoning": string, "recommendedLabTests": string, "marketDemand": string, \
+"wholesaleEstimate": string, "retailEstimate": string, "investmentConsiderations": string}, \
+"imageObservations": string (what visual features you recognized in the photos), \
+"warnings": string (caution/uncertainty notes, empty string if none), \
+"recommendations": string (suggested next steps, e.g. additional testing)}`;
 }
 
 export function parseJsonCandidateResponse(text: string): {
@@ -47,6 +82,7 @@ export function parseJsonCandidateResponse(text: string): {
   confidence: number;
   reasoning: string;
   alternatives: { label: string; confidence: number }[];
+  analysis: FullAnalysis;
 } {
   // Models occasionally wrap JSON in a code fence despite instructions;
   // strip that defensively before parsing.
@@ -64,6 +100,53 @@ export function parseJsonCandidateResponse(text: string): {
             confidence: clamp01(Number(a?.confidence ?? 0)),
           }))
       : [],
+    analysis: parseFullAnalysis(parsed),
+  };
+}
+
+// Defensive by field: a model omitting/mistyping any single field (or the
+// whole expertExplanation object) must never fail parsing of the rest of the
+// response — it just falls back to an empty string for that field, same
+// spirit as clamp01() below for confidence.
+function str(v: unknown): string {
+  return typeof v === "string" ? v : v == null ? "" : String(v);
+}
+
+function parseExpertAnalysis(v: unknown): ExpertAnalysis {
+  const o = (v && typeof v === "object" ? v : {}) as Record<string, unknown>;
+  return {
+    mineralSpecies: str(o.mineralSpecies),
+    variety: str(o.variety),
+    crystalSystem: str(o.crystalSystem),
+    chemicalComposition: str(o.chemicalComposition),
+    mohsHardness: str(o.mohsHardness),
+    specificGravity: str(o.specificGravity),
+    refractiveIndex: str(o.refractiveIndex),
+    cleavage: str(o.cleavage),
+    fracture: str(o.fracture),
+    luster: str(o.luster),
+    transparency: str(o.transparency),
+    diagnosticCharacteristics: str(o.diagnosticCharacteristics),
+    geologicalOrigin: str(o.geologicalOrigin),
+    commonTreatments: str(o.commonTreatments),
+    syntheticIndicators: str(o.syntheticIndicators),
+    commonImitations: str(o.commonImitations),
+    confidenceReasoning: str(o.confidenceReasoning),
+    recommendedLabTests: str(o.recommendedLabTests),
+    marketDemand: str(o.marketDemand),
+    wholesaleEstimate: str(o.wholesaleEstimate),
+    retailEstimate: str(o.retailEstimate),
+    investmentConsiderations: str(o.investmentConsiderations),
+  };
+}
+
+function parseFullAnalysis(parsed: Record<string, unknown>): FullAnalysis {
+  return {
+    simpleExplanation: str(parsed.simpleExplanation),
+    expertExplanation: parseExpertAnalysis(parsed.expertExplanation),
+    imageObservations: str(parsed.imageObservations),
+    warnings: str(parsed.warnings),
+    recommendations: str(parsed.recommendations),
   };
 }
 

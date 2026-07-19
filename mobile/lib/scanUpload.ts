@@ -27,6 +27,7 @@ export type ScanLocation = { lat: number; lng: number; label?: string; acc?: num
 export async function createScan(params: {
   specimenCategory: string | null;
   location: ScanLocation | null;
+  explanationStyle?: ExplanationStyle | null;
 }): Promise<string> {
   const {
     data: { user },
@@ -39,6 +40,7 @@ export async function createScan(params: {
       user_id: user.id,
       specimen_category: params.specimenCategory,
       capture_location: params.location,
+      explanation_style: params.explanationStyle ?? null,
       status: "capturing",
     })
     .select("id")
@@ -96,6 +98,34 @@ export type EnsembleCandidateDTO = {
   rejectedReason: string | null;
 };
 
+// Dual Explanation Modes: the full gemological write-up for Expert mode.
+// Optional for backward compatibility with scans/deployed functions that
+// predate this feature — every field may be absent on older data.
+export type ExpertExplanationDTO = {
+  mineralSpecies: string;
+  variety: string;
+  crystalSystem: string;
+  chemicalComposition: string;
+  mohsHardness: string;
+  specificGravity: string;
+  refractiveIndex: string;
+  cleavage: string;
+  fracture: string;
+  luster: string;
+  transparency: string;
+  diagnosticCharacteristics: string;
+  geologicalOrigin: string;
+  commonTreatments: string;
+  syntheticIndicators: string;
+  commonImitations: string;
+  confidenceReasoning: string;
+  recommendedLabTests: string;
+  marketDemand: string;
+  wholesaleEstimate: string;
+  retailEstimate: string;
+  investmentConsiderations: string;
+};
+
 export type OrchestrateScanResponse = {
   scanId: string;
   status: "completed";
@@ -108,6 +138,12 @@ export type OrchestrateScanResponse = {
     insufficientConfidence: boolean;
     message: string | null;
     suggestions: string[];
+    explanationStyle?: ExplanationStyle | null;
+    simpleExplanation?: string | null;
+    expertExplanation?: ExpertExplanationDTO | null;
+    imageObservations?: string | null;
+    warnings?: string | null;
+    recommendations?: string | null;
   };
   candidates: EnsembleCandidateDTO[];
   // Backend-owned Auto Scan Lock threshold (0-1). Optional for backward
@@ -117,6 +153,12 @@ export type OrchestrateScanResponse = {
 };
 
 export type ScanType = "standard" | "deep";
+
+// The user's chosen Dual Explanation Mode. Sent with every scan request so
+// providers can favor it, while both styles are still generated for later
+// switching in History/PDF (see lib/explanationStyle.ts for the remembered
+// preference).
+export type ExplanationStyle = "simple" | "expert";
 
 /**
  * Error thrown by runOrchestration that carries the backend's machine-readable
@@ -138,6 +180,7 @@ export async function runOrchestration(
   scanId: string,
   onDeviceHint: CoarseClassification | null,
   scanType: ScanType = "standard",
+  explanationStyle: ExplanationStyle = "simple",
 ): Promise<OrchestrateScanResponse> {
   const {
     data: { session },
@@ -152,7 +195,8 @@ export async function runOrchestration(
     },
     // scanType decides cost server-side: "standard" = one cheap model,
     // "deep" = the metered 3-AI ensemble (spends a Deep Scan credit).
-    body: JSON.stringify({ scanId, onDeviceHint, scanType }),
+    // explanationStyle is the user's Dual Explanation Mode preference.
+    body: JSON.stringify({ scanId, onDeviceHint, scanType, explanationStyle }),
   });
 
   const body = await res.json();

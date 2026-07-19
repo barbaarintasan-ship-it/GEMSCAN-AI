@@ -334,6 +334,90 @@ Deno.test("processScan: returns the backend auto-lock threshold (default 0.95)",
   assertEquals(body.autoLockThreshold, 0.95);
 });
 
+Deno.test("processScan: finalResult carries null Dual Explanation Mode fields when no provider returns an analysis", async () => {
+  const { client } = createMockServiceClient();
+  const providers: VisionProvider[] = [
+    mockProvider({
+      name: "gemini_vision",
+      identify: async () => ({
+        provider: "gemini_vision",
+        candidate: { label: "Amethyst", confidence: 0.9 },
+        alternatives: [],
+        reasoning: "",
+        latencyMs: 10,
+      }),
+    }),
+  ];
+
+  const response = await processScan(
+    baseParams({ serviceClient: client, providers, explanationStyle: "expert" }),
+  );
+  const body = await response.json();
+
+  assertEquals(body.finalResult.explanationStyle, "expert");
+  assertEquals(body.finalResult.simpleExplanation, null);
+  assertEquals(body.finalResult.expertExplanation, null);
+});
+
+Deno.test("processScan: finalResult surfaces the winning provider's Simple/Expert write-up when available", async () => {
+  const { client, inserted } = createMockServiceClient();
+  const providers: VisionProvider[] = [
+    mockProvider({
+      name: "gemini_vision",
+      identify: async () => ({
+        provider: "gemini_vision",
+        candidate: { label: "Amethyst", confidence: 0.9 },
+        alternatives: [],
+        reasoning: "purple banding",
+        latencyMs: 500,
+        analysis: {
+          simpleExplanation: "This is probably amethyst, a purple quartz.",
+          expertExplanation: {
+            mineralSpecies: "Quartz",
+            variety: "Amethyst",
+            crystalSystem: "Trigonal",
+            chemicalComposition: "SiO2",
+            mohsHardness: "7",
+            specificGravity: "2.65",
+            refractiveIndex: "1.544-1.553",
+            cleavage: "None",
+            fracture: "Conchoidal",
+            luster: "Vitreous",
+            transparency: "Transparent",
+            diagnosticCharacteristics: "Purple color zoning",
+            geologicalOrigin: "Volcanic geode",
+            commonTreatments: "Heat treatment common",
+            syntheticIndicators: "Not determinable from photographs",
+            commonImitations: "Glass, synthetic quartz",
+            confidenceReasoning: "Clear color and habit match",
+            recommendedLabTests: "None required for casual ID",
+            marketDemand: "Moderate",
+            wholesaleEstimate: "Low",
+            retailEstimate: "Low to moderate",
+            investmentConsiderations: "Common; low investment value",
+          },
+          imageObservations: "Purple coloring, visible crystal faces",
+          warnings: "",
+          recommendations: "None needed",
+        },
+      }),
+    }),
+  ];
+
+  const response = await processScan(baseParams({ serviceClient: client, providers }));
+  const body = await response.json();
+
+  assertEquals(body.finalResult.simpleExplanation, "This is probably amethyst, a purple quartz.");
+  assertEquals(body.finalResult.expertExplanation.mineralSpecies, "Quartz");
+  assertEquals(body.finalResult.imageObservations, "Purple coloring, visible crystal faces");
+
+  const responses = inserted["scan_ai_responses"] as Array<{ analysis: unknown }>;
+  assertEquals(
+    (responses[0].analysis as { simpleExplanation: string }).simpleExplanation,
+    "This is probably amethyst, a purple quartz.",
+  );
+});
+
 Deno.test("processScan: is re-entrant — clears prior AI rows before re-persisting so re-evaluation doesn't duplicate", async () => {
   // Auto Scan Lock may re-call the same scanId as evidence accumulates. Each
   // call must delete the scan's prior scan_ai_responses + scan_candidates
