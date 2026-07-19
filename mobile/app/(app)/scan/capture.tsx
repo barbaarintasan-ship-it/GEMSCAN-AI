@@ -402,7 +402,7 @@ export default function CaptureScreen() {
           </Text>
         )}
         <Text style={styles.caption}>
-          {L("This may take up to 30 seconds.", "Waxay qaadan kartaa ilaa 30 ilbiriqsi.")}
+          {L("This may take up to a minute.", "Waxay qaadan kartaa ilaa hal daqiiqo.")}
         </Text>
       </View>
     );

@@ -39,10 +39,19 @@ import type { ProviderInput, ProviderResult, VisionProvider } from "./providers/
 import { runEnsemble } from "./ensemble.ts";
 import { buildExplanations } from "./explanationSynthesis.ts";
 
-// Was 25s — shortened so one slow vendor can't drag out the user's wait; the
-// remaining providers still contribute normally (see withTimeout below), and
-// a timed-out provider simply abstains rather than blocking the scan.
-const PROVIDER_TIMEOUT_MS = 15_000;
+// Was 25s, briefly dropped to 15s for perceived speed — but that shortening
+// was never reconciled with Dual Explanation Modes, which grew each
+// provider's required JSON response from ~4 small fields to ~30 (including a
+// full expertExplanation object) and raised Claude's own max_tokens 512->1800
+// to fit it. Generating that much structured output, across up to 8 images,
+// routinely takes longer than 15s — so nearly every scan was timing out on
+// every provider (a real production outage, not a perceived-speed win).
+// Raised well above the original 25s to give the larger response room to
+// complete; perceived speed is now handled by Progressive Results (live
+// per-provider status in capture.tsx) rather than an artificially short
+// deadline. A timed-out provider still simply abstains rather than blocking
+// the scan (see withTimeout below).
+const PROVIDER_TIMEOUT_MS = 45_000;
 const SIGNED_URL_TTL_SECONDS = 60 * 10; // long enough for every provider call
 
 // Auto Scan Lock threshold — the ensemble confidence at/above which the mobile
