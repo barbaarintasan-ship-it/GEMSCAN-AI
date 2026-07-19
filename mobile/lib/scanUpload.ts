@@ -10,6 +10,7 @@ import { decode } from "base64-arraybuffer";
 import * as FileSystem from "expo-file-system";
 import * as ImageManipulator from "expo-image-manipulator";
 import { supabase } from "./supabase";
+import i18n from "./i18n";
 import type { BoundingBox, CoarseClassification } from "./onDeviceDetection";
 import type { QualityAssessment } from "../components/ImageProcessorGL";
 
@@ -259,6 +260,14 @@ export async function runOrchestration(
   } = await supabase.auth.getSession();
   if (!session) throw new Error("Must be signed in to run a scan");
 
+  // The app's current display language — read directly from the shared i18n
+  // instance (not passed in by the caller) so it's always accurate regardless
+  // of which screen calls runOrchestration, and controls what language the AI
+  // writes its narrative explanation text in (see orchestrate-scan's
+  // promptShared.ts). The identification label itself always stays in its
+  // canonical scientific/English form regardless of this setting.
+  const lang: "en" | "so" = i18n.language === "so" ? "so" : "en";
+
   const res = await fetch(`${FUNCTIONS_URL}/orchestrate-scan`, {
     method: "POST",
     headers: {
@@ -268,7 +277,7 @@ export async function runOrchestration(
     // scanType decides cost server-side: "standard" = one cheap model,
     // "deep" = the metered 3-AI ensemble (spends a Deep Scan credit).
     // explanationStyle is the user's Dual Explanation Mode preference.
-    body: JSON.stringify({ scanId, onDeviceHint, scanType, explanationStyle }),
+    body: JSON.stringify({ scanId, onDeviceHint, scanType, explanationStyle, lang }),
     signal,
   });
 

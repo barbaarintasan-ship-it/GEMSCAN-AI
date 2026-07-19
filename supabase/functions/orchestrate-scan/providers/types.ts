@@ -29,6 +29,14 @@ export type ProviderInput = {
   // BOTH a Simple and an Expert explanation regardless, so History/PDF can
   // switch later, but give this one the most depth/care.
   explanationStyle: "simple" | "expert";
+  // The app's current display language. Controls what language the
+  // narrative/explanation text (reasoning, simpleExplanation,
+  // expertExplanation prose fields, imageObservations, warnings,
+  // recommendations) is written in — NOT the identification `label` itself,
+  // which always stays in its canonical scientific/English form (see
+  // promptShared.ts) so the rest of the app (keyword matching, valuation
+  // lookups, hallmark matching) keeps working unchanged.
+  lang: "en" | "so";
   // service_role-scoped client, for providers that need to query reference
   // data (e.g. hallmark OCR matching against `reference_hallmarks`). Never
   // exposed to, or created by, the mobile app.

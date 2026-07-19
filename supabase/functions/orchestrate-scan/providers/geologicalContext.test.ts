@@ -13,6 +13,7 @@ function mockInput(location: { lat: number; lng: number }): ProviderInput {
     onDeviceHint: null,
     location,
     explanationStyle: "simple",
+    lang: "en",
     // deno-lint-ignore no-explicit-any
     serviceClient: {} as any,
   };

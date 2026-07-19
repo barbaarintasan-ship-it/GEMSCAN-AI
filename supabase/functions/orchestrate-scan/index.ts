@@ -96,6 +96,10 @@ export async function handleRequest(req: Request): Promise<Response> {
     // for any missing/malformed value so it can never fail a scan.
     const explanationStyle: "simple" | "expert" =
       requestBody?.explanationStyle === "expert" ? "expert" : "simple";
+    // The app's current display language — controls what language the AI
+    // writes its narrative explanation text in (see ProviderInput.lang).
+    // Defaults to English for any missing/malformed value.
+    const lang: "en" | "so" = requestBody?.lang === "so" ? "so" : "en";
     if (!scanId || typeof scanId !== "string") {
       return jsonResponse({ error: "Missing or invalid scanId" }, 400);
     }
@@ -103,6 +107,7 @@ export async function handleRequest(req: Request): Promise<Response> {
       scanId,
       scanType,
       explanationStyle,
+      lang,
       hasOnDeviceHint: onDeviceHint !== null,
     });
 
@@ -238,6 +243,7 @@ export async function handleRequest(req: Request): Promise<Response> {
         images,
         onDeviceHint,
         explanationStyle,
+        lang,
         serviceClient,
         ensembleScansEnabled,
       });
@@ -282,6 +288,10 @@ export async function processScan(params: {
   // handleRequest for any missing/malformed value; threaded through the same
   // way onDeviceHint is.
   explanationStyle?: "simple" | "expert";
+  // The app's display language for this scan. Defaults to "en" in
+  // handleRequest for any missing/malformed value; threaded through the same
+  // way onDeviceHint/explanationStyle are.
+  lang?: "en" | "so";
   serviceClient: SupabaseClient;
   ensembleScansEnabled: boolean;
   // Optional override of the real provider registry, so tests can exercise
@@ -295,6 +305,7 @@ export async function processScan(params: {
     images,
     onDeviceHint,
     explanationStyle = "simple",
+    lang = "en",
     serviceClient,
     ensembleScansEnabled,
     providers,
@@ -340,6 +351,7 @@ export async function processScan(params: {
     onDeviceHint,
     location: (scan.capture_location as ProviderInput["location"]) ?? null,
     explanationStyle,
+    lang,
     serviceClient,
   };
 

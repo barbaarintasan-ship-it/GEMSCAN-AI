@@ -374,6 +374,26 @@ Deno.test("processScan: threads the caller-supplied onDeviceHint through to prov
   assertEquals(seenHint, { label: "quartz", confidence: 0.42 });
 });
 
+Deno.test("processScan: threads the caller-supplied lang through to provider input, defaulting to 'en'", async () => {
+  const { client } = createMockServiceClient();
+  let seenLang: ProviderInput["lang"] | undefined;
+  const providers: VisionProvider[] = [
+    mockProvider({
+      name: "gemini_vision",
+      identify: async (input: ProviderInput) => {
+        seenLang = input.lang;
+        return { provider: "gemini_vision", candidate: null, alternatives: [], reasoning: "", latencyMs: 1 };
+      },
+    }),
+  ];
+
+  await processScan(baseParams({ serviceClient: client, providers }));
+  assertEquals(seenLang, "en");
+
+  await processScan(baseParams({ serviceClient: client, providers, lang: "so" }));
+  assertEquals(seenLang, "so");
+});
+
 Deno.test("processScan: returns the backend auto-lock threshold (default 0.95)", async () => {
   const { client } = createMockServiceClient();
   const providers: VisionProvider[] = [mockProvider({ name: "gemini_vision" })];

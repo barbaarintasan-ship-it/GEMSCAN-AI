@@ -29,6 +29,31 @@ export function buildIdentificationPrompt(input: ProviderInput): string {
       `. You may use this to favor geologically/geographically plausible candidates.`
     : "No location was supplied.";
   const preferredStyle = input.explanationStyle === "expert" ? "Expert" : "Simple";
+  const isSomali = input.lang === "so";
+
+  // Every NARRATIVE/prose field (reasoning, simpleExplanation, expertExplanation's
+  // prose fields, imageObservations, warnings, recommendations) must be written
+  // in the app's display language. The identification `label`/`alternatives[].label`
+  // are deliberately EXCLUDED from this — they stay in canonical scientific/English
+  // form no matter the language, because the rest of the app (keyword matching,
+  // market-value lookups, hallmark matching, PDF/report generation) depends on
+  // that label being stable and comparable across scans.
+  const languageInstruction = isSomali
+    ? `Write ALL narrative/explanation text — "reasoning", "simpleExplanation", every prose field \
+inside "expertExplanation" (mineralSpecies/variety may keep the scientific name, but \
+diagnosticCharacteristics/geologicalOrigin/commonTreatments/syntheticIndicators/commonImitations/\
+confidenceReasoning/recommendedLabTests/marketDemand/wholesaleEstimate/retailEstimate/\
+investmentConsiderations must be full Somali sentences), "imageObservations", "warnings", and \
+"recommendations" — in clear, natural SOMALI. Do NOT write these fields in English. \
+Short technical values that are language-agnostic (e.g. "mohsHardness": "7", \
+"chemicalComposition": "SiO2", "refractiveIndex": "1.54-1.55") may stay as their standard \
+scientific notation. When using a technical/scientific term that has no natural Somali \
+equivalent, keep the international term and add a brief Somali gloss in parentheses, e.g. \
+"Tusmada jabinta iftiinka (Refractive Index)" or "Cufnaanta gaarka ah (Specific Gravity)". \
+The "label" field and every "alternatives[].label" field must STILL be the specimen's \
+canonical scientific/common name in English (e.g. "Quartz", "Diamond") — never translate \
+those two fields, even though everything else is in Somali.`
+    : `Write all narrative/explanation text in clear English.`;
 
   return `You are a gemology/mineralogy/numismatics identification assistant for GemScan AI, \
 a consumer app for identifying NATURALLY OCCURRING or otherwise physical specimens: \
@@ -45,15 +70,17 @@ confidence and say so in your reasoning. Do not claim certified appraisal-grade 
 you are not a substitute for GIA/AGL certification, XRF analysis, or treatment/synthetic \
 detection, and you must not attempt to determine natural-vs-synthetic origin.
 
+${languageInstruction}
+
 The user's preferred explanation style for this scan is: ${preferredStyle}. Write BOTH \
 "simpleExplanation" and "expertExplanation" below regardless — the app may let the user switch \
 views later — but give the ${preferredStyle} one your most depth and care.
 
 For "simpleExplanation": write as if explaining to a curious 12-year-old with no gemology \
-background, in plain English, 4-8 short sentences. Cover: what this object probably is, why you \
-think that (in simple terms), whether it's common or rare, whether it might be valuable, whether \
-extra testing is recommended, one simple care tip, and — if you are not very confident — a simple \
-warning about that uncertainty.
+background, in plain, everyday language, 4-8 short sentences. Cover: what this object probably \
+is, why you think that (in simple terms), whether it's common or rare, whether it might be \
+valuable, whether extra testing is recommended, one simple care tip, and — if you are not very \
+confident — a simple warning about that uncertainty.
 
 For "expertExplanation": write for gemologists, collectors, dealers, and jewelry professionals, \
 using proper technical terminology, no oversimplification. Fill in every field below as \

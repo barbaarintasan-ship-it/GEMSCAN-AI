@@ -40,6 +40,7 @@ function mockInput(queryCount: { n: number }): ProviderInput {
     onDeviceHint: null,
     location: null,
     explanationStyle: "simple",
+    lang: "en",
     serviceClient,
   };
 }
