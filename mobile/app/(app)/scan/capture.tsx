@@ -20,6 +20,10 @@ import { useKeepAwake } from "expo-keep-awake";
 import { ImageProcessorGL, type ImageProcessorHandle } from "../../../components/ImageProcessorGL";
 import { detectSpecimenBoundingBox, classifyCoarse } from "../../../lib/onDeviceDetection";
 import { segmentBackground } from "../../../lib/backgroundSegmentation";
+// Smart Capture quality gate reads the shared on-device GL health flag so it
+// only HARD-rejects a shot when the GL quality check is actually reliable on
+// this device (never modifies GL — read-only).
+import { diag } from "../../../lib/diagnostics";
 import { getPreciseLocation } from "../../../lib/location";
 import { supabase } from "../../../lib/supabase";
 import {
@@ -66,35 +70,59 @@ function isHighValueHint(hint: CoarseClassification | null): boolean {
 import { UpgradePrompt } from "../../../components/UpgradePrompt";
 
 type AngleStep = {
+  // Reuses one of the existing DB-allowed angle keys (scan_images.angle CHECK
+  // constraint), so the new guided vocabulary needs NO schema change — only the
+  // user-facing label/instructions/behavior differ from the old raw angles.
   key: CapturedAngleImage["angle"];
   label: string;
   labelSo: string;
   instructions: string;
   instructionsSo: string;
+  // Light Reaction shot: enable the camera torch while this step is active.
+  torch?: boolean;
   optional?: boolean;
 };
 
+// Smart Capture: 5 purposeful evidence shots (Standard mode). Each targets a
+// specific gemological signal so the AI gets high-value images rather than 8
+// quick same-y ones. Keys map onto existing allowed angle values
+// (front/back/left/right/macro) — no migration.
 const ANGLE_STEPS: AngleStep[] = [
-  { key: "front", label: "Front", labelSo: "Hore", instructions: "Center the specimen, facing the camera.", instructionsSo: "Shayga dhexda dhig, kamerada u soo jeedi." },
-  { key: "back", label: "Back", labelSo: "Dambe", instructions: "Flip it around — capture the back.", instructionsSo: "Gadaal u rog — qaad dhabarka." },
-  { key: "left", label: "Left side", labelSo: "Dhinaca bidix", instructions: "Rotate 90° left.", instructionsSo: "90° bidix u rog." },
-  { key: "right", label: "Right side", labelSo: "Dhinaca midig", instructions: "Rotate 90° right.", instructionsSo: "90° midig u rog." },
-  { key: "top", label: "Top", labelSo: "Dusha", instructions: "Shoot straight down from above.", instructionsSo: "Kor ka soo sawir." },
-  { key: "bottom", label: "Bottom", labelSo: "Hoosta", instructions: "Shoot straight up from below.", instructionsSo: "Hoos ka soo sawir." },
   {
-    key: "macro",
-    label: "Macro close-up",
-    labelSo: "Dhow (macro)",
-    instructions: "Get as close as your camera allows — this helps with fine detail and hallmarks.",
-    instructionsSo: "U soo dhawow inta kamerada ku ogolaato — tani waxay caawisaa faahfaahinta iyo calaamadaha.",
+    key: "front",
+    label: "Natural Light — Main View",
+    labelSo: "Iftiin Dabiici — Muuqaal Guud",
+    instructions: "Place the gemstone in good natural light and capture the main view. Keep it centered; avoid strong shadows and reflections.",
+    instructionsSo: "Dhagaxa dhig iftiin dabiici ah oo wanaagsan, qaad muuqaalka guud. Dhexda ku hay; ka fogow hoos-dhaca iyo dhalaalka xoogga leh.",
   },
   {
-    key: "wet",
-    label: "Wet (optional)",
-    labelSo: "Qoyan (ikhtiyaari)",
-    instructions: "Wetting some specimens reveals truer color/luster. Optional — you can skip this.",
-    instructionsSo: "Qoyaanku wuxuu muujiyaa midab iyo dhalaal dhab ah. Ikhtiyaari — waad ka boodi kartaa.",
-    optional: true,
+    key: "back",
+    label: "Side / Bottom View",
+    labelSo: "Dhinaca / Hoosta",
+    instructions: "Rotate the gemstone and capture the side or bottom — this shows thickness, edges, transparency and depth.",
+    instructionsSo: "Dhagaxa rog oo qaad dhinaca ama hoosta — tani waxay muujinaysaa dhumucda, geesaha, hufnaanta iyo mooddada.",
+  },
+  {
+    key: "left",
+    label: "45° Angle View",
+    labelSo: "Xagal 45°",
+    instructions: "Tilt to about a 45° angle — captures luster, cut quality and how light behaves on the surface.",
+    instructionsSo: "U janjeedhi qiyaastii 45° — waxay qabataa dhalaalka, tayada goynta iyo sida iftiinku dusha ugu dhaqmo.",
+  },
+  {
+    key: "right",
+    label: "Light Reaction Test",
+    labelSo: "Tijaabada Iftiinka",
+    torch: true,
+    instructions: "The camera light is ON. Capture from a slight angle to reveal sparkle, star/cat's-eye or moonstone effects — avoid a direct glare covering the stone.",
+    instructionsSo: "Iftiinka kamarada waa SHIDAN. Qaad xagal yar si aad u muujiso dhalaalka, saamaynta xiddig/il-bisad ama dayax-dhagax — ka fogow dhalaal toos ah oo dhagaxa daboola.",
+  },
+  {
+    key: "macro",
+    label: "Macro Close-Up",
+    labelSo: "Macro — Dhow",
+    instructions: "Move in close and capture fine surface detail — inclusions, fractures and texture. Hold steady until it looks sharp.",
+    instructionsSo: "U soo dhawow oo qaad faahfaahinta dusha — daldaloolo, jab iyo qaraar. Si adag u hay ilaa ay caddaato.",
   },
 ];
 
@@ -141,6 +169,9 @@ export default function CaptureScreen() {
   const [isBusy, setIsBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState("");
   const [retakeReason, setRetakeReason] = useState<string | null>(null);
+  // Smart Capture quality gate: when a shot is hard-rejected, this drives the
+  // big centered on-camera message ("IMAGE NOT CLEAR", "IMPROVE LIGHTING"…).
+  const [gateMessage, setGateMessage] = useState<{ title: string; hint: string } | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [stage, setStage] = useState<"preparing" | "analyzing" | "finalizing">("preparing");
 
@@ -232,6 +263,7 @@ export default function CaptureScreen() {
     if (!cameraRef.current || !imageProcessorRef.current) return;
     setIsBusy(true);
     setRetakeReason(null);
+    setGateMessage(null);
 
     try {
       setBusyLabel(L("Checking photo quality…", "Tayada sawirka waa la hubinayaa…"));
@@ -248,10 +280,35 @@ export default function CaptureScreen() {
 
       const quality = await imageProcessorRef.current.assessQuality(photo.uri);
 
-      // Quality is ADVISORY only — never block the capture. The on-device GL
-      // quality check is unreliable on some devices (it can wrongly report a
-      // well-lit, sharp photo as "blurry / too dark"), and a false block makes
-      // the app unusable. We keep the photo; the cloud AI judges the real image.
+      // Smart Capture HYBRID quality gate. We HARD-reject a genuinely unusable
+      // shot (blurry / too dark / blown out) and ask for a retake — BUT only
+      // when the on-device GL quality check is actually reliable on this device.
+      // If GL is disabled/unreliable (assessQuality latched off → passthrough),
+      // we fall back to the original ADVISORY behavior and keep the photo, so a
+      // false block can never make the app unusable on weak devices (the same
+      // reason this used to be advisory-only). Thresholds are the existing,
+      // deliberately-permissive ones, so only truly bad frames are rejected.
+      if (!diag.isGpuDisabled()) {
+        if (quality.blurry) {
+          setGateMessage({
+            title: L("IMAGE NOT CLEAR", "SAWIRKU MA CADDA"),
+            hint: L("Hold the camera steady and try again.", "Kamarada si adag u hay oo mar kale isku day."),
+          });
+          return; // rejected — do not save; user retakes this shot
+        }
+        // Skip the lighting check on the torch step — the light legitimately
+        // brightens the frame there.
+        if (!currentStep.torch && (quality.lowLight || quality.overexposed)) {
+          setGateMessage({
+            title: L("IMPROVE LIGHTING", "HAGAAJI IFTIINKA"),
+            hint: quality.overexposed
+              ? L("Too bright — reduce glare and reflections.", "Aad u dhalaalaya — yaree dhalaalka.")
+              : L("Too dark — move to better light.", "Aad u madow — u guur iftiin fiican."),
+          });
+          return; // rejected — do not save; user retakes this shot
+        }
+      }
+
       setBusyLabel(L("Enhancing photo…", "Sawirka waa la wanaajinayaa…"));
       const [detectionBbox, enhanced] = await Promise.all([
         detectSpecimenBoundingBox(photo.uri),
@@ -456,9 +513,8 @@ export default function CaptureScreen() {
         {stepIndex === 0 && <ScanTipsCard />}
 
         <Text style={styles.stepCounter}>
-          {L("Step", "Tallaabo")} {stepIndex + 1} {L("of", "ee")} {ANGLE_STEPS.length}: {so ? currentStep.labelSo : currentStep.label}
+          {L("Step", "Tallaabo")} {stepIndex + 1} {L("of", "ee")} {ANGLE_STEPS.length}
         </Text>
-        <Text style={styles.body}>{so ? currentStep.instructionsSo : currentStep.instructions}</Text>
 
         <View style={styles.cameraWrapper}>
           {isFocused ? (
@@ -466,6 +522,7 @@ export default function CaptureScreen() {
               ref={cameraRef}
               style={styles.camera}
               facing="back"
+              enableTorch={currentStep.torch === true}
               onCameraReady={() => {
                 cameraReadyRef.current = true;
               }}
@@ -474,6 +531,34 @@ export default function CaptureScreen() {
             <View style={[styles.camera, styles.cameraPlaceholder]}>
               <ActivityIndicator color="#C9A227" />
             </View>
+          )}
+
+          {/* Torch-on chip for the Light Reaction shot. */}
+          {currentStep.torch && !gateMessage && (
+            <View style={styles.torchChip} pointerEvents="none">
+              <Text style={styles.torchChipText}>💡 {L("LIGHT ON", "IFTIIN SHIDAN")}</Text>
+            </View>
+          )}
+
+          {/* Quality-gate reject message — large, high-contrast, centered so the
+              user reads the required action within a second. Takes precedence
+              over the guidance below. */}
+          {gateMessage ? (
+            <View style={styles.gateOverlay} pointerEvents="none">
+              <View style={styles.gateBadge}>
+                <Text style={styles.gateTitle}>{gateMessage.title}</Text>
+                <Text style={styles.gateHint}>{gateMessage.hint}</Text>
+              </View>
+            </View>
+          ) : (
+            !isBusy && (
+              <View style={styles.guidanceOverlay} pointerEvents="none">
+                <Text style={styles.guidanceCue}>{so ? currentStep.labelSo : currentStep.label}</Text>
+                <Text style={styles.guidanceInstruction}>
+                  {so ? currentStep.instructionsSo : currentStep.instructions}
+                </Text>
+              </View>
+            )
           )}
         </View>
 
@@ -545,6 +630,59 @@ const styles = StyleSheet.create({
   },
   camera: { flex: 1 },
   cameraPlaceholder: { alignItems: "center", justifyContent: "center", backgroundColor: "#000" },
+  // Large, high-contrast live guidance anchored to the lower-middle of the
+  // camera (not tiny text at the top edge), readable in about a second.
+  guidanceOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  guidanceCue: {
+    color: "#FFFFFF",
+    fontSize: 22,
+    fontWeight: "900",
+    textAlign: "center",
+    letterSpacing: 0.4,
+    textShadowColor: "rgba(0,0,0,0.9)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  guidanceInstruction: {
+    color: "#F0F0F0",
+    fontSize: 13.5,
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: 4,
+    textShadowColor: "rgba(0,0,0,0.9)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  // Quality-gate reject banner — centered, unmissable.
+  gateOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", padding: 20 },
+  gateBadge: {
+    backgroundColor: "rgba(196,40,40,0.94)",
+    borderRadius: 18,
+    paddingVertical: 18,
+    paddingHorizontal: 22,
+    alignItems: "center",
+  },
+  gateTitle: { color: "#FFFFFF", fontSize: 26, fontWeight: "900", textAlign: "center", letterSpacing: 0.5 },
+  gateHint: { color: "#FFFFFF", fontSize: 14.5, fontWeight: "700", textAlign: "center", marginTop: 6 },
+  torchChip: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    backgroundColor: "rgba(201,162,39,0.92)",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  torchChipText: { color: "#0B0B0C", fontWeight: "900", fontSize: 12, letterSpacing: 0.4 },
   errorText: { color: "#E4685D", fontSize: 13 },
   busyRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   primaryButton: {
