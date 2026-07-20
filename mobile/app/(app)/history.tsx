@@ -75,6 +75,118 @@ function historyCacheKey(userId: string): string {
   return `gemscan.cache.history.v1:${userId}`;
 }
 
+// A HistoryItem enriched (once, in a memo) with its precomputed display line
+// and formatted date/time strings — see itemsWithLine.
+type HistoryListItem = HistoryItem & {
+  line: { text: string; muted: boolean };
+  dateText: string;
+  timeText: string;
+};
+
+// B3: one memoized row. Because it's React.memo'd and receives per-row booleans
+// (isDeleting/isPdfBusy) rather than the shared deletingId/pdfBusyId, changing
+// the delete/PDF-busy state of ONE row (or typing in search) re-renders only
+// the affected row instead of every mounted row. All other props (item,
+// handlers) are referentially stable, so unaffected rows bail out.
+const HistoryRow = React.memo(function HistoryRow({
+  item,
+  editMode,
+  isDeleting,
+  isPdfBusy,
+  canPdf,
+  so,
+  onOpen,
+  onDelete,
+  onGeneratePdf,
+}: {
+  item: HistoryListItem;
+  editMode: boolean;
+  isDeleting: boolean;
+  isPdfBusy: boolean;
+  canPdf: boolean;
+  so: boolean;
+  onOpen: (id: string) => void;
+  onDelete: (id: string, label: string) => void;
+  onGeneratePdf: (id: string) => void;
+}) {
+  const line = item.line;
+  const fr = item.final_result;
+  const showConfidence = !line.muted && fr;
+
+  return (
+    <Pressable
+      style={styles.itemCard}
+      onPress={() => (editMode ? undefined : onOpen(item.id))}
+      disabled={editMode}
+    >
+      {item.thumbnailUrl ? (
+        <Image source={{ uri: item.thumbnailUrl }} style={styles.thumb} />
+      ) : (
+        <View style={[styles.thumb, styles.thumbPlaceholder]}>
+          <Ionicons name="diamond-outline" size={22} color="#8A8A8E" />
+        </View>
+      )}
+
+      <View style={styles.itemBody}>
+        <Text style={[styles.itemTitle, line.muted && styles.itemTitleMuted]} numberOfLines={1}>
+          {line.text}
+        </Text>
+        <View style={styles.metaRow}>
+          {showConfidence && fr && (
+            <ConfidenceBadge pct={fr.confidenceScore * 100} band={fr.confidenceBand} size="sm" />
+          )}
+          <Text style={styles.dateText}>
+            {item.dateText} · {item.timeText}
+          </Text>
+          {item.location && (
+            <View style={styles.locChip}>
+              <Ionicons name="location" size={11} color="#2EE66E" />
+            </View>
+          )}
+        </View>
+      </View>
+
+      {editMode ? (
+        <Pressable
+          style={styles.rowDeleteBtn}
+          onPress={() => onDelete(item.id, line.text)}
+          disabled={isDeleting}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={so ? "Tirtir baaristan" : "Delete this scan"}
+        >
+          {isDeleting ? (
+            <ActivityIndicator color="#F5B3B3" size="small" />
+          ) : (
+            <Ionicons name="trash-outline" size={20} color="#F5B3B3" />
+          )}
+        </Pressable>
+      ) : (
+        <>
+          {canPdf && !line.muted && (
+            <Pressable
+              style={styles.rowPdfBtn}
+              onPress={() => onGeneratePdf(item.id)}
+              disabled={isPdfBusy}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={so ? "Samee warbixin PDF" : "Generate PDF report"}
+            >
+              {isPdfBusy ? (
+                <ActivityIndicator color="#C9A227" size="small" />
+              ) : (
+                <Ionicons name="document-text-outline" size={20} color="#C9A227" />
+              )}
+            </Pressable>
+          )}
+
+          <Ionicons name="chevron-forward" size={20} color="#8A8A8E" />
+        </>
+      )}
+    </Pressable>
+  );
+});
+
 export default function HistoryScreen() {
   const { t, i18n } = useTranslation();
   const so = i18n.language === "so";
@@ -302,10 +414,25 @@ export default function HistoryScreen() {
     return { text: fr.bestMatch, muted: false };
   }
 
-  // Compute each item's display line ONCE per items/language change, rather
-  // than recomputing it again in every renderItem call for every visible row.
-  const itemsWithLine = useMemo(
-    () => items.map((item) => ({ ...item, line: resultLine(item) })),
+  // Compute each item's display line AND its formatted date/time ONCE per
+  // items/language change, rather than recomputing them again in every
+  // renderItem call for every visible row (B4: toLocaleDate/TimeString are
+  // comparatively expensive Intl calls at 100 rows).
+  const itemsWithLine = useMemo<HistoryListItem[]>(
+    () =>
+      items.map((item) => {
+        const when = new Date(item.created_at);
+        return {
+          ...item,
+          line: resultLine(item),
+          dateText: when.toLocaleDateString(undefined, {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+          }),
+          timeText: when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
+        };
+      }),
     // resultLine is a plain function redefined every render (uses t());
     // adding it here would defeat the memo since it'd never be stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -320,102 +447,31 @@ export default function HistoryScreen() {
     return itemsWithLine.filter((item) => item.line.text.toLowerCase().includes(q));
   }, [itemsWithLine, query]);
 
-  const renderItem = useCallback(({ item }: { item: (typeof itemsWithLine)[number] }) => {
-    const line = item.line;
-    const fr = item.final_result;
-    const showConfidence = !line.muted && fr;
-    const when = new Date(item.created_at);
-    const date = when.toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-    const time = when.toLocaleTimeString(undefined, {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+  // Stable open handler so the memoized rows don't see a new prop each render.
+  const onOpenResult = useCallback(
+    (id: string) => router.push({ pathname: "/(app)/scan/results", params: { scanId: id } }),
+    [router],
+  );
 
-    return (
-      <Pressable
-        style={styles.itemCard}
-        onPress={() =>
-          editMode
-            ? undefined
-            : router.push({ pathname: "/(app)/scan/results", params: { scanId: item.id } })
-        }
-        disabled={editMode}
-      >
-        {item.thumbnailUrl ? (
-          <Image source={{ uri: item.thumbnailUrl }} style={styles.thumb} />
-        ) : (
-          <View style={[styles.thumb, styles.thumbPlaceholder]}>
-            <Ionicons name="diamond-outline" size={22} color="#8A8A8E" />
-          </View>
-        )}
-
-        <View style={styles.itemBody}>
-          <Text style={[styles.itemTitle, line.muted && styles.itemTitleMuted]} numberOfLines={1}>
-            {line.text}
-          </Text>
-          <View style={styles.metaRow}>
-            {showConfidence && fr && (
-              <ConfidenceBadge pct={fr.confidenceScore * 100} band={fr.confidenceBand} size="sm" />
-            )}
-            <Text style={styles.dateText}>
-              {date} · {time}
-            </Text>
-            {item.location && (
-              <View style={styles.locChip}>
-                <Ionicons name="location" size={11} color="#2EE66E" />
-              </View>
-            )}
-          </View>
-        </View>
-
-        {editMode ? (
-          // Manage mode: a destructive delete control replaces the row's tap-
-          // to-open affordance (and the PDF button) to keep the intent clear.
-          <Pressable
-            style={styles.rowDeleteBtn}
-            onPress={() => onDeleteScan(item.id, line.text)}
-            disabled={deletingId === item.id}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={so ? "Tirtir baaristan" : "Delete this scan"}
-          >
-            {deletingId === item.id ? (
-              <ActivityIndicator color="#F5B3B3" size="small" />
-            ) : (
-              <Ionicons name="trash-outline" size={20} color="#F5B3B3" />
-            )}
-          </Pressable>
-        ) : (
-          <>
-            {/* Pro-only: generate the same professional PDF report for this
-                saved scan (loads the latest data at generation time). */}
-            {canPdf && !line.muted && (
-              <Pressable
-                style={styles.rowPdfBtn}
-                onPress={() => onGeneratePdf(item.id)}
-                disabled={pdfBusyId === item.id}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel={so ? "Samee warbixin PDF" : "Generate PDF report"}
-              >
-                {pdfBusyId === item.id ? (
-                  <ActivityIndicator color="#C9A227" size="small" />
-                ) : (
-                  <Ionicons name="document-text-outline" size={20} color="#C9A227" />
-                )}
-              </Pressable>
-            )}
-
-            <Ionicons name="chevron-forward" size={20} color="#8A8A8E" />
-          </>
-        )}
-      </Pressable>
-    );
-  }, [router, canPdf, pdfBusyId, onGeneratePdf, so, editMode, deletingId, onDeleteScan]);
+  // B3: renderItem now delegates to the memoized HistoryRow. Passing per-row
+  // booleans (deletingId/pdfBusyId compared to item.id) means a state change on
+  // one row only re-renders that row; the rest bail out via React.memo.
+  const renderItem = useCallback(
+    ({ item }: { item: HistoryListItem }) => (
+      <HistoryRow
+        item={item}
+        editMode={editMode}
+        isDeleting={deletingId === item.id}
+        isPdfBusy={pdfBusyId === item.id}
+        canPdf={canPdf}
+        so={so}
+        onOpen={onOpenResult}
+        onDelete={onDeleteScan}
+        onGeneratePdf={onGeneratePdf}
+      />
+    ),
+    [editMode, deletingId, pdfBusyId, canPdf, so, onOpenResult, onDeleteScan, onGeneratePdf],
+  );
 
   // Hooks must run unconditionally on every render — declared here, before
   // the loading/error/empty early returns below.
@@ -467,6 +523,15 @@ export default function HistoryScreen() {
       data={filteredItems}
       keyExtractor={(item) => item.id}
       renderItem={renderItem}
+      // B5: windowing for a list of up to 100 image rows. Conservative values
+      // that only limit how much is mounted/rendered ahead — no getItemLayout
+      // (rows use flex `gap` spacing + slightly variable height, so a fixed
+      // offset formula would risk scroll glitches; not worth the risk here).
+      initialNumToRender={8}
+      maxToRenderPerBatch={8}
+      windowSize={11}
+      updateCellsBatchingPeriod={50}
+      removeClippedSubviews
       ListHeaderComponent={
         <View style={styles.header}>
           <View style={styles.headerTop}>
