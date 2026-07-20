@@ -20,6 +20,31 @@ export function buildHighValueReportPaymentUrl(purchaseId: string, method: "mobi
   return `${HIGH_VALUE_REPORT_PAYMENT_URL}?ref=${encodeURIComponent(purchaseId)}&method=${method}`;
 }
 
+// Placeholder destination for the $5 Gold Verification Report paywall (see
+// app/(app)/scan/verify-gold.tsx) — a separate page/plugin from the report
+// above, same "app never charges anyone" rule.
+export const GOLD_REPORT_PAYMENT_URL =
+  process.env.EXPO_PUBLIC_GOLD_REPORT_PAYMENT_URL ??
+  "https://barbaarintasan.com/gemscan-gold-report-payment";
+
+// `purchaseId` is the gold_report_purchases row id.
+export function buildGoldReportPaymentUrl(purchaseId: string, method: "mobile" | "card"): string {
+  return `${GOLD_REPORT_PAYMENT_URL}?ref=${encodeURIComponent(purchaseId)}&method=${method}`;
+}
+
+// Destination for the $10 Artifact Verification Report paywall (see
+// app/(app)/scan/verify-artifact.tsx) — its own page/plugin, same "app never
+// charges anyone" rule. The live WordPress page uses the slug
+// `artifact-verification-report`.
+export const ARTIFACT_REPORT_PAYMENT_URL =
+  process.env.EXPO_PUBLIC_ARTIFACT_REPORT_PAYMENT_URL ??
+  "https://barbaarintasan.com/artifact-verification-report";
+
+// `purchaseId` is the artifact_report_purchases row id.
+export function buildArtifactReportPaymentUrl(purchaseId: string, method: "mobile" | "card"): string {
+  return `${ARTIFACT_REPORT_PAYMENT_URL}?ref=${encodeURIComponent(purchaseId)}&method=${method}`;
+}
+
 // Apple App Store Guideline 3.1.1 forbids unlocking in-app digital content via
 // an EXTERNAL purchase flow or steering users to it (buttons, links, or even
 // "subscribe on our website" wording). Since GemScan intentionally sells its

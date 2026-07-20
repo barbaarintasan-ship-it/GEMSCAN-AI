@@ -76,6 +76,10 @@
     "processing": "Waa la falanqaynayaa…",
     "failed": "Iskaanku wuu fashilmay",
     "noResult": "Ma jiro natiijo la hubo",
-    "loadError": "Iskaannadaada lama soo rari karin."
+    "loadError": "Iskaannadaada lama soo rari karin.",
+    "offlineShowingSaved": "Internet ma jiro — waxaa la muujinayaa xogtii kaydsanayd {{age}}",
+    "refreshFailedShowingSaved": "Lama cusboonaysiin karin — waxaa la muujinayaa xogtii kaydsanayd {{age}}",
+    "offlineDetailUnavailableTitle": "Lama heli karo marka internet-ku maqan yahay",
+    "offlineDetailUnavailableHint": "Iskaankan hore uma furin marka internet-ku maqnaa, sidaas darteed wax lagu kaydiyay qalabkan wali ma jiraan."
   }
 }

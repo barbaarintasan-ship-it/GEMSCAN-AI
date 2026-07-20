@@ -13,6 +13,7 @@ import ViewShot from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
 import { useTranslation } from "react-i18next";
 import { supabase } from "../../../lib/supabase";
+import { useAuth } from "../../../lib/auth";
 import { submitScanFeedback } from "../../../lib/scanUpload";
 import { INSUFFICIENT_CONFIDENCE_MESSAGE_TEXT } from "../../../lib/constants";
 import { estimateValue, type Valuation } from "../../../lib/valuation";
@@ -21,10 +22,22 @@ import { useSubscriptionStatus } from "../../../lib/subscription";
 import { generateAndSharePdf, type PdfReportData } from "../../../lib/pdfReport";
 import type { ExplanationStyle, ExpertExplanationDTO } from "../../../lib/scanUpload";
 import { EXTERNAL_PURCHASES_ENABLED, PAYMENT_URL } from "../../../lib/appLinks";
+import {
+  readCachedJson,
+  writeCachedJson,
+  removeCachedJson,
+  cacheImageFile,
+  localImageUriIfCached,
+  deleteCachedImage,
+  formatCacheAge,
+} from "../../../lib/offlineCache";
+import { useIsOnline } from "../../../lib/network";
 import LocationMap from "../../../components/LocationMap";
 import { Card } from "../../../components/ui/Card";
 import { ConfidenceBadge } from "../../../components/ui/ConfidenceBadge";
 import { Button } from "../../../components/ui/Button";
+import { EmptyState } from "../../../components/ui/EmptyState";
+import { OfflineBanner } from "../../../components/ui/OfflineBanner";
 import { colors, spacing, radius, type as typo } from "../../../lib/theme";
 
 type ScanCandidate = {
@@ -40,6 +53,7 @@ type ScanRow = {
   status: string;
   created_at: string;
   capture_location: { lat: number; lng: number; acc?: number } | null;
+  specimen_category: string | null;
   final_result: {
     bestMatch: string | null;
     confidenceScore: number;
@@ -95,17 +109,58 @@ const BAND_COLOR: Record<string, string> = {
 // on screen.
 const DIAMOND_FAMILY_KEYWORDS = ["diamond", "moissanite", "white sapphire", "cubic zirconia", "zircon"];
 
+// Gold Verification Mode trigger: label keywords covering native gold,
+// gold-bearing rock/ore/concentrate, and gold jewelry — matched the same way
+// as DIAMOND_FAMILY_KEYWORDS, no new AI call needed.
+const GOLD_FAMILY_KEYWORDS = [
+  "gold", "native gold", "gold nugget", "gold ore", "gold-bearing",
+  "gold concentrate", "electrum", "gold-plated", "gold plated", "vermeil",
+];
+
+// Artifact Verification Mode trigger: label keywords covering man-made
+// historical/archaeological objects — matched the same way as the others,
+// no new AI call needed.
+const ARTIFACT_FAMILY_KEYWORDS = [
+  "artifact", "artefact", "antiquity", "antique", "pottery", "potsherd", "sherd",
+  "ceramic", "figurine", "statuette", "relic", "inscription", "tablet", "seal",
+  "arrowhead", "carving", "amulet", "bead", "fossil tool", "ancient", "archaeological",
+];
+
+// Offline cache for a previously-viewed scan's full detail (final_result +
+// candidates + specimen photo + hallmark) — history.tsx only caches the LIST
+// (no candidates/hallmark), so a scan only becomes viewable offline here
+// after it's been opened at least once while online.
+type CachedScanDetail = {
+  cachedAt: string;
+  scan: ScanRow;
+  candidates: ScanCandidate[];
+  photoLocalUri: string | null;
+  hallmark: { marks: string[]; matchedLabel: string | null; note: string | null } | null;
+};
+const SCAN_DETAIL_CACHE_CAP = 50;
+function scanDetailCacheKey(userId: string, scanId: string): string {
+  return `gemscan.cache.scanDetail.v1:${userId}:${scanId}`;
+}
+function scanDetailIndexKey(userId: string): string {
+  return `gemscan.cache.scanDetail.index.v1:${userId}`;
+}
+
 export default function ResultsScreen() {
   const { scanId } = useLocalSearchParams<{ scanId: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const lang: "en" | "so" = i18n.language === "so" ? "so" : "en";
   const L = (en: string, so: string) => (lang === "so" ? so : en);
+  const { session } = useAuth();
+  const isOnline = useIsOnline();
 
   const [scan, setScan] = useState<ScanRow | null>(null);
   const [candidates, setCandidates] = useState<ScanCandidate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [dataSource, setDataSource] = useState<"cache" | "live">("live");
+  const [cachedAt, setCachedAt] = useState<string | null>(null);
+  const [offlineUnavailable, setOfflineUnavailable] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [valuation, setValuation] = useState<Valuation | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
@@ -128,11 +183,40 @@ export default function ResultsScreen() {
 
   useEffect(() => {
     if (!scanId) return;
+    let active = true;
     (async () => {
+      const userId = session?.user.id;
+
+      // Cache-first: if this scan was previously opened while online, render
+      // it immediately — works with zero network at all.
+      let hadCache = false;
+      if (userId) {
+        const cached = await readCachedJson<CachedScanDetail>(scanDetailCacheKey(userId, scanId));
+        if (cached && active) {
+          setScan(cached.scan);
+          setCandidates(cached.candidates);
+          if (cached.scan?.final_result?.explanationStyle) setViewStyle(cached.scan.final_result.explanationStyle);
+          if (cached.photoLocalUri) setPhotoUrl(cached.photoLocalUri);
+          setHallmark(cached.hallmark);
+          setDataSource("cache");
+          setCachedAt(cached.cachedAt);
+          setIsLoading(false);
+          hadCache = true;
+        }
+      }
+
+      if (!isOnline) {
+        if (!hadCache && active) {
+          setIsLoading(false);
+          setOfflineUnavailable(true);
+        }
+        return;
+      }
+
       const [{ data: scanData }, { data: candidateData }] = await Promise.all([
         supabase
           .from("scans")
-          .select("status, final_result, created_at, capture_location")
+          .select("status, final_result, created_at, capture_location, specimen_category")
           .eq("id", scanId)
           .maybeSingle(),
         supabase
@@ -141,9 +225,14 @@ export default function ResultsScreen() {
           .eq("scan_id", scanId)
           .order("rank", { ascending: true }),
       ]);
+      if (!active) return;
       const row = scanData as ScanRow | null;
+      const rowCandidates = (candidateData as ScanCandidate[]) ?? [];
       setScan(row);
-      setCandidates((candidateData as ScanCandidate[]) ?? []);
+      setCandidates(rowCandidates);
+      setDataSource("live");
+      setCachedAt(null);
+      setOfflineUnavailable(false);
       setIsLoading(false);
       if (row?.final_result?.explanationStyle) {
         setViewStyle(row.final_result.explanationStyle);
@@ -169,33 +258,70 @@ export default function ResultsScreen() {
           .limit(1)
           .maybeSingle(),
       ]);
+      if (!active) return;
 
       // Load one specimen photo (the front/original of the first image) for the
       // shareable card. The bucket is private, so sign the path.
       const path = (img as { original_storage_path?: string } | null)?.original_storage_path;
+      let signedPhotoUrl: string | null = null;
       if (path) {
         const { data: signed } = await supabase.storage
           .from("scan-images")
           .createSignedUrl(path, 3600);
-        if (signed?.signedUrl) setPhotoUrl(signed.signedUrl);
+        signedPhotoUrl = signed?.signedUrl ?? null;
+        if (signedPhotoUrl) setPhotoUrl(signedPhotoUrl);
       }
 
       // Hallmark data (jewelry/coins) for the PDF report — only present when the
       // hallmark OCR provider actually transcribed a mark. RLS-scoped to own scan.
+      let hallmarkValue: { marks: string[]; matchedLabel: string | null; note: string | null } | null = null;
       if (hm) {
         const raw = (hm as { raw_response?: { marks?: unknown } }).raw_response;
         const marks = Array.isArray(raw?.marks) ? (raw!.marks as string[]) : [];
         const matchedLabel = (hm as { candidate_label?: string | null }).candidate_label ?? null;
         if (marks.length > 0 || matchedLabel) {
-          setHallmark({
+          hallmarkValue = {
             marks,
             matchedLabel,
             note: (hm as { reasoning?: string | null }).reasoning ?? null,
-          });
+          };
+          setHallmark(hallmarkValue);
         }
       }
+
+      // Best-effort, fire-and-forget: persist this scan's full detail so it's
+      // still viewable offline the next time, capped to the 50 most-recently
+      // opened scans (LRU — evicts both the JSON blob and its image file).
+      if (userId && row) {
+        (async () => {
+          const photoLocalUri = signedPhotoUrl
+            ? await cacheImageFile(scanId, signedPhotoUrl)
+            : await localImageUriIfCached(scanId);
+          await writeCachedJson<CachedScanDetail>(scanDetailCacheKey(userId, scanId), {
+            cachedAt: new Date().toISOString(),
+            scan: row,
+            candidates: rowCandidates,
+            photoLocalUri,
+            hallmark: hallmarkValue,
+          });
+
+          const idxKey = scanDetailIndexKey(userId);
+          const idx = (await readCachedJson<string[]>(idxKey)) ?? [];
+          const nextIdx = [scanId, ...idx.filter((id) => id !== scanId)];
+          const evicted = nextIdx.slice(SCAN_DETAIL_CACHE_CAP);
+          await Promise.all(
+            evicted.map((id) =>
+              Promise.all([removeCachedJson(scanDetailCacheKey(userId, id)), deleteCachedImage(id)]),
+            ),
+          );
+          await writeCachedJson(idxKey, nextIdx.slice(0, SCAN_DETAIL_CACHE_CAP));
+        })().catch(() => {});
+      }
     })();
-  }, [scanId]);
+    return () => {
+      active = false;
+    };
+  }, [scanId, session?.user.id, isOnline]);
 
   // Additive market valuation — a SEPARATE Gemini call that never touches the
   // identification pipeline. Runs once per successful result.
@@ -360,6 +486,57 @@ export default function ResultsScreen() {
     return isDiamondFamily || uncertainButValuable;
   }, [scan, candidates, valuation]);
 
+  // Gold Verification Mode: offer the guided second-stage wizard when the
+  // result looks gold-family (native gold, gold-bearing rock/ore/concentrate,
+  // gold-plated), OR the item is tagged jewelry/precious_metal with less
+  // than high confidence ("suspicious jewelry" — no karat stamp visible yet,
+  // hallmark OCR runs server-side during the actual verification instead).
+  const showGoldVerification = useMemo(() => {
+    const fr = scan?.final_result;
+    if (!fr || fr.insufficientConfidence || !fr.bestMatch) return false;
+    const allLabels = [fr.bestMatch, ...candidates.filter((c) => c.rank > 1).map((c) => c.label)];
+    const isGoldFamily = allLabels.some((label) =>
+      GOLD_FAMILY_KEYWORDS.some((k) => label.toLowerCase().includes(k)),
+    );
+    const suspiciousJewelry =
+      (scan?.specimen_category === "jewelry" || scan?.specimen_category === "precious_metal") &&
+      fr.confidenceBand !== "high";
+    return isGoldFamily || suspiciousJewelry;
+  }, [scan, candidates]);
+
+  // Artifact Verification Mode: offer the guided second-stage wizard when the
+  // result looks like a man-made historical/archaeological object, OR the item
+  // is tagged as an artifact/coin category. Mirrors the gold/diamond triggers.
+  const showArtifactVerification = useMemo(() => {
+    const fr = scan?.final_result;
+    if (!fr || fr.insufficientConfidence || !fr.bestMatch) return false;
+    const allLabels = [fr.bestMatch, ...candidates.filter((c) => c.rank > 1).map((c) => c.label)];
+    const isArtifactFamily = allLabels.some((label) =>
+      ARTIFACT_FAMILY_KEYWORDS.some((k) => label.toLowerCase().includes(k)),
+    );
+    const artifactCategory =
+      scan?.specimen_category === "artifact" || scan?.specimen_category === "coin";
+    return isArtifactFamily || artifactCategory;
+  }, [scan, candidates]);
+
+  const bannerMessage = useMemo(() => {
+    if (dataSource !== "cache" || !cachedAt) return null;
+    const age = formatCacheAge(cachedAt, lang === "so");
+    return isOnline ? t("history.refreshFailedShowingSaved", { age }) : t("history.offlineShowingSaved", { age });
+  }, [dataSource, cachedAt, isOnline, lang, t]);
+
+  if (offlineUnavailable) {
+    return (
+      <View style={styles.container}>
+        <EmptyState
+          icon="cloud-offline-outline"
+          title={t("history.offlineDetailUnavailableTitle")}
+          hint={t("history.offlineDetailUnavailableHint")}
+        />
+      </View>
+    );
+  }
+
   if (isLoading || !scan) {
     return (
       <View style={styles.container}>
@@ -407,6 +584,7 @@ export default function ResultsScreen() {
   return (
     <>
     <ScrollView contentContainerStyle={[styles.container, { paddingBottom: 32 + insets.bottom }]}>
+      {bannerMessage && <OfflineBanner message={bannerMessage} />}
       <Card accent style={styles.heroCard}>
         <Text style={styles.label}>{L("Best match", "Aqoonsiga ugu fiican")}</Text>
         <Text style={styles.bestMatch}>{finalResult.bestMatch}</Text>
@@ -634,6 +812,60 @@ export default function ResultsScreen() {
               variant="primary"
               size="sm"
               onPress={() => router.push({ pathname: "/(app)/scan/verify", params: { scanId } })}
+              style={{ flex: 1 }}
+            />
+          </View>
+        </Card>
+      )}
+
+      {/* ── Gold Verification Mode trigger ────────────────────────────────── */}
+      {showGoldVerification && (
+        <Card accent style={styles.verifyCard}>
+          <View style={styles.verifyHeader}>
+            <Ionicons name="medal-outline" size={18} color={colors.gold} />
+            <Text style={styles.verifyTitle}>
+              {L("This May Be Gold — Verification Recommended", "Tani Waxay Noqon Kartaa Dahab — Xaqiijin ayaa lagula talinayaa")}
+            </Text>
+          </View>
+          <Text style={styles.body}>
+            {L(
+              "A photo alone can't confirm real gold. Answer a few extra questions (origin, magnet test, density, streak test, and hallmark/purity if it's jewelry) so we can give you a proper evidence-based verification report.",
+              "Sawir keliya kama caddayn karo in uu yahay dahab dhab ah. Ka jawaab dhowr su'aalood oo dheeraad ah (halka laga helay, tijaabada magnetka, xajmiga, tijaabada xariiqda, iyo calaamadaha saafinimada haddii uu yahay jowharad) si aan kuu siino warbixin xaqiijin ah oo caddayn ku salaysan.",
+            )}
+          </Text>
+          <View style={styles.verifyButtonRow}>
+            <Button
+              title={L("Continue Verification", "Sii wad Xaqiijinta")}
+              variant="primary"
+              size="sm"
+              onPress={() => router.push({ pathname: "/(app)/scan/verify-gold", params: { scanId } })}
+              style={{ flex: 1 }}
+            />
+          </View>
+        </Card>
+      )}
+
+      {/* ── Artifact Verification Mode trigger ────────────────────────────── */}
+      {showArtifactVerification && (
+        <Card accent style={styles.verifyCard}>
+          <View style={styles.verifyHeader}>
+            <Ionicons name="business-outline" size={18} color={colors.gold} />
+            <Text style={styles.verifyTitle}>
+              {L("This May Be a Historical Artifact", "Tani Waxay Noqon Kartaa Aathaar Taariikhi ah")}
+            </Text>
+          </View>
+          <Text style={styles.body}>
+            {L(
+              "A photo alone can't confirm a genuine antiquity. Answer a few questions about where and how you found it, add more photos (all sides, base, inside, any broken areas and inscriptions), and we'll give you an evidence-based verification report — including a heritage & legal notice.",
+              "Sawir keliya kama caddayn karo aathaar dhab ah. Ka jawaab dhowr su'aalood oo ku saabsan halka iyo sida aad u heshay, ku dar sawirro dheeraad ah (dhinacyada, salka, gudaha, meelaha jaban iyo qoraallada), waxaanan ku siin doonnaa warbixin xaqiijin oo caddayn ku salaysan — oo ay ku jirto ogeysiis hidde iyo sharci.",
+            )}
+          </Text>
+          <View style={styles.verifyButtonRow}>
+            <Button
+              title={L("Continue Verification", "Sii wad Xaqiijinta")}
+              variant="primary"
+              size="sm"
+              onPress={() => router.push({ pathname: "/(app)/scan/verify-artifact", params: { scanId } })}
               style={{ flex: 1 }}
             />
           </View>

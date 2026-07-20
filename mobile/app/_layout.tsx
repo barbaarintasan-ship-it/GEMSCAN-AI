@@ -6,12 +6,16 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "../lib/auth";
 import { captureException, initMonitoring } from "../lib/monitoring";
+// TEMPORARY: global crash-diagnostics for the "Preparing photos" investigation.
+// Chained handler (observe + delegate) — remove with lib/scanDiag.ts once done.
+import { installCrashDiagnostics } from "../lib/scanDiag";
 import UpdateGate from "../components/UpdateGate";
 import "../lib/i18n";
 
 const queryClient = new QueryClient();
 
 initMonitoring();
+installCrashDiagnostics();
 
 class RootErrorBoundary extends React.Component<
   { children: React.ReactNode },

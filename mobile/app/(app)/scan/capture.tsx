@@ -33,6 +33,9 @@ import {
   type ExplanationStyle,
 } from "../../../lib/scanUpload";
 import { getStoredExplanationStyle, setExplanationStyle } from "../../../lib/explanationStyle";
+// TEMPORARY: ENTER/EXIT breadcrumbs + memory profiling for the "Preparing
+// photos" crash probe.
+import { enter, exit, slog, mem } from "../../../lib/scanDiag";
 import { isScanLimitError } from "../../../lib/appLinks";
 import { useSubscriptionStatus } from "../../../lib/subscription";
 import ScanTypeChooser from "../../../components/ScanTypeChooser";
@@ -261,6 +264,11 @@ export default function CaptureScreen() {
         processedUri: enhanced.uri,
         quality,
         detectionBbox,
+        // TEMPORARY diagnostic metadata: original capture pixel dimensions,
+        // already returned by takePictureAsync (zero cost). Used only for the
+        // memory-profiling logs; never persisted or uploaded.
+        originalWidth: photo.width,
+        originalHeight: photo.height,
       };
 
       setCapturedImages((prev) => [...prev.filter((i) => i.angle !== captured.angle), captured]);
@@ -327,29 +335,46 @@ export default function CaptureScreen() {
     setChooserVisible(false);
     setIsAnalyzing(true);
     setStage("preparing");
+    enter("preparing stage");
     try {
       // B1 (perf): await the fix already started in openScanChooser (usually
       // resolved by now → near-instant); fall back to a fresh fetch only if it
       // was never started.
+      enter("getPreciseLocation");
       const location = await (locationPromiseRef.current ?? getPreciseLocation());
       locationPromiseRef.current = null;
+      exit("getPreciseLocation");
       const onDeviceHint = pendingHintRef.current;
       const explanationStyle = explanationStyleRef.current;
 
       const scanId = await createScan({ specimenCategory: null, location, explanationStyle });
 
-      // Upload every captured angle concurrently (bounded to 3 at once) rather
-      // than one at a time — cuts total upload wall-clock time significantly
-      // for a full 8-angle scan while keeping at most 3 images' worth of
-      // base64 buffers in memory simultaneously.
-      await mapWithConcurrency(capturedImages, 3, async (image) => {
+      // Upload every captured angle. Concurrency is deliberately 1 (sequential).
+      // Each upload's prepareOriginalForUpload() decodes the FULL-resolution
+      // original into a native bitmap (a 12MP photo is ~48MB decoded). Running
+      // several at once held that many multi-MB bitmaps in memory at the same
+      // time — enough to trigger a native OutOfMemory process kill on low-RAM
+      // Android tablets (e.g. the U25 Pro), whose per-app heap is far smaller
+      // than the phones this was tested on. That kill is a native crash the JS
+      // try/catch below can't catch, so the app just closed during "Preparing
+      // photos". Sequential keeps the peak to a single bitmap decode — the same
+      // peak the capture step already survives — with NO change to the uploaded
+      // image size or quality; only slightly slower for a full 8-angle scan.
+      const total = capturedImages.length;
+      await mapWithConcurrency(capturedImages, 1, async (image, i) => {
+        slog(`Image ${i + 1}/${total} — angle=${image.angle}`);
+        mem(`image ${i + 1}/${total} start`);
         // Stage 3's final step: background segmentation. Currently a
         // documented no-op until a segmentation model is bundled (see
         // lib/backgroundSegmentation.ts) — wired in now so nothing else
         // needs to change when it's implemented.
+        enter(`angle ${image.angle}: segmentBackground`);
         const segmented = await segmentBackground(image.processedUri);
+        exit(`angle ${image.angle}: segmentBackground`);
         await uploadScanImage(scanId, { ...image, processedUri: segmented.uri });
+        mem(`image ${i + 1}/${total} done`);
       });
+      exit("preparing stage (createScan + all uploads done)");
 
       setStage("analyzing");
       startProgressPolling(scanId);
