@@ -126,6 +126,36 @@ const ANGLE_STEPS: AngleStep[] = [
   },
 ];
 
+// Detailed / Deep capture adds three more angles on top of the 5 standard
+// shots, reusing the remaining DB-allowed angle keys (top/bottom/wet) — still
+// no schema change. The wet view is optional (up to 8 total).
+const DEEP_EXTRA_STEPS: AngleStep[] = [
+  {
+    key: "top",
+    label: "Top-Down View",
+    labelSo: "Muuqaal Kor-hoos",
+    instructions: "Shoot straight down from directly above — shows the outline, symmetry and top facets.",
+    instructionsSo: "Toos kor uga soo sawir — muujiya qaabka, isku-ekaanta iyo wejiyada sare.",
+  },
+  {
+    key: "bottom",
+    label: "Underside / Base",
+    labelSo: "Salka / Hoosta",
+    instructions: "Capture the base or underside — pavilion, mounting, or any hidden features.",
+    instructionsSo: "Qaad salka ama hoosta — hoosta, rakibaadda, ama astaamo qarsoon.",
+  },
+  {
+    key: "wet",
+    label: "Wet View (optional)",
+    labelSo: "Muuqaal Qoyan (ikhtiyaari)",
+    optional: true,
+    instructions: "Optional: lightly wet the stone to reveal truer color and luster, then capture. You can skip this.",
+    instructionsSo: "Ikhtiyaari: dhagaxa xoogaa qoy si aad u muujiso midab iyo dhalaal dhab ah, kadibna qaad. Waad ka boodi kartaa.",
+  },
+];
+
+const DEEP_STEPS: AngleStep[] = [...ANGLE_STEPS, ...DEEP_EXTRA_STEPS];
+
 export default function CaptureScreen() {
   const router = useRouter();
   const { i18n } = useTranslation();
@@ -164,6 +194,9 @@ export default function CaptureScreen() {
     });
   }
 
+  // Capture depth chosen up front (see the mode selector). null → not chosen
+  // yet, so we show the selector before the camera flow.
+  const [captureMode, setCaptureMode] = useState<"standard" | "deep" | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
   const [capturedImages, setCapturedImages] = useState<CapturedAngleImage[]>([]);
   const [isBusy, setIsBusy] = useState(false);
@@ -241,8 +274,10 @@ export default function CaptureScreen() {
     };
   }, []);
 
-  const currentStep = ANGLE_STEPS[stepIndex];
-  const isLastStep = stepIndex === ANGLE_STEPS.length - 1;
+  // Standard = the 5 core shots; Deep = 8 (adds top / underside / optional wet).
+  const activeSteps = captureMode === "deep" ? DEEP_STEPS : ANGLE_STEPS;
+  const currentStep = activeSteps[stepIndex];
+  const isLastStep = stepIndex === activeSteps.length - 1;
 
   if (!permission) {
     return <View style={styles.container} />;
@@ -347,7 +382,7 @@ export default function CaptureScreen() {
     }
   }
 
-  const requiredStepsDone = ANGLE_STEPS.filter((s) => !s.optional).every((s) =>
+  const requiredStepsDone = activeSteps.filter((s) => !s.optional).every((s) =>
     capturedImages.some((c) => c.angle === s.key),
   );
 
@@ -366,7 +401,8 @@ export default function CaptureScreen() {
     } catch {
       pendingHintRef.current = null;
     }
-    setRecommendDeep(isHighValueHint(pendingHintRef.current));
+    // Detailed capture also nudges the AI-tier recommendation toward Deep.
+    setRecommendDeep(isHighValueHint(pendingHintRef.current) || captureMode === "deep");
 
     // First-ever scan: ask "Choose Explanation Style" before the scan-type
     // sheet. Already chosen (remembered from Settings or a prior scan): skip
@@ -505,6 +541,48 @@ export default function CaptureScreen() {
     );
   }
 
+  // Capture-depth selector — shown once, before the camera flow, so the number
+  // of guided shots (5 vs 8) is decided up front.
+  if (!captureMode) {
+    return (
+      <View style={styles.container}>
+        <ScrollView contentContainerStyle={{ flexGrow: 1, gap: 14, justifyContent: "center" }}>
+          <Text style={styles.stepCounter}>{L("Choose scan depth", "Dooro qoto-dheerida baaritaanka")}</Text>
+          <Text style={styles.body}>
+            {L(
+              "More photos = more evidence for the AI. Start quick, or go detailed for valuable or hard-to-identify pieces.",
+              "Sawirro badan = caddayn badan oo AI-ga. Bilow degdeg, ama qoto-dheer u qaad qalab qiimo leh ama adag in la aqoonsado.",
+            )}
+          </Text>
+
+          <Pressable style={styles.modeCard} onPress={() => setCaptureMode("standard")}>
+            <Text style={styles.modeCardTitle}>⚡ {L("Quick Scan", "Baaris Degdeg")}</Text>
+            <Text style={styles.modeCardMeta}>{L("5 guided photos · recommended", "5 sawir la hago · lagu talinayo")}</Text>
+            <Text style={styles.body}>
+              {L(
+                "Natural light, side, angle, light-reaction and macro — the essentials for a fast, accurate ID.",
+                "Iftiin dabiici, dhinac, xagal, tijaabo-iftiin iyo macro — waxyaabaha muhiimka ah ee aqoonsi degdeg ah oo sax ah.",
+              )}
+            </Text>
+          </Pressable>
+
+          <Pressable style={[styles.modeCard, styles.modeCardDeep]} onPress={() => setCaptureMode("deep")}>
+            <Text style={styles.modeCardTitle}>💎 {L("Detailed Scan", "Baaris Faahfaahsan")}</Text>
+            <Text style={styles.modeCardMeta}>
+              {L("up to 8 photos · valuable / uncertain pieces", "ilaa 8 sawir · qalab qiimo leh / aan la hubin")}
+            </Text>
+            <Text style={styles.body}>
+              {L(
+                "Adds top, underside and an optional wet view for extra angles and deeper analysis.",
+                "Waxay ku dartaa kor, salka iyo muuqaal qoyan (ikhtiyaari) si loo helo xaglo dheeraad ah iyo falanqayn qoto-dheer.",
+              )}
+            </Text>
+          </Pressable>
+        </ScrollView>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <ImageProcessorGL ref={imageProcessorRef} />
@@ -513,7 +591,7 @@ export default function CaptureScreen() {
         {stepIndex === 0 && <ScanTipsCard />}
 
         <Text style={styles.stepCounter}>
-          {L("Step", "Tallaabo")} {stepIndex + 1} {L("of", "ee")} {ANGLE_STEPS.length}
+          {L("Step", "Tallaabo")} {stepIndex + 1} {L("of", "ee")} {activeSteps.length}
         </Text>
 
         <View style={styles.cameraWrapper}>
@@ -622,6 +700,17 @@ const styles = StyleSheet.create({
   liveProgress: { color: "#C9A227", fontSize: 12, textAlign: "center", fontWeight: "600" },
   body: { fontSize: 14, color: "#C9C9CC", lineHeight: 20 },
   stepCounter: { fontSize: 18, fontWeight: "700", color: "#F5F1E8" },
+  modeCard: {
+    backgroundColor: "#161618",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#2A2A2C",
+    padding: 18,
+    gap: 6,
+  },
+  modeCardDeep: { borderColor: "#C9A227" },
+  modeCardTitle: { fontSize: 18, fontWeight: "800", color: "#F5F1E8" },
+  modeCardMeta: { fontSize: 12.5, fontWeight: "700", color: "#C9A227" },
   cameraWrapper: {
     height: 360,
     borderRadius: 16,
