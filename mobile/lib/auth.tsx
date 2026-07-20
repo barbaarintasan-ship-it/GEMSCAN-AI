@@ -1,7 +1,7 @@
 // Auth context: sign up, sign in, sign out, and the current session.
 // This is the full extent of what the mobile app does regarding accounts —
 // no payment/purchase logic lives anywhere near this file.
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 
@@ -50,7 +50,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.subscription.unsubscribe();
   }, []);
 
-  const signUp = async (email: string, password: string, profile?: SignUpProfile) => {
+  // B6 (perf): stable identities so the context value below only changes when
+  // session/isLoading change, not on every provider render. Deps are empty
+  // because these close over module-level constants (supabase, FUNCTIONS_URL).
+  const signUp = useCallback(async (email: string, password: string, profile?: SignUpProfile) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -73,21 +76,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // will pick it up. Distinguish the two so the UI can react correctly instead
     // of silently bouncing back to the login screen.
     return { error: null, needsEmailConfirmation: data.session === null };
-  };
+  }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error: error?.message ?? null };
-  };
+  }, []);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     await supabase.auth.signOut();
-  };
+  }, []);
 
   // Permanently deletes the account + all data server-side (delete-account
   // Edge Function), then clears the local session. Required by App Store
   // Guideline 5.1.1(v) / Google Play.
-  const deleteAccount = async () => {
+  const deleteAccount = useCallback(async () => {
     const {
       data: { session: current },
     } = await supabase.auth.getSession();
@@ -110,13 +113,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       return { error: (err as Error).message };
     }
-  };
+  }, []);
 
-  return (
-    <AuthContext.Provider value={{ session, isLoading, signUp, signIn, signOut, deleteAccount }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({ session, isLoading, signUp, signIn, signOut, deleteAccount }),
+    [session, isLoading, signUp, signIn, signOut, deleteAccount],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
