@@ -148,6 +148,12 @@ export default function CaptureScreen() {
   const [recommendDeep, setRecommendDeep] = useState(false);
   const [creditsExhausted, setCreditsExhausted] = useState(false);
   const pendingHintRef = useRef<CoarseClassification | null>(null);
+  // B1 (perf): holds the in-flight GPS fix kicked off at chooser-open so
+  // handleAnalyze can await an already-resolved promise instead of blocking the
+  // scan on a cold, high-accuracy fix. The scans table has no client UPDATE
+  // policy, so location must still be present at insert — we only overlap the
+  // acquisition with the on-device hint + the user's chooser interaction.
+  const locationPromiseRef = useRef<ReturnType<typeof getPreciseLocation> | null>(null);
   const deepRemaining = creditsExhausted ? 0 : (sub?.deepScan.remaining ?? 0);
 
   // Dual Explanation Modes: "Choose Explanation Style" is asked once, before
@@ -284,6 +290,11 @@ export default function CaptureScreen() {
   // on-device hint now so we can smart-recommend Deep Scan for likely-valuable
   // items, and reuse it for the actual scan.
   async function openScanChooser() {
+    // B1 (perf): start the GPS fix now, concurrently with the on-device hint
+    // below and the chooser the user is about to interact with, so it is almost
+    // always already resolved by the time handleAnalyze needs it. Does not
+    // change what is stored or when permission is ultimately required.
+    locationPromiseRef.current = getPreciseLocation();
     const frontImage = capturedImages.find((c) => c.angle === "front");
     try {
       pendingHintRef.current = frontImage ? await classifyCoarse(frontImage.processedUri) : null;
@@ -317,7 +328,11 @@ export default function CaptureScreen() {
     setIsAnalyzing(true);
     setStage("preparing");
     try {
-      const location = await getPreciseLocation();
+      // B1 (perf): await the fix already started in openScanChooser (usually
+      // resolved by now → near-instant); fall back to a fresh fetch only if it
+      // was never started.
+      const location = await (locationPromiseRef.current ?? getPreciseLocation());
+      locationPromiseRef.current = null;
       const onDeviceHint = pendingHintRef.current;
       const explanationStyle = explanationStyleRef.current;
 
