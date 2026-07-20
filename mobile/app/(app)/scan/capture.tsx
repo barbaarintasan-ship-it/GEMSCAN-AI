@@ -547,36 +547,44 @@ export default function CaptureScreen() {
     return (
       <View style={styles.container}>
         <ScrollView contentContainerStyle={{ flexGrow: 1, gap: 14, justifyContent: "center" }}>
-          <Text style={styles.stepCounter}>{L("Choose scan depth", "Dooro qoto-dheerida baaritaanka")}</Text>
+          <Text style={styles.stepCounter}>{L("Choose your scan", "Dooro baaritaankaaga")}</Text>
           <Text style={styles.body}>
             {L(
-              "More photos = more evidence for the AI. Start quick, or go detailed for valuable or hard-to-identify pieces.",
-              "Sawirro badan = caddayn badan oo AI-ga. Bilow degdeg, ama qoto-dheer u qaad qalab qiimo leh ama adag in la aqoonsado.",
+              "Most scans only need the Standard Scan. Deep Scan adds extra optical evidence for tricky, rare, or high-value pieces.",
+              "Baaritaannada badankood waxay u baahan yihiin oo kaliya Baaritaanka Caadiga ah. Baaritaanka Qoto-dheer wuxuu ku daraa caddayn dheeraad ah oo loogu talagalay qalab adag, naadir, ama qiimo sare leh.",
             )}
           </Text>
 
-          <Pressable style={styles.modeCard} onPress={() => setCaptureMode("standard")}>
-            <Text style={styles.modeCardTitle}>⚡ {L("Quick Scan", "Baaris Degdeg")}</Text>
-            <Text style={styles.modeCardMeta}>{L("5 guided photos · recommended", "5 sawir la hago · lagu talinayo")}</Text>
-            <Text style={styles.body}>
-              {L(
-                "Natural light, side, angle, light-reaction and macro — the essentials for a fast, accurate ID.",
-                "Iftiin dabiici, dhinac, xagal, tijaabo-iftiin iyo macro — waxyaabaha muhiimka ah ee aqoonsi degdeg ah oo sax ah.",
-              )}
-            </Text>
+          {/* Standard — the recommended default for most users. */}
+          <Pressable style={[styles.modeCard, styles.modeCardRecommended]} onPress={() => setCaptureMode("standard")}>
+            <View style={styles.modeCardHeader}>
+              <Text style={styles.modeCardTitle}>⚡ {L("Standard Scan", "Baaris Caadi ah")}</Text>
+              <View style={styles.recommendedBadge}>
+                <Text style={styles.recommendedBadgeText}>{L("RECOMMENDED", "LAGU TALIYEY")}</Text>
+              </View>
+            </View>
+            {[
+              L("5 guided photos", "5 sawir oo la hago"),
+              L("Faster scan", "Baaris dhaqso badan"),
+              L("Best for most gemstones and objects", "Ugu fiican dhagxaanta iyo shayada badankood"),
+            ].map((b) => (
+              <Text key={b} style={styles.modeBullet}>• {b}</Text>
+            ))}
           </Pressable>
 
-          <Pressable style={[styles.modeCard, styles.modeCardDeep]} onPress={() => setCaptureMode("deep")}>
-            <Text style={styles.modeCardTitle}>💎 {L("Detailed Scan", "Baaris Faahfaahsan")}</Text>
-            <Text style={styles.modeCardMeta}>
-              {L("up to 8 photos · valuable / uncertain pieces", "ilaa 8 sawir · qalab qiimo leh / aan la hubin")}
-            </Text>
-            <Text style={styles.body}>
-              {L(
-                "Adds top, underside and an optional wet view for extra angles and deeper analysis.",
-                "Waxay ku dartaa kor, salka iyo muuqaal qoyan (ikhtiyaari) si loo helo xaglo dheeraad ah iyo falanqayn qoto-dheer.",
-              )}
-            </Text>
+          {/* Deep — optional, for valuable / uncertain pieces. */}
+          <Pressable style={styles.modeCard} onPress={() => setCaptureMode("deep")}>
+            <Text style={styles.modeCardTitle}>💎 {L("Deep Scan", "Baaris Qoto-dheer")}</Text>
+            {[
+              L("Up to 8 guided photos", "Ilaa 8 sawir oo la hago"),
+              L("Additional optical evidence", "Caddayn dheeraad ah oo optical ah"),
+              L(
+                "Recommended for expensive, rare, or difficult-to-identify gemstones",
+                "Loogu talagalay dhagxaan qaali ah, naadir ah, ama adag in la aqoonsado",
+              ),
+            ].map((b) => (
+              <Text key={b} style={styles.modeBullet}>• {b}</Text>
+            ))}
           </Pressable>
         </ScrollView>
       </View>
@@ -708,9 +716,19 @@ const styles = StyleSheet.create({
     padding: 18,
     gap: 6,
   },
-  modeCardDeep: { borderColor: "#C9A227" },
-  modeCardTitle: { fontSize: 18, fontWeight: "800", color: "#F5F1E8" },
-  modeCardMeta: { fontSize: 12.5, fontWeight: "700", color: "#C9A227" },
+  // The recommended default gets the gold accent + a subtle highlight so it
+  // reads as the obvious choice for most users.
+  modeCardRecommended: { borderColor: "#C9A227", borderWidth: 2, backgroundColor: "#1B1810" },
+  modeCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  modeCardTitle: { fontSize: 18, fontWeight: "800", color: "#F5F1E8", flexShrink: 1 },
+  recommendedBadge: {
+    backgroundColor: "#C9A227",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  recommendedBadgeText: { color: "#0B0B0C", fontWeight: "900", fontSize: 10.5, letterSpacing: 0.5 },
+  modeBullet: { fontSize: 13.5, color: "#C9C9CC", lineHeight: 20 },
   cameraWrapper: {
     height: 360,
     borderRadius: 16,
