@@ -61,7 +61,7 @@ export function PremiumGate({ requiredTier, children, featureName }: Props) {
         accessibilityRole="link"
         accessibilityLabel="Open GemScan pricing page in browser"
       >
-        <Text style={styles.buttonText}>View plans &amp; upgrade</Text>
+        <Text style={styles.buttonText}>Unlock on the website</Text>
       </Pressable>
     </View>
   );

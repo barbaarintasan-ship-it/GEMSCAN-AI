@@ -76,6 +76,10 @@
     "processing": "Processing…",
     "failed": "Scan failed",
     "noResult": "No confident match",
-    "loadError": "Couldn't load your scans."
+    "loadError": "Couldn't load your scans.",
+    "offlineShowingSaved": "Offline — showing saved data from {{age}}",
+    "refreshFailedShowingSaved": "Couldn't refresh — showing saved data from {{age}}",
+    "offlineDetailUnavailableTitle": "Not available offline",
+    "offlineDetailUnavailableHint": "You haven't opened this scan before while offline, so there's nothing saved on this device yet for it."
   }
 }

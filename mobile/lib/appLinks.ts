@@ -20,14 +20,40 @@ export function buildHighValueReportPaymentUrl(purchaseId: string, method: "mobi
   return `${HIGH_VALUE_REPORT_PAYMENT_URL}?ref=${encodeURIComponent(purchaseId)}&method=${method}`;
 }
 
-// Apple App Store Guideline 3.1.1 forbids unlocking in-app digital content via
-// an EXTERNAL purchase flow or steering users to it (buttons, links, or even
-// "subscribe on our website" wording). Since GemScan intentionally sells its
-// plans on the website (no Apple In-App Purchase), we must NOT surface any of
-// that purchase UI inside the iOS build. On Android (and web) the website
-// checkout is allowed, so the upgrade prompts stay.
+// Placeholder destination for the $5 Gold Verification Report paywall (see
+// app/(app)/scan/verify-gold.tsx) — a separate page/plugin from the report
+// above, same "app never charges anyone" rule.
+export const GOLD_REPORT_PAYMENT_URL =
+  process.env.EXPO_PUBLIC_GOLD_REPORT_PAYMENT_URL ??
+  "https://barbaarintasan.com/gemscan-gold-report-payment";
+
+// `purchaseId` is the gold_report_purchases row id.
+export function buildGoldReportPaymentUrl(purchaseId: string, method: "mobile" | "card"): string {
+  return `${GOLD_REPORT_PAYMENT_URL}?ref=${encodeURIComponent(purchaseId)}&method=${method}`;
+}
+
+// Destination for the $10 Artifact Verification Report paywall (see
+// app/(app)/scan/verify-artifact.tsx) — its own page/plugin, same "app never
+// charges anyone" rule. The live WordPress page uses the slug
+// `artifact-verification-report`.
+export const ARTIFACT_REPORT_PAYMENT_URL =
+  process.env.EXPO_PUBLIC_ARTIFACT_REPORT_PAYMENT_URL ??
+  "https://barbaarintasan.com/artifact-verification-report";
+
+// `purchaseId` is the artifact_report_purchases row id.
+export function buildArtifactReportPaymentUrl(purchaseId: string, method: "mobile" | "card"): string {
+  return `${ARTIFACT_REPORT_PAYMENT_URL}?ref=${encodeURIComponent(purchaseId)}&method=${method}`;
+}
+
+// GemScan sells its plans/reports on the website only. The app shows a
+// price-less "unlock on the website" call-to-action that opens the checkout
+// page; after paying there, entitlement unlocks automatically (read via
+// verify-subscription). NO price is ever displayed in-app.
 //
-// Flip this to a real In-App Purchase flow if/when StoreKit is added for iOS.
+// iOS stays OFF: Apple Guideline 3.1.1 forbids steering to an external purchase
+// at all, so no upgrade CTA is shown on iOS. Android/web keep the price-less
+// website CTA. (Google Play's anti-steering rules are looser and, post-2024
+// rulings, increasingly permit external-payment links.)
 export const EXTERNAL_PURCHASES_ENABLED = Platform.OS !== "ios";
 
 // True when a scan failed because the free-tier daily limit was reached — used

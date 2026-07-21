@@ -13,18 +13,31 @@ import ViewShot from "react-native-view-shot";
 import * as Sharing from "expo-sharing";
 import { useTranslation } from "react-i18next";
 import { supabase } from "../../../lib/supabase";
+import { useAuth } from "../../../lib/auth";
 import { submitScanFeedback } from "../../../lib/scanUpload";
 import { INSUFFICIENT_CONFIDENCE_MESSAGE_TEXT } from "../../../lib/constants";
-import { estimateValue, type Valuation } from "../../../lib/valuation";
+import { estimateValue, type Valuation, priceUnitLabel, formatValuationRange } from "../../../lib/valuation";
 import { EXPERT_WHATSAPP, HIGH_VALUE_THRESHOLD_USD, hasExpertContact } from "../../../lib/expertConfig";
 import { useSubscriptionStatus } from "../../../lib/subscription";
 import { generateAndSharePdf, type PdfReportData } from "../../../lib/pdfReport";
 import type { ExplanationStyle, ExpertExplanationDTO } from "../../../lib/scanUpload";
 import { EXTERNAL_PURCHASES_ENABLED, PAYMENT_URL } from "../../../lib/appLinks";
+import {
+  readCachedJson,
+  writeCachedJson,
+  removeCachedJson,
+  cacheImageFile,
+  localImageUriIfCached,
+  deleteCachedImage,
+  formatCacheAge,
+} from "../../../lib/offlineCache";
+import { useIsOnline } from "../../../lib/network";
 import LocationMap from "../../../components/LocationMap";
 import { Card } from "../../../components/ui/Card";
 import { ConfidenceBadge } from "../../../components/ui/ConfidenceBadge";
 import { Button } from "../../../components/ui/Button";
+import { EmptyState } from "../../../components/ui/EmptyState";
+import { OfflineBanner } from "../../../components/ui/OfflineBanner";
 import { colors, spacing, radius, type as typo } from "../../../lib/theme";
 
 type ScanCandidate = {
@@ -40,6 +53,7 @@ type ScanRow = {
   status: string;
   created_at: string;
   capture_location: { lat: number; lng: number; acc?: number } | null;
+  specimen_category: string | null;
   final_result: {
     bestMatch: string | null;
     confidenceScore: number;
@@ -95,17 +109,58 @@ const BAND_COLOR: Record<string, string> = {
 // on screen.
 const DIAMOND_FAMILY_KEYWORDS = ["diamond", "moissanite", "white sapphire", "cubic zirconia", "zircon"];
 
+// Gold Verification Mode trigger: label keywords covering native gold,
+// gold-bearing rock/ore/concentrate, and gold jewelry — matched the same way
+// as DIAMOND_FAMILY_KEYWORDS, no new AI call needed.
+const GOLD_FAMILY_KEYWORDS = [
+  "gold", "native gold", "gold nugget", "gold ore", "gold-bearing",
+  "gold concentrate", "electrum", "gold-plated", "gold plated", "vermeil",
+];
+
+// Artifact Verification Mode trigger: label keywords covering man-made
+// historical/archaeological objects — matched the same way as the others,
+// no new AI call needed.
+const ARTIFACT_FAMILY_KEYWORDS = [
+  "artifact", "artefact", "antiquity", "antique", "pottery", "potsherd", "sherd",
+  "ceramic", "figurine", "statuette", "relic", "inscription", "tablet", "seal",
+  "arrowhead", "carving", "amulet", "bead", "fossil tool", "ancient", "archaeological",
+];
+
+// Offline cache for a previously-viewed scan's full detail (final_result +
+// candidates + specimen photo + hallmark) — history.tsx only caches the LIST
+// (no candidates/hallmark), so a scan only becomes viewable offline here
+// after it's been opened at least once while online.
+type CachedScanDetail = {
+  cachedAt: string;
+  scan: ScanRow;
+  candidates: ScanCandidate[];
+  photoLocalUri: string | null;
+  hallmark: { marks: string[]; matchedLabel: string | null; note: string | null } | null;
+};
+const SCAN_DETAIL_CACHE_CAP = 50;
+function scanDetailCacheKey(userId: string, scanId: string): string {
+  return `gemscan.cache.scanDetail.v1:${userId}:${scanId}`;
+}
+function scanDetailIndexKey(userId: string): string {
+  return `gemscan.cache.scanDetail.index.v1:${userId}`;
+}
+
 export default function ResultsScreen() {
   const { scanId } = useLocalSearchParams<{ scanId: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const lang: "en" | "so" = i18n.language === "so" ? "so" : "en";
   const L = (en: string, so: string) => (lang === "so" ? so : en);
+  const { session } = useAuth();
+  const isOnline = useIsOnline();
 
   const [scan, setScan] = useState<ScanRow | null>(null);
   const [candidates, setCandidates] = useState<ScanCandidate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [dataSource, setDataSource] = useState<"cache" | "live">("live");
+  const [cachedAt, setCachedAt] = useState<string | null>(null);
+  const [offlineUnavailable, setOfflineUnavailable] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [valuation, setValuation] = useState<Valuation | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
@@ -128,11 +183,40 @@ export default function ResultsScreen() {
 
   useEffect(() => {
     if (!scanId) return;
+    let active = true;
     (async () => {
+      const userId = session?.user.id;
+
+      // Cache-first: if this scan was previously opened while online, render
+      // it immediately — works with zero network at all.
+      let hadCache = false;
+      if (userId) {
+        const cached = await readCachedJson<CachedScanDetail>(scanDetailCacheKey(userId, scanId));
+        if (cached && active) {
+          setScan(cached.scan);
+          setCandidates(cached.candidates);
+          if (cached.scan?.final_result?.explanationStyle) setViewStyle(cached.scan.final_result.explanationStyle);
+          if (cached.photoLocalUri) setPhotoUrl(cached.photoLocalUri);
+          setHallmark(cached.hallmark);
+          setDataSource("cache");
+          setCachedAt(cached.cachedAt);
+          setIsLoading(false);
+          hadCache = true;
+        }
+      }
+
+      if (!isOnline) {
+        if (!hadCache && active) {
+          setIsLoading(false);
+          setOfflineUnavailable(true);
+        }
+        return;
+      }
+
       const [{ data: scanData }, { data: candidateData }] = await Promise.all([
         supabase
           .from("scans")
-          .select("status, final_result, created_at, capture_location")
+          .select("status, final_result, created_at, capture_location, specimen_category")
           .eq("id", scanId)
           .maybeSingle(),
         supabase
@@ -141,9 +225,14 @@ export default function ResultsScreen() {
           .eq("scan_id", scanId)
           .order("rank", { ascending: true }),
       ]);
+      if (!active) return;
       const row = scanData as ScanRow | null;
+      const rowCandidates = (candidateData as ScanCandidate[]) ?? [];
       setScan(row);
-      setCandidates((candidateData as ScanCandidate[]) ?? []);
+      setCandidates(rowCandidates);
+      setDataSource("live");
+      setCachedAt(null);
+      setOfflineUnavailable(false);
       setIsLoading(false);
       if (row?.final_result?.explanationStyle) {
         setViewStyle(row.final_result.explanationStyle);
@@ -169,33 +258,70 @@ export default function ResultsScreen() {
           .limit(1)
           .maybeSingle(),
       ]);
+      if (!active) return;
 
       // Load one specimen photo (the front/original of the first image) for the
       // shareable card. The bucket is private, so sign the path.
       const path = (img as { original_storage_path?: string } | null)?.original_storage_path;
+      let signedPhotoUrl: string | null = null;
       if (path) {
         const { data: signed } = await supabase.storage
           .from("scan-images")
           .createSignedUrl(path, 3600);
-        if (signed?.signedUrl) setPhotoUrl(signed.signedUrl);
+        signedPhotoUrl = signed?.signedUrl ?? null;
+        if (signedPhotoUrl) setPhotoUrl(signedPhotoUrl);
       }
 
       // Hallmark data (jewelry/coins) for the PDF report — only present when the
       // hallmark OCR provider actually transcribed a mark. RLS-scoped to own scan.
+      let hallmarkValue: { marks: string[]; matchedLabel: string | null; note: string | null } | null = null;
       if (hm) {
         const raw = (hm as { raw_response?: { marks?: unknown } }).raw_response;
         const marks = Array.isArray(raw?.marks) ? (raw!.marks as string[]) : [];
         const matchedLabel = (hm as { candidate_label?: string | null }).candidate_label ?? null;
         if (marks.length > 0 || matchedLabel) {
-          setHallmark({
+          hallmarkValue = {
             marks,
             matchedLabel,
             note: (hm as { reasoning?: string | null }).reasoning ?? null,
-          });
+          };
+          setHallmark(hallmarkValue);
         }
       }
+
+      // Best-effort, fire-and-forget: persist this scan's full detail so it's
+      // still viewable offline the next time, capped to the 50 most-recently
+      // opened scans (LRU — evicts both the JSON blob and its image file).
+      if (userId && row) {
+        (async () => {
+          const photoLocalUri = signedPhotoUrl
+            ? await cacheImageFile(scanId, signedPhotoUrl)
+            : await localImageUriIfCached(scanId);
+          await writeCachedJson<CachedScanDetail>(scanDetailCacheKey(userId, scanId), {
+            cachedAt: new Date().toISOString(),
+            scan: row,
+            candidates: rowCandidates,
+            photoLocalUri,
+            hallmark: hallmarkValue,
+          });
+
+          const idxKey = scanDetailIndexKey(userId);
+          const idx = (await readCachedJson<string[]>(idxKey)) ?? [];
+          const nextIdx = [scanId, ...idx.filter((id) => id !== scanId)];
+          const evicted = nextIdx.slice(SCAN_DETAIL_CACHE_CAP);
+          await Promise.all(
+            evicted.map((id) =>
+              Promise.all([removeCachedJson(scanDetailCacheKey(userId, id)), deleteCachedImage(id)]),
+            ),
+          );
+          await writeCachedJson(idxKey, nextIdx.slice(0, SCAN_DETAIL_CACHE_CAP));
+        })().catch(() => {});
+      }
     })();
-  }, [scanId]);
+    return () => {
+      active = false;
+    };
+  }, [scanId, session?.user.id, isOnline]);
 
   // Additive market valuation — a SEPARATE Gemini call that never touches the
   // identification pipeline. Runs once per successful result.
@@ -212,6 +338,27 @@ export default function ResultsScreen() {
     };
   }, [scan, lang]);
 
+  // Persisted feedback: if the user already answered "Was this correct?" for
+  // this scan, a scan_feedback row exists (RLS-scoped to them). Detect it on
+  // load so the Yes/No buttons don't reappear when they revisit the scan —
+  // instead they see the "thanks" state, matching that they already responded.
+  useEffect(() => {
+    if (!scanId || !session?.user.id || !isOnline) return;
+    let active = true;
+    (async () => {
+      const { data } = await supabase
+        .from("scan_feedback")
+        .select("id")
+        .eq("scan_id", scanId)
+        .limit(1)
+        .maybeSingle();
+      if (active && data) setFeedbackSent(true);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [scanId, session?.user.id, isOnline]);
+
   // Build a COMPLETE, professionally formatted report from everything the app
   // gathered. Reused by the native Share sheet and the WhatsApp expert contact.
   function buildReport(opts: { expertRequest?: boolean } = {}): string {
@@ -226,13 +373,8 @@ export default function ResultsScreen() {
     lines.push(so ? "💎 GemScan — Natiijada baaritaanka" : "💎 GemScan — Scan Result", "");
     if (fr?.bestMatch) lines.push(`${so ? "Aqoonsiga" : "Identification"}: ${fr.bestMatch}`);
     lines.push(`${so ? "Kalsooni" : "Confidence"}: ${pct}%`);
-    if (val && !val.lowConfidence && (val.minUsd != null || val.typicalUsd != null)) {
-      if (val.minUsd != null && val.premiumUsd != null) {
-        lines.push(`${so ? "Qiimaha suuqa (qiyaas)" : "Estimated value"}: USD ${Math.round(val.minUsd)}–${Math.round(val.premiumUsd)}`);
-      } else if (val.typicalUsd != null) {
-        lines.push(`${so ? "Qiimaha suuqa (qiyaas)" : "Estimated value"}: ~USD ${Math.round(val.typicalUsd)}`);
-      }
-    }
+    const valLine = val ? formatValuationRange(val, so) : null;
+    if (valLine) lines.push(`${so ? "Qiimaha suuqa (qiyaas)" : "Estimated price"}: ${valLine}`);
     if (alts.length) lines.push(`${so ? "Ikhtiyaarro kale" : "Other possibilities"}: ${alts.join(", ")}`);
     if (when) lines.push(`${so ? "Waqtiga" : "Scanned"}: ${when}`);
 
@@ -295,9 +437,11 @@ export default function ResultsScreen() {
         })),
         valuation: valuation
           ? {
+              unit: valuation.unit,
+              purity: valuation.purity,
               minUsd: valuation.minUsd,
+              maxUsd: valuation.maxUsd,
               typicalUsd: valuation.typicalUsd,
-              premiumUsd: valuation.premiumUsd,
               note: valuation.qualityNote,
               lowConfidence: valuation.lowConfidence,
             }
@@ -351,7 +495,7 @@ export default function ResultsScreen() {
     );
     const highValueSignal =
       !!valuation &&
-      ((valuation.typicalUsd ?? 0) >= HIGH_VALUE_THRESHOLD_USD ||
+      ((valuation.maxUsd ?? valuation.typicalUsd ?? 0) >= HIGH_VALUE_THRESHOLD_USD ||
         valuation.rarity === "rare" ||
         valuation.rarity === "very_rare" ||
         valuation.collectible ||
@@ -359,6 +503,57 @@ export default function ResultsScreen() {
     const uncertainButValuable = highValueSignal && fr.confidenceBand !== "high";
     return isDiamondFamily || uncertainButValuable;
   }, [scan, candidates, valuation]);
+
+  // Gold Verification Mode: offer the guided second-stage wizard when the
+  // result looks gold-family (native gold, gold-bearing rock/ore/concentrate,
+  // gold-plated), OR the item is tagged jewelry/precious_metal with less
+  // than high confidence ("suspicious jewelry" — no karat stamp visible yet,
+  // hallmark OCR runs server-side during the actual verification instead).
+  const showGoldVerification = useMemo(() => {
+    const fr = scan?.final_result;
+    if (!fr || fr.insufficientConfidence || !fr.bestMatch) return false;
+    const allLabels = [fr.bestMatch, ...candidates.filter((c) => c.rank > 1).map((c) => c.label)];
+    const isGoldFamily = allLabels.some((label) =>
+      GOLD_FAMILY_KEYWORDS.some((k) => label.toLowerCase().includes(k)),
+    );
+    const suspiciousJewelry =
+      (scan?.specimen_category === "jewelry" || scan?.specimen_category === "precious_metal") &&
+      fr.confidenceBand !== "high";
+    return isGoldFamily || suspiciousJewelry;
+  }, [scan, candidates]);
+
+  // Artifact Verification Mode: offer the guided second-stage wizard when the
+  // result looks like a man-made historical/archaeological object, OR the item
+  // is tagged as an artifact/coin category. Mirrors the gold/diamond triggers.
+  const showArtifactVerification = useMemo(() => {
+    const fr = scan?.final_result;
+    if (!fr || fr.insufficientConfidence || !fr.bestMatch) return false;
+    const allLabels = [fr.bestMatch, ...candidates.filter((c) => c.rank > 1).map((c) => c.label)];
+    const isArtifactFamily = allLabels.some((label) =>
+      ARTIFACT_FAMILY_KEYWORDS.some((k) => label.toLowerCase().includes(k)),
+    );
+    const artifactCategory =
+      scan?.specimen_category === "artifact" || scan?.specimen_category === "coin";
+    return isArtifactFamily || artifactCategory;
+  }, [scan, candidates]);
+
+  const bannerMessage = useMemo(() => {
+    if (dataSource !== "cache" || !cachedAt) return null;
+    const age = formatCacheAge(cachedAt, lang === "so");
+    return isOnline ? t("history.refreshFailedShowingSaved", { age }) : t("history.offlineShowingSaved", { age });
+  }, [dataSource, cachedAt, isOnline, lang, t]);
+
+  if (offlineUnavailable) {
+    return (
+      <View style={styles.container}>
+        <EmptyState
+          icon="cloud-offline-outline"
+          title={t("history.offlineDetailUnavailableTitle")}
+          hint={t("history.offlineDetailUnavailableHint")}
+        />
+      </View>
+    );
+  }
 
   if (isLoading || !scan) {
     return (
@@ -407,6 +602,7 @@ export default function ResultsScreen() {
   return (
     <>
     <ScrollView contentContainerStyle={[styles.container, { paddingBottom: 32 + insets.bottom }]}>
+      {bannerMessage && <OfflineBanner message={bannerMessage} />}
       <Card accent style={styles.heroCard}>
         <Text style={styles.label}>{L("Best match", "Aqoonsiga ugu fiican")}</Text>
         <Text style={styles.bestMatch}>{finalResult.bestMatch}</Text>
@@ -548,17 +744,13 @@ export default function ResultsScreen() {
             <Text key={b} style={styles.pdfSellBullet}>✓ {b}</Text>
           ))}
 
-          <View style={styles.pdfPriceRow}>
-            <Text style={styles.pdfPrice}>USD 14.99</Text>
-            <Text style={styles.pdfPriceUnit}>{L("/ year", "/ sannadkii")}</Text>
-          </View>
-
           <Button
-            title={L("Buy Professional (Gem Collector)", "Iibso Xirmada Professional (Gem Collector)")}
+            title={L("Unlock on the website", "Fur adeegga website-ka")}
             variant="primary"
+            icon={<Ionicons name="open-outline" size={18} color="#0B0B0C" />}
             onPress={() => Linking.openURL(PAYMENT_URL)}
             style={styles.pdfUpgradeButton}
-            accessibilityLabel={L("Buy the Professional (Gem Collector) plan", "Iibso xirmada Professional (Gem Collector)")}
+            accessibilityLabel={L("Open the GemScan website to unlock", "Fur website-ka GemScan si aad adeegga u furto")}
           />
         </Card>
       ) : null}
@@ -567,13 +759,13 @@ export default function ResultsScreen() {
       {valuation && (
         <Card style={styles.valueCard}>
           <View style={styles.valueHeader}>
-            <Text style={styles.sectionTitle}>{L("Estimated Market Value", "Qiimaha Suuqa (Qiyaas)")}</Text>
+            <Text style={styles.sectionTitle}>{L("Estimated Market Price", "Qiimaha Suuqa (Qiyaas)")}</Text>
             <View style={styles.estimateChip}>
               <Ionicons name="sparkles-outline" size={11} color={colors.gold} />
               <Text style={styles.estimateChipText}>{L("AI ESTIMATE", "QIYAAS AI")}</Text>
             </View>
           </View>
-          {valuation.lowConfidence || (valuation.minUsd == null && valuation.typicalUsd == null) ? (
+          {valuation.lowConfidence || valuation.minUsd == null || valuation.maxUsd == null ? (
             <Text style={styles.body}>
               {L(
                 "More photographs or laboratory testing are required for an accurate valuation.",
@@ -582,20 +774,20 @@ export default function ResultsScreen() {
             </Text>
           ) : (
             <>
-              {valuation.minUsd != null && valuation.premiumUsd != null && (
+              <View style={styles.priceRow}>
                 <Text style={styles.valueRange}>
-                  USD {Math.round(valuation.minUsd)}–{Math.round(valuation.premiumUsd)}
+                  USD {Math.round(valuation.minUsd)}–{Math.round(valuation.maxUsd)}
                 </Text>
-              )}
+                <View style={styles.unitBadge}>
+                  <Text style={styles.unitBadgeText}>
+                    {priceUnitLabel(valuation.unit, valuation.purity, lang === "so").toUpperCase()}
+                  </Text>
+                </View>
+              </View>
               {valuation.typicalUsd != null && (
                 <Text style={styles.valueTypical}>
-                  {L("Typical value", "Qiimaha caadiga")}: ~USD {Math.round(valuation.typicalUsd)}
-                </Text>
-              )}
-              {valuation.premiumUsd != null && valuation.collectible && (
-                <Text style={styles.valuePremium}>
-                  {L("Collector quality may exceed", "Tayada uruurinta way dhaafi kartaa")} USD{" "}
-                  {Math.round(valuation.premiumUsd)}
+                  {L("Typical", "Caadi ahaan")}: ~USD {Math.round(valuation.typicalUsd)}{" "}
+                  {priceUnitLabel(valuation.unit, valuation.purity, lang === "so")}
                 </Text>
               )}
               {!!valuation.qualityNote && <Text style={styles.valueNote}>{valuation.qualityNote}</Text>}
@@ -605,8 +797,8 @@ export default function ResultsScreen() {
             <Ionicons name="information-circle-outline" size={13} color={colors.textFaint} />
             <Text style={styles.disclaimer}>
               {L(
-                "This is an AI estimate, not a professional appraisal.",
-                "Tani waa qiyaas AI ah, maaha qiimayn xirfadeed.",
+                "Estimated from photographs only. Final value depends on the actual weight, size, clarity, treatment, origin, condition, laboratory verification, and current market prices.",
+                "Waxaa lagu qiyaasay sawirro kaliya. Qiimaha kama dambaysta ah wuxuu ku xidhan yahay culayska dhabta ah, cabbirka, saafinnimada, daaweynta, asalka, xaaladda, xaqiijinta shaybaarka, iyo qiimayaasha suuqa ee hadda.",
               )}
             </Text>
           </View>
@@ -640,10 +832,64 @@ export default function ResultsScreen() {
         </Card>
       )}
 
+      {/* ── Gold Verification Mode trigger ────────────────────────────────── */}
+      {showGoldVerification && (
+        <Card accent style={styles.verifyCard}>
+          <View style={styles.verifyHeader}>
+            <Ionicons name="medal-outline" size={18} color={colors.gold} />
+            <Text style={styles.verifyTitle}>
+              {L("This May Be Gold — Verification Recommended", "Tani Waxay Noqon Kartaa Dahab — Xaqiijin ayaa lagula talinayaa")}
+            </Text>
+          </View>
+          <Text style={styles.body}>
+            {L(
+              "A photo alone can't confirm real gold. Answer a few extra questions (origin, magnet test, density, streak test, and hallmark/purity if it's jewelry) so we can give you a proper evidence-based verification report.",
+              "Sawir keliya kama caddayn karo in uu yahay dahab dhab ah. Ka jawaab dhowr su'aalood oo dheeraad ah (halka laga helay, tijaabada magnetka, xajmiga, tijaabada xariiqda, iyo calaamadaha saafinimada haddii uu yahay jowharad) si aan kuu siino warbixin xaqiijin ah oo caddayn ku salaysan.",
+            )}
+          </Text>
+          <View style={styles.verifyButtonRow}>
+            <Button
+              title={L("Continue Verification", "Sii wad Xaqiijinta")}
+              variant="primary"
+              size="sm"
+              onPress={() => router.push({ pathname: "/(app)/scan/verify-gold", params: { scanId } })}
+              style={{ flex: 1 }}
+            />
+          </View>
+        </Card>
+      )}
+
+      {/* ── Artifact Verification Mode trigger ────────────────────────────── */}
+      {showArtifactVerification && (
+        <Card accent style={styles.verifyCard}>
+          <View style={styles.verifyHeader}>
+            <Ionicons name="business-outline" size={18} color={colors.gold} />
+            <Text style={styles.verifyTitle}>
+              {L("This May Be a Historical Artifact", "Tani Waxay Noqon Kartaa Aathaar Taariikhi ah")}
+            </Text>
+          </View>
+          <Text style={styles.body}>
+            {L(
+              "A photo alone can't confirm a genuine antiquity. Answer a few questions about where and how you found it, add more photos (all sides, base, inside, any broken areas and inscriptions), and we'll give you an evidence-based verification report — including a heritage & legal notice.",
+              "Sawir keliya kama caddayn karo aathaar dhab ah. Ka jawaab dhowr su'aalood oo ku saabsan halka iyo sida aad u heshay, ku dar sawirro dheeraad ah (dhinacyada, salka, gudaha, meelaha jaban iyo qoraallada), waxaanan ku siin doonnaa warbixin xaqiijin oo caddayn ku salaysan — oo ay ku jirto ogeysiis hidde iyo sharci.",
+            )}
+          </Text>
+          <View style={styles.verifyButtonRow}>
+            <Button
+              title={L("Continue Verification", "Sii wad Xaqiijinta")}
+              variant="primary"
+              size="sm"
+              onPress={() => router.push({ pathname: "/(app)/scan/verify-artifact", params: { scanId } })}
+              style={{ flex: 1 }}
+            />
+          </View>
+        </Card>
+      )}
+
       {/* ── Expert Review Recommended (high-value / rare / collectible) ───── */}
       {valuation &&
         hasExpertContact() &&
-        ((valuation.typicalUsd ?? 0) >= HIGH_VALUE_THRESHOLD_USD ||
+        ((valuation.maxUsd ?? valuation.typicalUsd ?? 0) >= HIGH_VALUE_THRESHOLD_USD ||
           valuation.rarity === "rare" ||
           valuation.rarity === "very_rare" ||
           valuation.collectible) && (
@@ -782,12 +1028,9 @@ export default function ResultsScreen() {
               {bandWord(finalResult.confidenceBand)} {L("CONFIDENCE", "KALSOONI")} · {pct}%
             </Text>
           </View>
-          {valuation && !valuation.lowConfidence && (valuation.minUsd != null || valuation.typicalUsd != null) && (
+          {valuation && formatValuationRange(valuation, lang === "so") && (
             <Text style={styles.scValue}>
-              {L("Estimated value", "Qiimaha suuqa (qiyaas)")}:{" "}
-              {valuation.minUsd != null && valuation.premiumUsd != null
-                ? `USD ${Math.round(valuation.minUsd)}–${Math.round(valuation.premiumUsd)}`
-                : `~USD ${Math.round(valuation.typicalUsd ?? 0)}`}
+              {L("Estimated price", "Qiimaha suuqa (qiyaas)")}: {formatValuationRange(valuation, lang === "so")}
             </Text>
           )}
           {alternatives.length > 0 && (
@@ -849,9 +1092,6 @@ const styles = StyleSheet.create({
   pdfLockedHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
   pdfLockedTitle: { color: "#F5F1E8", fontWeight: "800", fontSize: 16, flex: 1, lineHeight: 21 },
   pdfSellBullet: { color: "#E8E2D2", fontSize: 13, lineHeight: 20 },
-  pdfPriceRow: { flexDirection: "row", alignItems: "flex-end", gap: 6, marginTop: 4 },
-  pdfPrice: { color: "#C9A227", fontSize: 26, fontWeight: "900" },
-  pdfPriceUnit: { color: "#8A8A8E", fontSize: 13, fontWeight: "700", marginBottom: 4 },
   proTag: {
     backgroundColor: "#C9A227",
     borderRadius: 6,
@@ -922,9 +1162,17 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   estimateChipText: { color: colors.gold, fontWeight: "800", fontSize: 10, letterSpacing: 0.4 },
+  priceRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
   valueRange: { fontSize: 22, fontWeight: "800", color: "#C9A227" },
-  valueTypical: { fontSize: 14, color: "#F5F1E8" },
-  valuePremium: { fontSize: 13, color: "#C9A227" },
+  // Prominent pricing-unit chip so users instantly see per gram / carat / specimen.
+  unitBadge: {
+    backgroundColor: colors.goldSoft,
+    borderRadius: radius.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  unitBadgeText: { color: colors.gold, fontWeight: "900", fontSize: 11, letterSpacing: 0.4 },
+  valueTypical: { fontSize: 14, color: "#F5F1E8", marginTop: 4 },
   valueNote: { fontSize: 13, color: "#C9C9CC", lineHeight: 19, marginTop: 4 },
   disclaimer: { fontSize: 12, color: colors.textFaint, lineHeight: 16, flexShrink: 1 },
   disclaimerPill: {

@@ -92,9 +92,11 @@ export async function generatePdfForScan(scanId: string, lang: Lang): Promise<bo
     })),
     valuation: valuation
       ? {
+          unit: valuation.unit,
+          purity: valuation.purity,
           minUsd: valuation.minUsd,
+          maxUsd: valuation.maxUsd,
           typicalUsd: valuation.typicalUsd,
-          premiumUsd: valuation.premiumUsd,
           note: valuation.qualityNote,
           lowConfidence: valuation.lowConfidence,
         }

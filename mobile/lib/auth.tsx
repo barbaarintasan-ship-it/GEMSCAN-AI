@@ -1,7 +1,7 @@
 // Auth context: sign up, sign in, sign out, and the current session.
 // This is the full extent of what the mobile app does regarding accounts —
 // no payment/purchase logic lives anywhere near this file.
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 
@@ -16,6 +16,18 @@ type AuthContextValue = {
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<{ error: string | null }>;
+  // Edit the signed-in user's profile fields (stored in auth user_metadata;
+  // display_name is also mirrored into the profiles table).
+  updateProfile: (fields: ProfileUpdate) => Promise<{ error: string | null }>;
+  // Send a "forgot password" reset email.
+  resetPassword: (email: string) => Promise<{ error: string | null }>;
+};
+
+export type ProfileUpdate = {
+  fullName?: string;
+  phone?: string;
+  country?: string;
+  city?: string;
 };
 
 const FUNCTIONS_URL = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL;
@@ -50,7 +62,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.subscription.unsubscribe();
   }, []);
 
-  const signUp = async (email: string, password: string, profile?: SignUpProfile) => {
+  // B6 (perf): stable identities so the context value below only changes when
+  // session/isLoading change, not on every provider render. Deps are empty
+  // because these close over module-level constants (supabase, FUNCTIONS_URL).
+  const signUp = useCallback(async (email: string, password: string, profile?: SignUpProfile) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -73,21 +88,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // will pick it up. Distinguish the two so the UI can react correctly instead
     // of silently bouncing back to the login screen.
     return { error: null, needsEmailConfirmation: data.session === null };
-  };
+  }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error: error?.message ?? null };
-  };
+  }, []);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     await supabase.auth.signOut();
-  };
+  }, []);
 
   // Permanently deletes the account + all data server-side (delete-account
   // Edge Function), then clears the local session. Required by App Store
   // Guideline 5.1.1(v) / Google Play.
-  const deleteAccount = async () => {
+  const deleteAccount = useCallback(async () => {
     const {
       data: { session: current },
     } = await supabase.auth.getSession();
@@ -110,13 +125,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       return { error: (err as Error).message };
     }
-  };
+  }, []);
 
-  return (
-    <AuthContext.Provider value={{ session, isLoading, signUp, signIn, signOut, deleteAccount }}>
-      {children}
-    </AuthContext.Provider>
+  // Update profile fields. phone/country/city live ONLY in auth user_metadata
+  // (the profiles table has no such columns); display_name lives in both, so we
+  // also mirror it into profiles (best-effort). updateUser merges the provided
+  // keys into user_metadata and fires onAuthStateChange, refreshing the session.
+  const updateProfile = useCallback(async (fields: ProfileUpdate) => {
+    const data: Record<string, string | null> = {};
+    if (fields.fullName !== undefined) data.display_name = fields.fullName.trim() || null;
+    if (fields.phone !== undefined) data.phone = fields.phone.trim() || null;
+    if (fields.country !== undefined) data.country = fields.country.trim() || null;
+    if (fields.city !== undefined) data.city = fields.city.trim() || null;
+
+    const { error } = await supabase.auth.updateUser({ data });
+    if (error) return { error: error.message };
+
+    if ("display_name" in data) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from("profiles").update({ display_name: data.display_name }).eq("id", user.id);
+      }
+    }
+    return { error: null };
+  }, []);
+
+  // "Forgot password": emails a reset link. Where the link lands (in-app vs web)
+  // is governed by the project's Auth "Site URL" / redirect settings.
+  const resetPassword = useCallback(async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+    return { error: error?.message ?? null };
+  }, []);
+
+  const value = useMemo(
+    () => ({ session, isLoading, signUp, signIn, signOut, deleteAccount, updateProfile, resetPassword }),
+    [session, isLoading, signUp, signIn, signOut, deleteAccount, updateProfile, resetPassword],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

@@ -13,6 +13,10 @@ import { supabase } from "./supabase";
 import i18n from "./i18n";
 import type { BoundingBox, CoarseClassification } from "./onDeviceDetection";
 import type { QualityAssessment } from "../components/ImageProcessorGL";
+// TEMPORARY: timestamped ENTER/EXIT breadcrumbs + memory profiling for the
+// "Preparing photos" crash probe. Observational only — remove with
+// lib/scanDiag.ts once resolved.
+import { enter, exit, slog, mem, fileSizeMB } from "./scanDiag";
 
 const FUNCTIONS_URL = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL!;
 
@@ -34,22 +38,39 @@ const ORIGINAL_COMPRESS = 0.8;
 async function prepareOriginalForUpload(
   uri: string,
 ): Promise<{ uri: string; ext: "webp" | "jpg"; contentType: "image/webp" | "image/jpeg" }> {
+  enter("prepareOriginalForUpload");
   try {
+    // The FULL-resolution decode (Glide SIZE_ORIGINAL) — the peak-memory step
+    // and the prime native-OutOfMemory suspect. If the process dies here, this
+    // ENTER is the last line in logcat with no matching EXIT.
+    enter("ImageManipulator.manipulateAsync webp (full-res decode)");
+    mem("before manipulateAsync(webp)");
     const webp = await ImageManipulator.manipulateAsync(
       uri,
       [{ resize: { width: ORIGINAL_MAX_WIDTH } }],
       { compress: ORIGINAL_COMPRESS, format: ImageManipulator.SaveFormat.WEBP },
     );
+    mem("after manipulateAsync(webp)");
+    slog(`manipulate output(webp): ${webp.width}x${webp.height}`);
+    exit("ImageManipulator.manipulateAsync webp");
+    exit("prepareOriginalForUpload (webp)");
     return { uri: webp.uri, ext: "webp", contentType: "image/webp" };
   } catch {
     try {
+      enter("ImageManipulator.manipulateAsync jpeg (full-res decode, webp fallback)");
+      mem("before manipulateAsync(jpeg)");
       const jpeg = await ImageManipulator.manipulateAsync(
         uri,
         [{ resize: { width: ORIGINAL_MAX_WIDTH } }],
         { compress: ORIGINAL_COMPRESS, format: ImageManipulator.SaveFormat.JPEG },
       );
+      mem("after manipulateAsync(jpeg)");
+      slog(`manipulate output(jpeg): ${jpeg.width}x${jpeg.height}`);
+      exit("ImageManipulator.manipulateAsync jpeg");
+      exit("prepareOriginalForUpload (jpeg)");
       return { uri: jpeg.uri, ext: "jpg", contentType: "image/jpeg" };
     } catch {
+      exit("prepareOriginalForUpload (passthrough — both encodes failed)");
       return { uri, ext: "jpg", contentType: "image/jpeg" };
     }
   }
@@ -83,6 +104,11 @@ export type CapturedAngleImage = {
   processedUri: string;
   quality: QualityAssessment;
   detectionBbox: BoundingBox | null;
+  // TEMPORARY diagnostic metadata (original capture pixel dimensions). Optional
+  // and unused by any logic — only read by the memory-profiling logs. Remove
+  // together with lib/scanDiag.ts.
+  originalWidth?: number;
+  originalHeight?: number;
 };
 
 export type ScanLocation = { lat: number; lng: number; label?: string; acc?: number };
@@ -97,6 +123,7 @@ export async function createScan(params: {
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Must be signed in to start a scan");
 
+  enter("createScan (insert scans row)");
   const { data, error } = await supabase
     .from("scans")
     .insert({
@@ -110,15 +137,27 @@ export async function createScan(params: {
     .single();
 
   if (error || !data) throw new Error(error?.message ?? "Failed to create scan");
+  exit("createScan");
   return data.id as string;
 }
 
 async function uploadFile(path: string, uri: string, contentType: string): Promise<void> {
+  // Breadcrumbs around the base64 read (a secondary memory hotspot) and the
+  // storage upload, so the last EXIT before a crash isolates read vs. upload.
+  const name = path.split("/").pop() ?? path;
+  enter(`uploadFile readAsStringAsync ${name}`);
+  mem(`before readAsStringAsync ${name}`);
   const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+  mem(`after readAsStringAsync ${name}`);
+  exit(`uploadFile readAsStringAsync ${name} (base64 len=${base64.length})`);
+  enter(`uploadFile storage.upload ${name}`);
+  mem(`before upload ${name}`);
   const { error } = await supabase.storage
     .from("scan-images")
     .upload(path, decode(base64), { contentType, upsert: true });
   if (error) throw new Error(`Upload failed for ${path}: ${error.message}`);
+  mem(`after upload ${name}`);
+  exit(`uploadFile storage.upload ${name}`);
 }
 
 export async function uploadScanImage(scanId: string, image: CapturedAngleImage): Promise<void> {
@@ -127,16 +166,26 @@ export async function uploadScanImage(scanId: string, image: CapturedAngleImage)
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Must be signed in to upload a scan image");
 
+  enter(`uploadScanImage angle=${image.angle}`);
+  // Diagnostic: original pixel dimensions + on-disk file size (cheap, no decode)
+  // — the inputs that determine the decode allocation size.
+  slog(
+    `angle=${image.angle} Original: ${image.originalWidth ?? "?"}x${image.originalHeight ?? "?"}  File: ${await fileSizeMB(image.originalUri)}`,
+  );
   // Only the original is resized/re-encoded here — the processed (AI-facing)
   // image's own size/quality (set by ImageProcessorGL.enhance()) is untouched.
+  mem(`angle=${image.angle} before prepareOriginalForUpload`);
   const prepared = await prepareOriginalForUpload(image.originalUri);
+  mem(`angle=${image.angle} after prepareOriginalForUpload`);
   const originalPath = `${user.id}/${scanId}/${image.angle}-original.${prepared.ext}`;
   const processedPath = `${user.id}/${scanId}/${image.angle}-processed.jpg`;
 
+  enter(`uploadScanImage angle=${image.angle} upload 2 files`);
   await Promise.all([
     uploadFile(originalPath, prepared.uri, prepared.contentType),
     uploadFile(processedPath, image.processedUri, "image/jpeg"),
   ]);
+  exit(`uploadScanImage angle=${image.angle} upload 2 files`);
 
   const { error } = await supabase.from("scan_images").insert({
     scan_id: scanId,
@@ -153,6 +202,7 @@ export async function uploadScanImage(scanId: string, image: CapturedAngleImage)
   });
 
   if (error) throw new Error(`Failed to save scan_images row: ${error.message}`);
+  exit(`uploadScanImage angle=${image.angle}`);
 }
 
 export type EnsembleCandidateDTO = {
@@ -310,4 +360,30 @@ export async function submitScanFeedback(
   });
 
   if (error) throw new Error(`Failed to save feedback: ${error.message}`);
+}
+
+// Permanently deletes one of the user's own scans (from "My Collection"),
+// including its Storage photos and every dependent row (candidates, images,
+// feedback, and any verification/report tied to it — all cascade). Runs
+// server-side (delete-scan Edge Function) because the client has no RLS
+// delete policy on scans or on Storage objects by design; the function
+// verifies ownership from the caller's own session before deleting anything.
+export async function deleteScan(scanId: string): Promise<void> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) throw new Error("Must be signed in to delete a scan");
+
+  const res = await fetch(`${FUNCTIONS_URL}/delete-scan`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ scanId }),
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body?.success) {
+    throw new Error(body?.error ?? `delete-scan failed with status ${res.status}`);
+  }
 }

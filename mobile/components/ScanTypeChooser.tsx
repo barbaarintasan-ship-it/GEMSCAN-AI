@@ -83,7 +83,7 @@ export default function ScanTypeChooser({ visible, remaining, recommendDeep, onC
                 </Text>
                 {EXTERNAL_PURCHASES_ENABLED && (
                   <Pressable style={styles.buyBtn} onPress={() => Linking.openURL(PAYMENT_URL)} accessibilityRole="link">
-                    <Text style={styles.buyText}>{L("Buy Deep Scan credits", "Iibso credits Deep Scan")}</Text>
+                    <Text style={styles.buyText}>{L("Unlock Deep Scan on the website", "Fur Deep Scan website-ka")}</Text>
                   </Pressable>
                 )}
                 <Text style={styles.hint}>

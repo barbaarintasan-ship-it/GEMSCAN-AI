@@ -16,6 +16,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   TextInput,
+  Alert,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -25,8 +26,20 @@ import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth";
 import { useSubscriptionStatus } from "../../lib/subscription";
 import { generatePdfForScan } from "../../lib/scanReport";
+import { deleteScan } from "../../lib/scanUpload";
+import {
+  readCachedJson,
+  writeCachedJson,
+  cacheImageFile,
+  localImageUriIfCached,
+  pruneImageFiles,
+  deleteCachedImage,
+  formatCacheAge,
+} from "../../lib/offlineCache";
+import { useIsOnline } from "../../lib/network";
 import { ConfidenceBadge } from "../../components/ui/ConfidenceBadge";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { OfflineBanner } from "../../components/ui/OfflineBanner";
 import { colors, spacing, radius } from "../../lib/theme";
 
 type ScanFinalResult = {
@@ -45,23 +58,209 @@ type HistoryItem = {
   thumbnailUrl: string | null;
 };
 
+// Offline cache shape — the same fields as HistoryItem, but the thumbnail is
+// a local file:// uri (persisted to disk) rather than an expiring 1-hour
+// signed URL, so it still renders with no network connection.
+type CachedHistoryItem = {
+  id: string;
+  status: string;
+  final_result: ScanFinalResult;
+  created_at: string;
+  location: { lat: number; lng: number } | null;
+  thumbnailLocalUri: string | null;
+};
+type HistoryCache = { cachedAt: string; items: CachedHistoryItem[] };
+
+function historyCacheKey(userId: string): string {
+  return `gemscan.cache.history.v1:${userId}`;
+}
+
+// A HistoryItem enriched (once, in a memo) with its precomputed display line
+// and formatted date/time strings — see itemsWithLine.
+type HistoryListItem = HistoryItem & {
+  line: { text: string; muted: boolean };
+  dateText: string;
+  timeText: string;
+};
+
+// B3: one memoized row. Because it's React.memo'd and receives per-row booleans
+// (isDeleting/isPdfBusy) rather than the shared deletingId/pdfBusyId, changing
+// the delete/PDF-busy state of ONE row (or typing in search) re-renders only
+// the affected row instead of every mounted row. All other props (item,
+// handlers) are referentially stable, so unaffected rows bail out.
+const HistoryRow = React.memo(function HistoryRow({
+  item,
+  editMode,
+  isDeleting,
+  isPdfBusy,
+  canPdf,
+  so,
+  onOpen,
+  onDelete,
+  onGeneratePdf,
+}: {
+  item: HistoryListItem;
+  editMode: boolean;
+  isDeleting: boolean;
+  isPdfBusy: boolean;
+  canPdf: boolean;
+  so: boolean;
+  onOpen: (id: string) => void;
+  onDelete: (id: string, label: string) => void;
+  onGeneratePdf: (id: string) => void;
+}) {
+  const line = item.line;
+  const fr = item.final_result;
+  const showConfidence = !line.muted && fr;
+
+  return (
+    <Pressable
+      style={styles.itemCard}
+      onPress={() => (editMode ? undefined : onOpen(item.id))}
+      disabled={editMode}
+    >
+      {item.thumbnailUrl ? (
+        <Image source={{ uri: item.thumbnailUrl }} style={styles.thumb} />
+      ) : (
+        <View style={[styles.thumb, styles.thumbPlaceholder]}>
+          <Ionicons name="diamond-outline" size={22} color="#8A8A8E" />
+        </View>
+      )}
+
+      <View style={styles.itemBody}>
+        <Text style={[styles.itemTitle, line.muted && styles.itemTitleMuted]} numberOfLines={1}>
+          {line.text}
+        </Text>
+        <View style={styles.metaRow}>
+          {showConfidence && fr && (
+            <ConfidenceBadge pct={fr.confidenceScore * 100} band={fr.confidenceBand} size="sm" />
+          )}
+          <Text style={styles.dateText}>
+            {item.dateText} · {item.timeText}
+          </Text>
+          {item.location && (
+            <View style={styles.locChip}>
+              <Ionicons name="location" size={11} color="#2EE66E" />
+            </View>
+          )}
+        </View>
+      </View>
+
+      {editMode ? (
+        <Pressable
+          style={styles.rowDeleteBtn}
+          onPress={() => onDelete(item.id, line.text)}
+          disabled={isDeleting}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={so ? "Tirtir baaristan" : "Delete this scan"}
+        >
+          {isDeleting ? (
+            <ActivityIndicator color="#F5B3B3" size="small" />
+          ) : (
+            <Ionicons name="trash-outline" size={20} color="#F5B3B3" />
+          )}
+        </Pressable>
+      ) : (
+        <>
+          {canPdf && !line.muted && (
+            <Pressable
+              style={styles.rowPdfBtn}
+              onPress={() => onGeneratePdf(item.id)}
+              disabled={isPdfBusy}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={so ? "Samee warbixin PDF" : "Generate PDF report"}
+            >
+              {isPdfBusy ? (
+                <ActivityIndicator color="#C9A227" size="small" />
+              ) : (
+                <Ionicons name="document-text-outline" size={20} color="#C9A227" />
+              )}
+            </Pressable>
+          )}
+
+          <Ionicons name="chevron-forward" size={20} color="#8A8A8E" />
+        </>
+      )}
+    </Pressable>
+  );
+});
+
 export default function HistoryScreen() {
   const { t, i18n } = useTranslation();
   const so = i18n.language === "so";
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
+  const isOnline = useIsOnline();
 
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);
   const [query, setQuery] = useState("");
+  // "cache" once loadFromCache has populated items from disk; flips to
+  // "live" only once a live fetch actually succeeds. Drives the offline
+  // banner — never cleared on a failed live refresh, so stale-but-real data
+  // stays on screen instead of being replaced by an error state.
+  const [dataSource, setDataSource] = useState<"cache" | "live">("live");
+  const [cachedAt, setCachedAt] = useState<string | null>(null);
+
+  // Collection management: "Edit" mode reveals a delete control on each row.
+  const [editMode, setEditMode] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Professional PDF report — Pro / "Gem Collector" tier only.
   const { data: sub } = useSubscriptionStatus();
   const canPdf = sub?.features?.pdfReports ?? false;
   const [pdfBusyId, setPdfBusyId] = useState<string | null>(null);
+
+  // Delete one scan (server-side, ownership-checked), then drop it from the
+  // on-screen list AND the offline cache (list entry + cached thumbnail) so it
+  // doesn't reappear from cache on the next offline visit.
+  const onDeleteScan = useCallback(
+    (id: string, label: string) => {
+      if (deletingId) return;
+      const doDelete = async () => {
+        setDeletingId(id);
+        try {
+          await deleteScan(id);
+          setItems((prev) => prev.filter((it) => it.id !== id));
+          const userId = session?.user.id;
+          if (userId) {
+            const cached = await readCachedJson<HistoryCache>(historyCacheKey(userId));
+            if (cached) {
+              await writeCachedJson<HistoryCache>(historyCacheKey(userId), {
+                cachedAt: cached.cachedAt,
+                items: cached.items.filter((it) => it.id !== id),
+              });
+            }
+            await deleteCachedImage(id);
+          }
+        } catch (err) {
+          Alert.alert(
+            so ? "Waa fashilantay" : "Couldn't delete",
+            (err as Error).message,
+          );
+        } finally {
+          setDeletingId(null);
+        }
+      };
+
+      Alert.alert(
+        so ? "Tirtir baaristan?" : "Delete this scan?",
+        so
+          ? `"${label}" waa la tirtiri doonaa gebi ahaanba, sawirradiisa iyo wixii warbixin xaqiijin oo lacag lagu bixiyay ee la xidhiidha oo dhan. Tallaabadan lama soo celin karo.`
+          : `"${label}" and its photos will be permanently removed, along with any paid verification report tied to it. This cannot be undone.`,
+        [
+          { text: so ? "Maya" : "Cancel", style: "cancel" },
+          { text: so ? "Tirtir" : "Delete", style: "destructive", onPress: () => void doDelete() },
+        ],
+      );
+    },
+    [deletingId, session?.user.id, so],
+  );
 
   const onGeneratePdf = useCallback(
     async (id: string) => {
@@ -78,9 +277,32 @@ export default function HistoryScreen() {
     [pdfBusyId, so],
   );
 
-  const load = useCallback(async () => {
-    if (!session?.user.id) return;
-    setError(false);
+  // Read whatever was cached from the LAST successful live fetch (see
+  // loadLive below) — resolves instantly, works with no network at all.
+  // Returns whether there was anything to show.
+  const loadFromCache = useCallback(async (): Promise<boolean> => {
+    if (!session?.user.id) return false;
+    const cached = await readCachedJson<HistoryCache>(historyCacheKey(session.user.id));
+    if (!cached || cached.items.length === 0) return false;
+    setItems(
+      cached.items.map((i) => ({
+        id: i.id,
+        status: i.status,
+        final_result: i.final_result,
+        created_at: i.created_at,
+        location: i.location,
+        thumbnailUrl: i.thumbnailLocalUri,
+      })),
+    );
+    setDataSource("cache");
+    setCachedAt(cached.cachedAt);
+    return true;
+  }, [session?.user.id]);
+
+  // The original live query, unchanged, plus (best-effort, fire-and-forget)
+  // persisting a fresh offline cache afterward. Returns whether it succeeded.
+  const loadLive = useCallback(async (): Promise<boolean> => {
+    if (!session?.user.id) return false;
     const { data, error: queryError } = await supabase
       .from("scans")
       .select("id, status, final_result, created_at, capture_location, scan_images(original_storage_path)")
@@ -88,11 +310,7 @@ export default function HistoryScreen() {
       .order("created_at", { ascending: false })
       .limit(100);
 
-    if (queryError || !data) {
-      setError(true);
-      setItems([]);
-      return;
-    }
+    if (queryError || !data) return false;
 
     // Batch-sign the first image of each scan (the bucket is private, so raw
     // storage paths aren't directly loadable).
@@ -110,44 +328,80 @@ export default function HistoryScreen() {
       });
     }
 
-    setItems(
-      data.map((row: any) => {
-        const path = row.scan_images?.[0]?.original_storage_path as string | undefined;
-        const loc = row.capture_location as { lat?: number; lng?: number } | null;
-        return {
-          id: row.id,
-          status: row.status,
-          final_result: row.final_result as ScanFinalResult,
-          created_at: row.created_at,
-          location:
-            loc && typeof loc.lat === "number" && typeof loc.lng === "number"
-              ? { lat: loc.lat, lng: loc.lng }
-              : null,
-          thumbnailUrl: path ? signedByPath.get(path) ?? null : null,
-        };
-      }),
-    );
+    const freshItems: HistoryItem[] = data.map((row: any) => {
+      const path = row.scan_images?.[0]?.original_storage_path as string | undefined;
+      const loc = row.capture_location as { lat?: number; lng?: number } | null;
+      return {
+        id: row.id,
+        status: row.status,
+        final_result: row.final_result as ScanFinalResult,
+        created_at: row.created_at,
+        location:
+          loc && typeof loc.lat === "number" && typeof loc.lng === "number"
+            ? { lat: loc.lat, lng: loc.lng }
+            : null,
+        thumbnailUrl: path ? signedByPath.get(path) ?? null : null,
+      };
+    });
+
+    setItems(freshItems);
+    setDataSource("live");
+    setCachedAt(null);
+
+    // Never blocks rendering — downloads/prunes thumbnails and writes the
+    // refreshed cache in the background so the NEXT offline visit has
+    // something to show.
+    const userId = session.user.id;
+    (async () => {
+      const cachedItems: CachedHistoryItem[] = await Promise.all(
+        freshItems.map(async (item) => ({
+          id: item.id,
+          status: item.status,
+          final_result: item.final_result,
+          created_at: item.created_at,
+          location: item.location,
+          thumbnailLocalUri: item.thumbnailUrl
+            ? await cacheImageFile(item.id, item.thumbnailUrl)
+            : await localImageUriIfCached(item.id),
+        })),
+      );
+      await pruneImageFiles(freshItems.map((i) => i.id));
+      await writeCachedJson<HistoryCache>(historyCacheKey(userId), {
+        cachedAt: new Date().toISOString(),
+        items: cachedItems,
+      });
+    })().catch(() => {});
+
+    return true;
   }, [session?.user.id]);
+
+  const refresh = useCallback(
+    async (showFullScreenLoading: boolean) => {
+      const hadCache = await loadFromCache();
+      if (showFullScreenLoading) setLoading(!hadCache);
+      setError(false);
+      if (isOnline) {
+        const ok = await loadLive();
+        if (!ok && !hadCache) setError(true);
+      } else if (!hadCache) {
+        setError(true);
+      }
+      if (showFullScreenLoading) setLoading(false);
+    },
+    [loadFromCache, loadLive, isOnline],
+  );
 
   // Reload whenever the screen regains focus so a scan the user just finished
   // shows up when they navigate here.
   useFocusEffect(
     useCallback(() => {
-      let active = true;
-      (async () => {
-        setLoading(true);
-        await load();
-        if (active) setLoading(false);
-      })();
-      return () => {
-        active = false;
-      };
-    }, [load]),
+      refresh(true);
+    }, [refresh]),
   );
 
   async function onRefresh() {
     setRefreshing(true);
-    await load();
+    await refresh(false);
     setRefreshing(false);
   }
 
@@ -160,10 +414,25 @@ export default function HistoryScreen() {
     return { text: fr.bestMatch, muted: false };
   }
 
-  // Compute each item's display line ONCE per items/language change, rather
-  // than recomputing it again in every renderItem call for every visible row.
-  const itemsWithLine = useMemo(
-    () => items.map((item) => ({ ...item, line: resultLine(item) })),
+  // Compute each item's display line AND its formatted date/time ONCE per
+  // items/language change, rather than recomputing them again in every
+  // renderItem call for every visible row (B4: toLocaleDate/TimeString are
+  // comparatively expensive Intl calls at 100 rows).
+  const itemsWithLine = useMemo<HistoryListItem[]>(
+    () =>
+      items.map((item) => {
+        const when = new Date(item.created_at);
+        return {
+          ...item,
+          line: resultLine(item),
+          dateText: when.toLocaleDateString(undefined, {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+          }),
+          timeText: when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
+        };
+      }),
     // resultLine is a plain function redefined every render (uses t());
     // adding it here would defeat the memo since it'd never be stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -178,82 +447,41 @@ export default function HistoryScreen() {
     return itemsWithLine.filter((item) => item.line.text.toLowerCase().includes(q));
   }, [itemsWithLine, query]);
 
-  const renderItem = useCallback(({ item }: { item: (typeof itemsWithLine)[number] }) => {
-    const line = item.line;
-    const fr = item.final_result;
-    const showConfidence = !line.muted && fr;
-    const when = new Date(item.created_at);
-    const date = when.toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-    const time = when.toLocaleTimeString(undefined, {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+  // Stable open handler so the memoized rows don't see a new prop each render.
+  const onOpenResult = useCallback(
+    (id: string) => router.push({ pathname: "/(app)/scan/results", params: { scanId: id } }),
+    [router],
+  );
 
-    return (
-      <Pressable
-        style={styles.itemCard}
-        onPress={() =>
-          router.push({ pathname: "/(app)/scan/results", params: { scanId: item.id } })
-        }
-      >
-        {item.thumbnailUrl ? (
-          <Image source={{ uri: item.thumbnailUrl }} style={styles.thumb} />
-        ) : (
-          <View style={[styles.thumb, styles.thumbPlaceholder]}>
-            <Ionicons name="diamond-outline" size={22} color="#8A8A8E" />
-          </View>
-        )}
-
-        <View style={styles.itemBody}>
-          <Text style={[styles.itemTitle, line.muted && styles.itemTitleMuted]} numberOfLines={1}>
-            {line.text}
-          </Text>
-          <View style={styles.metaRow}>
-            {showConfidence && fr && (
-              <ConfidenceBadge pct={fr.confidenceScore * 100} band={fr.confidenceBand} size="sm" />
-            )}
-            <Text style={styles.dateText}>
-              {date} · {time}
-            </Text>
-            {item.location && (
-              <View style={styles.locChip}>
-                <Ionicons name="location" size={11} color="#2EE66E" />
-              </View>
-            )}
-          </View>
-        </View>
-
-        {/* Pro-only: generate the same professional PDF report for this saved
-            scan (loads the latest data at generation time). */}
-        {canPdf && !line.muted && (
-          <Pressable
-            style={styles.rowPdfBtn}
-            onPress={() => onGeneratePdf(item.id)}
-            disabled={pdfBusyId === item.id}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={so ? "Samee warbixin PDF" : "Generate PDF report"}
-          >
-            {pdfBusyId === item.id ? (
-              <ActivityIndicator color="#C9A227" size="small" />
-            ) : (
-              <Ionicons name="document-text-outline" size={20} color="#C9A227" />
-            )}
-          </Pressable>
-        )}
-
-        <Ionicons name="chevron-forward" size={20} color="#8A8A8E" />
-      </Pressable>
-    );
-  }, [router, canPdf, pdfBusyId, onGeneratePdf, so]);
+  // B3: renderItem now delegates to the memoized HistoryRow. Passing per-row
+  // booleans (deletingId/pdfBusyId compared to item.id) means a state change on
+  // one row only re-renders that row; the rest bail out via React.memo.
+  const renderItem = useCallback(
+    ({ item }: { item: HistoryListItem }) => (
+      <HistoryRow
+        item={item}
+        editMode={editMode}
+        isDeleting={deletingId === item.id}
+        isPdfBusy={pdfBusyId === item.id}
+        canPdf={canPdf}
+        so={so}
+        onOpen={onOpenResult}
+        onDelete={onDeleteScan}
+        onGeneratePdf={onGeneratePdf}
+      />
+    ),
+    [editMode, deletingId, pdfBusyId, canPdf, so, onOpenResult, onDeleteScan, onGeneratePdf],
+  );
 
   // Hooks must run unconditionally on every render — declared here, before
   // the loading/error/empty early returns below.
   const locatedCount = useMemo(() => items.filter((i) => i.location).length, [items]);
+
+  const bannerMessage = useMemo(() => {
+    if (dataSource !== "cache" || !cachedAt) return null;
+    const age = formatCacheAge(cachedAt, so);
+    return isOnline ? t("history.refreshFailedShowingSaved", { age }) : t("history.offlineShowingSaved", { age });
+  }, [dataSource, cachedAt, isOnline, so, t]);
 
   if (loading) {
     return (
@@ -295,6 +523,15 @@ export default function HistoryScreen() {
       data={filteredItems}
       keyExtractor={(item) => item.id}
       renderItem={renderItem}
+      // B5: windowing for a list of up to 100 image rows. Conservative values
+      // that only limit how much is mounted/rendered ahead — no getItemLayout
+      // (rows use flex `gap` spacing + slightly variable height, so a fixed
+      // offset formula would risk scroll glitches; not worth the risk here).
+      initialNumToRender={8}
+      maxToRenderPerBatch={8}
+      windowSize={11}
+      updateCellsBatchingPeriod={50}
+      removeClippedSubviews
       ListHeaderComponent={
         <View style={styles.header}>
           <View style={styles.headerTop}>
@@ -305,16 +542,30 @@ export default function HistoryScreen() {
                 {locatedCount > 0 ? ` · ${locatedCount} ${so ? "goobo la calaamadeeyay" : "mapped"}` : ""}
               </Text>
             </View>
-            {locatedCount > 0 && (
+            <View style={styles.headerActions}>
+              {locatedCount > 0 && !editMode && (
+                <Pressable
+                  style={styles.mapButton}
+                  onPress={() => router.push("/(app)/collection-map")}
+                >
+                  <Ionicons name="map" size={16} color="#0B0B0C" />
+                  <Text style={styles.mapButtonText}>{so ? "Khariidad" : "Map"}</Text>
+                </Pressable>
+              )}
               <Pressable
-                style={styles.mapButton}
-                onPress={() => router.push("/(app)/collection-map")}
+                style={styles.editButton}
+                onPress={() => setEditMode((e) => !e)}
+                hitSlop={8}
+                accessibilityRole="button"
               >
-                <Ionicons name="map" size={16} color="#0B0B0C" />
-                <Text style={styles.mapButtonText}>{so ? "Khariidad" : "Map"}</Text>
+                <Text style={styles.editButtonText}>
+                  {editMode ? (so ? "Diyaar" : "Done") : so ? "Wax ka beddel" : "Edit"}
+                </Text>
               </Pressable>
-            )}
+            </View>
           </View>
+
+          {bannerMessage && <OfflineBanner message={bannerMessage} />}
 
           <View style={styles.searchBar}>
             <Ionicons name="search" size={16} color={colors.textFaint} />
@@ -384,6 +635,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  rowDeleteBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#F5B3B3",
+    backgroundColor: "#2a1414",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   itemBody: { flex: 1, gap: 4 },
   itemTitle: { fontSize: 16, fontWeight: "600", color: "#F5F1E8" },
   itemTitleMuted: { color: "#8A8A8E", fontWeight: "500" },
@@ -401,6 +662,15 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   mapButtonText: { color: "#0B0B0C", fontWeight: "800", fontSize: 13 },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  editButton: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#C9A227",
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  editButtonText: { color: "#C9A227", fontWeight: "800", fontSize: 13 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   searchBar: {
     flexDirection: "row",

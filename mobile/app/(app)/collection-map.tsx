@@ -2,41 +2,67 @@
 // location as a pin on a keyless OpenStreetMap. Tapping a pin's popup opens
 // that scan's results. Pure read view over scans.capture_location; it does not
 // touch the scan/identification pipeline.
-import React, { useCallback, useLayoutEffect, useState } from "react";
+import React, { useCallback, useLayoutEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
 import { useRouter, useFocusEffect, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth";
+import { readCachedJson, writeCachedJson, formatCacheAge } from "../../lib/offlineCache";
+import { useIsOnline } from "../../lib/network";
 import LocationMap, { MapMarker } from "../../components/LocationMap";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { OfflineBanner } from "../../components/ui/OfflineBanner";
 
 type ScanFinalResult = { bestMatch: string | null } | null;
 
+// Offline cache — no image bytes needed here (pins carry no thumbnail), just
+// the marker list itself. Map TILES still require network regardless; this
+// only keeps the pins/popups themselves viewable offline.
+type MapCache = { cachedAt: string; markers: MapMarker[] };
+
+function mapCacheKey(userId: string): string {
+  return `gemscan.cache.map.v1:${userId}`;
+}
+
 export default function CollectionMapScreen() {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const so = i18n.language === "so";
   const router = useRouter();
   const navigation = useNavigation();
   const { session } = useAuth();
+  const isOnline = useIsOnline();
 
   const [markers, setMarkers] = useState<MapMarker[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dataSource, setDataSource] = useState<"cache" | "live">("live");
+  const [cachedAt, setCachedAt] = useState<string | null>(null);
 
   useLayoutEffect(() => {
     navigation.setOptions({ title: so ? "Khariidadda Kaydka" : "Collection Map" });
   }, [navigation, so]);
 
-  const load = useCallback(async () => {
-    if (!session?.user.id) return;
-    const { data } = await supabase
+  const loadFromCache = useCallback(async (): Promise<boolean> => {
+    if (!session?.user.id) return false;
+    const cached = await readCachedJson<MapCache>(mapCacheKey(session.user.id));
+    if (!cached || cached.markers.length === 0) return false;
+    setMarkers(cached.markers);
+    setDataSource("cache");
+    setCachedAt(cached.cachedAt);
+    return true;
+  }, [session?.user.id]);
+
+  const loadLive = useCallback(async (): Promise<boolean> => {
+    if (!session?.user.id) return false;
+    const { data, error } = await supabase
       .from("scans")
       .select("id, final_result, capture_location, created_at")
       .eq("user_id", session.user.id)
       .not("capture_location", "is", null)
       .order("created_at", { ascending: false })
       .limit(200);
+    if (error) return false;
 
     const pins: MapMarker[] = [];
     (data ?? []).forEach((row: any) => {
@@ -51,21 +77,35 @@ export default function CollectionMapScreen() {
       });
     });
     setMarkers(pins);
+    setDataSource("live");
+    setCachedAt(null);
+    writeCachedJson<MapCache>(mapCacheKey(session.user.id), {
+      cachedAt: new Date().toISOString(),
+      markers: pins,
+    }).catch(() => {});
+    return true;
   }, [session?.user.id, so]);
+
+  const refresh = useCallback(async () => {
+    const hadCache = await loadFromCache();
+    setLoading(!hadCache);
+    if (isOnline) {
+      await loadLive();
+    }
+    setLoading(false);
+  }, [loadFromCache, loadLive, isOnline]);
 
   useFocusEffect(
     useCallback(() => {
-      let active = true;
-      (async () => {
-        setLoading(true);
-        await load();
-        if (active) setLoading(false);
-      })();
-      return () => {
-        active = false;
-      };
-    }, [load]),
+      refresh();
+    }, [refresh]),
   );
+
+  const bannerMessage = useMemo(() => {
+    if (dataSource !== "cache" || !cachedAt) return null;
+    const age = formatCacheAge(cachedAt, so);
+    return isOnline ? t("history.refreshFailedShowingSaved", { age }) : t("history.offlineShowingSaved", { age });
+  }, [dataSource, cachedAt, isOnline, so, t]);
 
   if (loading) {
     return (
@@ -101,6 +141,7 @@ export default function CollectionMapScreen() {
           {markers.length} {so ? "goobo la calaamadeeyay" : markers.length === 1 ? "find mapped" : "finds mapped"}
         </Text>
       </View>
+      {bannerMessage && <OfflineBanner message={bannerMessage} />}
       <LocationMap
         markers={markers}
         fill
