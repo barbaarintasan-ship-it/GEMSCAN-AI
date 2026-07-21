@@ -744,17 +744,13 @@ export default function ResultsScreen() {
             <Text key={b} style={styles.pdfSellBullet}>✓ {b}</Text>
           ))}
 
-          <View style={styles.pdfPriceRow}>
-            <Text style={styles.pdfPrice}>USD 14.99</Text>
-            <Text style={styles.pdfPriceUnit}>{L("/ 6 months", "/ lix bilood")}</Text>
-          </View>
-
           <Button
-            title={L("Buy Professional (Gem Collector)", "Iibso Xirmada Professional (Gem Collector)")}
+            title={L("Unlock on the website", "Fur adeegga website-ka")}
             variant="primary"
+            icon={<Ionicons name="open-outline" size={18} color="#0B0B0C" />}
             onPress={() => Linking.openURL(PAYMENT_URL)}
             style={styles.pdfUpgradeButton}
-            accessibilityLabel={L("Buy the Professional (Gem Collector) plan", "Iibso xirmada Professional (Gem Collector)")}
+            accessibilityLabel={L("Open the GemScan website to unlock", "Fur website-ka GemScan si aad adeegga u furto")}
           />
         </Card>
       ) : null}
@@ -1096,9 +1092,6 @@ const styles = StyleSheet.create({
   pdfLockedHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
   pdfLockedTitle: { color: "#F5F1E8", fontWeight: "800", fontSize: 16, flex: 1, lineHeight: 21 },
   pdfSellBullet: { color: "#E8E2D2", fontSize: 13, lineHeight: 20 },
-  pdfPriceRow: { flexDirection: "row", alignItems: "flex-end", gap: 6, marginTop: 4 },
-  pdfPrice: { color: "#C9A227", fontSize: 26, fontWeight: "900" },
-  pdfPriceUnit: { color: "#8A8A8E", fontSize: 13, fontWeight: "700", marginBottom: 4 },
   proTag: {
     backgroundColor: "#C9A227",
     borderRadius: 6,

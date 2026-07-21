@@ -163,7 +163,7 @@ export default function BatchResultsScreen() {
               </Text>
               {EXTERNAL_PURCHASES_ENABLED && reason === "deep_credits_exhausted" && (
                 <Pressable style={styles.stopBannerButton} onPress={() => Linking.openURL(PAYMENT_URL)}>
-                  <Text style={styles.stopBannerButtonText}>{L("Buy more credits", "Iibso credits dheeraad ah")}</Text>
+                  <Text style={styles.stopBannerButtonText}>{L("Unlock more on the website", "Ka fur website-ka")}</Text>
                 </Pressable>
               )}
             </View>

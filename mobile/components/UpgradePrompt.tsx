@@ -43,7 +43,7 @@ export function UpgradePrompt() {
       </Text>
       <Pressable style={styles.button} onPress={() => Linking.openURL(PAYMENT_URL)}>
         <Ionicons name="sparkles-outline" size={18} color="#0B0B0C" />
-        <Text style={styles.buttonText}>{so ? "Arag qorshayaasha" : "View plans & subscribe"}</Text>
+        <Text style={styles.buttonText}>{so ? "Fur adeegga website-ka" : "Unlock on the website"}</Text>
       </Pressable>
     </View>
   );

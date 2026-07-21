@@ -74,7 +74,7 @@ export default function BatchScanScreen() {
           </Text>
           {EXTERNAL_PURCHASES_ENABLED && (
             <Pressable style={styles.primaryButton} onPress={() => Linking.openURL(PAYMENT_URL)}>
-              <Text style={styles.primaryButtonText}>{L("View plans", "Arag qorshayaasha")}</Text>
+              <Text style={styles.primaryButtonText}>{L("Unlock on the website", "Fur adeegga website-ka")}</Text>
             </Pressable>
           )}
         </View>

@@ -1,3 +1,5 @@
+import { Platform } from "react-native";
+
 // Central place for the outbound website links, so every "Upgrade / Subscribe"
 // action points to the same page and can be changed via one env var.
 export const PAYMENT_URL =
@@ -43,17 +45,16 @@ export function buildArtifactReportPaymentUrl(purchaseId: string, method: "mobil
   return `${ARTIFACT_REPORT_PAYMENT_URL}?ref=${encodeURIComponent(purchaseId)}&method=${method}`;
 }
 
-// GemScan intentionally sells its plans/reports on the website only (no in-app
-// purchase of digital content). BOTH stores restrict surfacing external-purchase
-// UI or steering users to it from inside the app — Apple Guideline 3.1.1 and
-// Google Play's Payments / anti-steering rules. So this is now false on EVERY
-// platform: the app shows NO price, "Buy" button, or "subscribe on our website"
-// wording anywhere. Entitlement already bought on the website is still read and
-// honored (see verify-subscription) — the app simply never sells.
+// GemScan sells its plans/reports on the website only. The app shows a
+// price-less "unlock on the website" call-to-action that opens the checkout
+// page; after paying there, entitlement unlocks automatically (read via
+// verify-subscription). NO price is ever displayed in-app.
 //
-// Flip to a real in-app purchase (StoreKit / Google Play Billing) flow if store
-// billing is ever added.
-export const EXTERNAL_PURCHASES_ENABLED = false;
+// iOS stays OFF: Apple Guideline 3.1.1 forbids steering to an external purchase
+// at all, so no upgrade CTA is shown on iOS. Android/web keep the price-less
+// website CTA. (Google Play's anti-steering rules are looser and, post-2024
+// rulings, increasingly permit external-payment links.)
+export const EXTERNAL_PURCHASES_ENABLED = Platform.OS !== "ios";
 
 // True when a scan failed because the free-tier daily limit was reached — used
 // to show an upgrade prompt instead of a raw error.
