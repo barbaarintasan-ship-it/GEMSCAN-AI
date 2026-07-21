@@ -17,7 +17,8 @@ import { useIsFocused } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useTranslation } from "react-i18next";
 import { useKeepAwake } from "expo-keep-awake";
-import { ImageProcessorGL, type ImageProcessorHandle } from "../../../components/ImageProcessorGL";
+import { ImageProcessorGL, type ImageProcessorHandle, type QualityAssessment } from "../../../components/ImageProcessorGL";
+import type { GemstoneDetection } from "../../../lib/gemstoneDetector";
 import { detectSpecimenBoundingBox, classifyCoarse } from "../../../lib/onDeviceDetection";
 import { segmentBackground } from "../../../lib/backgroundSegmentation";
 // Smart Capture quality gate reads the shared on-device GL health flag so it
@@ -47,6 +48,7 @@ import ExplanationStyleChooser from "../../../components/ExplanationStyleChooser
 import type { CoarseClassification } from "../../../lib/onDeviceDetection";
 import { ScanTipsCard } from "../../../components/ui/ScanTipsCard";
 import { ProgressChecklist, type ProgressStep } from "../../../components/ui/ProgressChecklist";
+import { UpgradePrompt } from "../../../components/UpgradePrompt";
 
 // Friendly display names for the live per-provider progress line — internal
 // provider ids (matching supabase/functions/orchestrate-scan/providers/*.ts
@@ -67,7 +69,6 @@ function isHighValueHint(hint: CoarseClassification | null): boolean {
   const label = (hint?.label ?? "").toLowerCase();
   return HIGH_VALUE.some((k) => label.includes(k));
 }
-import { UpgradePrompt } from "../../../components/UpgradePrompt";
 
 type AngleStep = {
   // Reuses one of the existing DB-allowed angle keys (scan_images.angle CHECK
@@ -156,6 +157,42 @@ const DEEP_EXTRA_STEPS: AngleStep[] = [
 
 const DEEP_STEPS: AngleStep[] = [...ANGLE_STEPS, ...DEEP_EXTRA_STEPS];
 
+// Live guidance cadence and how many consecutive "ready" frames trigger the
+// smart auto-capture (debounces momentary good frames).
+const LIVE_TICK_MS = 1300;
+const REQUIRED_READY_FRAMES = 2;
+
+type LiveCueKey = "hold" | "light" | "glare" | "closer" | "ready";
+const LIVE_CUE_TEXT: Record<LiveCueKey, { en: string; so: string }> = {
+  hold: { en: "HOLD STEADY", so: "SI ADAG U HAY" },
+  light: { en: "ADD MORE LIGHT", so: "IFTIIN KU DAR" },
+  glare: { en: "REDUCE GLARE", so: "YAREE DHALAALKA" },
+  closer: { en: "MOVE CLOSER", so: "U SOO DHAWOW" },
+  ready: { en: "PERFECT — READY", so: "FIICAN — DIYAAR" },
+};
+
+// Pure per-frame verdict from the on-device signals ONLY (no fabricated cues):
+//   blur   → focus not locked          → HOLD STEADY
+//   dark   → low light                 → ADD MORE LIGHT
+//   bright → overexposed / glare       → REDUCE GLARE
+//   small  → object too far (coverage) → MOVE CLOSER
+//   else   → all conditions satisfied  → READY (auto-capture)
+// No "ROTATE" cue: there is no reliable on-device angle/pose signal, so it is
+// deliberately omitted rather than faked.
+function evaluateFrame(
+  quality: QualityAssessment,
+  detection: GemstoneDetection,
+  isTorchStep: boolean,
+  isMacro: boolean,
+): { key: LiveCueKey; ready: boolean } {
+  if (quality.blurry) return { key: "hold", ready: false };
+  if (!isTorchStep && quality.lowLight) return { key: "light", ready: false };
+  if (!isTorchStep && quality.overexposed) return { key: "glare", ready: false };
+  const minCoverage = isMacro ? 0.28 : 0.16;
+  if (detection.signals.coverage < minCoverage) return { key: "closer", ready: false };
+  return { key: "ready", ready: true };
+}
+
 export default function CaptureScreen() {
   const router = useRouter();
   const { i18n } = useTranslation();
@@ -205,6 +242,12 @@ export default function CaptureScreen() {
   // Smart Capture quality gate: when a shot is hard-rejected, this drives the
   // big centered on-camera message ("IMAGE NOT CLEAR", "IMPROVE LIGHTING"…).
   const [gateMessage, setGateMessage] = useState<{ title: string; hint: string } | null>(null);
+  // Continuous live guidance: the current dynamic cue and whether the frame is
+  // capture-ready. liveActive turns false on GL-off devices (fall back to
+  // static guidance + manual capture).
+  const [liveCueKey, setLiveCueKey] = useState<LiveCueKey | null>(null);
+  const [liveReady, setLiveReady] = useState(false);
+  const [liveActive, setLiveActive] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [stage, setStage] = useState<"preparing" | "analyzing" | "finalizing">("preparing");
 
@@ -221,6 +264,16 @@ export default function CaptureScreen() {
   // policy, so location must still be present at insert — we only overlap the
   // acquisition with the on-device hint + the user's chooser interaction.
   const locationPromiseRef = useRef<ReturnType<typeof getPreciseLocation> | null>(null);
+  // Refs the live-analysis loop reads so its setTimeout callback never uses
+  // stale state/closures (see the live-guidance effect).
+  const liveActiveRef = useRef(true);
+  const readyStreakRef = useRef(0);
+  const isBusyRef = useRef(false);
+  const requiredDoneRef = useRef(false);
+  const currentStepRef = useRef<AngleStep>(ANGLE_STEPS[0]);
+  const finalizeShotRef = useRef<
+    (photo: { uri: string; width?: number; height?: number }, q?: QualityAssessment) => Promise<boolean>
+  >(async () => false);
   const deepRemaining = creditsExhausted ? 0 : (sub?.deepScan.remaining ?? 0);
 
   // Dual Explanation Modes: "Choose Explanation Style" is asked once, before
@@ -274,6 +327,97 @@ export default function CaptureScreen() {
     };
   }, []);
 
+  // ── Continuous live guidance + smart auto-capture ────────────────────────
+  // Samples the preview on a fixed cadence, turns the on-device signals into a
+  // dynamic cue (MOVE CLOSER / HOLD STEADY / ADD MORE LIGHT / REDUCE GLARE /
+  // READY) and auto-captures once enough consecutive frames are capture-ready.
+  // Reuses ImageProcessorGL.analyzeFrame (no GL internals touched) and disables
+  // itself the moment analyzeFrame reports GL unavailable, so weak devices fall
+  // back to static guidance + the manual Capture button.
+  useEffect(() => {
+    if (!captureMode || isAnalyzing || !permission?.granted) return;
+    liveActiveRef.current = true;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (!cancelled && liveActiveRef.current) timer = setTimeout(tick, LIVE_TICK_MS);
+    };
+
+    async function tick() {
+      if (cancelled || !liveActiveRef.current) return;
+      // Idle while a shot is being processed, or once all required shots exist.
+      if (isBusyRef.current || requiredDoneRef.current) {
+        if (requiredDoneRef.current) setLiveCueKey(null);
+        schedule();
+        return;
+      }
+      const cam = cameraRef.current;
+      const proc = imageProcessorRef.current;
+      if (!cam || !proc || !cameraReadyRef.current) {
+        schedule();
+        return;
+      }
+      let photo: { uri: string; width?: number; height?: number } | null = null;
+      try {
+        photo = (await cam.takePictureAsync({ quality: 0.9 })) ?? null;
+      } catch {
+        schedule();
+        return;
+      }
+      if (cancelled || !photo?.uri) {
+        schedule();
+        return;
+      }
+      let res: Awaited<ReturnType<ImageProcessorHandle["analyzeFrame"]>>;
+      try {
+        res = await proc.analyzeFrame(photo.uri);
+      } catch {
+        schedule();
+        return;
+      }
+      if (cancelled) return;
+      if (res.glUnavailable) {
+        // Weak device: turn live analysis off for the session; static guidance +
+        // manual capture take over.
+        liveActiveRef.current = false;
+        setLiveActive(false);
+        setLiveCueKey(null);
+        return;
+      }
+      const step = currentStepRef.current;
+      const verdict = evaluateFrame(res.quality, res.detection, step.torch === true, step.key === "macro");
+      setLiveCueKey(verdict.key);
+      setLiveReady(verdict.ready);
+      setGateMessage(null);
+      if (verdict.ready) {
+        readyStreakRef.current += 1;
+        if (readyStreakRef.current >= REQUIRED_READY_FRAMES) {
+          readyStreakRef.current = 0;
+          setIsBusy(true);
+          try {
+            // Reuse THIS already-analyzed full-res frame — no second capture.
+            await finalizeShotRef.current(photo, res.quality);
+          } catch {
+            /* transient — the next tick retries */
+          } finally {
+            setIsBusy(false);
+            setBusyLabel("");
+          }
+        }
+      } else {
+        readyStreakRef.current = 0;
+      }
+      schedule();
+    }
+
+    timer = setTimeout(tick, LIVE_TICK_MS);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [captureMode, isAnalyzing, permission?.granted]);
+
   // Standard = the 5 core shots; Deep = 8 (adds top / underside / optional wet).
   const activeSteps = captureMode === "deep" ? DEEP_STEPS : ANGLE_STEPS;
   const currentStep = activeSteps[stepIndex];
@@ -294,80 +438,97 @@ export default function CaptureScreen() {
     );
   }
 
+  // Grab one full-quality photo, with the Android one-retry workaround.
+  async function grabPhoto(): Promise<{ uri: string; width?: number; height?: number } | null> {
+    const cam = cameraRef.current;
+    if (!cam) return null;
+    try {
+      return (await cam.takePictureAsync({ quality: 0.9 })) ?? null;
+    } catch {
+      // Android occasionally drops the first capture — retry once.
+      await new Promise((r) => setTimeout(r, 500));
+      try {
+        return (await cam.takePictureAsync({ quality: 0.9 })) ?? null;
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  // Shared finalizer used by BOTH manual capture and smart auto-capture: runs
+  // the hybrid quality gate, enhances, detects, saves this angle and advances.
+  // `precomputedQuality` lets the auto path reuse the quality the live loop
+  // already measured for this exact frame (no second assessment). Returns true
+  // when the shot was saved, false when the gate rejected it.
+  async function finalizeShot(
+    photo: { uri: string; width?: number; height?: number },
+    precomputedQuality?: QualityAssessment,
+  ): Promise<boolean> {
+    const proc = imageProcessorRef.current;
+    if (!proc) return false;
+    const quality = precomputedQuality ?? (await proc.assessQuality(photo.uri));
+
+    // Smart Capture HYBRID quality gate. HARD-reject a genuinely unusable shot
+    // (blurry / too dark / blown out) — BUT only when the on-device GL check is
+    // reliable. If GL is disabled/unreliable, fall back to ADVISORY (keep the
+    // photo) so a false block can never make the app unusable on weak devices.
+    if (!diag.isGpuDisabled()) {
+      if (quality.blurry) {
+        setGateMessage({
+          title: L("IMAGE NOT CLEAR", "SAWIRKU MA CADDA"),
+          hint: L("Hold the camera steady and try again.", "Kamarada si adag u hay oo mar kale isku day."),
+        });
+        return false;
+      }
+      // Skip the lighting check on the torch step — the light legitimately
+      // brightens the frame there.
+      if (!currentStep.torch && (quality.lowLight || quality.overexposed)) {
+        setGateMessage({
+          title: L("IMPROVE LIGHTING", "HAGAAJI IFTIINKA"),
+          hint: quality.overexposed
+            ? L("Too bright — reduce glare and reflections.", "Aad u dhalaalaya — yaree dhalaalka.")
+            : L("Too dark — move to better light.", "Aad u madow — u guur iftiin fiican."),
+        });
+        return false;
+      }
+    }
+
+    setBusyLabel(L("Enhancing photo…", "Sawirka waa la wanaajinayaa…"));
+    const [detectionBbox, enhanced] = await Promise.all([
+      detectSpecimenBoundingBox(photo.uri),
+      proc.enhance(photo.uri),
+    ]);
+
+    const captured: CapturedAngleImage = {
+      angle: currentStep.key,
+      originalUri: photo.uri,
+      processedUri: enhanced.uri,
+      quality,
+      detectionBbox,
+      // Diagnostic metadata: original capture pixel dimensions (zero cost).
+      originalWidth: photo.width,
+      originalHeight: photo.height,
+    };
+
+    setCapturedImages((prev) => [...prev.filter((i) => i.angle !== captured.angle), captured]);
+    setGateMessage(null);
+    setLiveCueKey(null);
+    readyStreakRef.current = 0;
+    if (!isLastStep) setStepIndex((i) => i + 1);
+    return true;
+  }
+
   async function handleCapture() {
     if (!cameraRef.current || !imageProcessorRef.current) return;
     setIsBusy(true);
     setRetakeReason(null);
     setGateMessage(null);
-
     try {
       setBusyLabel(L("Checking photo quality…", "Tayada sawirka waa la hubinayaa…"));
       await waitForCameraReady();
-      let photo;
-      try {
-        photo = await cameraRef.current.takePictureAsync({ quality: 0.9 });
-      } catch {
-        // Android occasionally drops the first capture — retry once.
-        await new Promise((r) => setTimeout(r, 500));
-        photo = await cameraRef.current.takePictureAsync({ quality: 0.9 });
-      }
+      const photo = await grabPhoto();
       if (!photo?.uri) throw new Error("Camera did not return a photo");
-
-      const quality = await imageProcessorRef.current.assessQuality(photo.uri);
-
-      // Smart Capture HYBRID quality gate. We HARD-reject a genuinely unusable
-      // shot (blurry / too dark / blown out) and ask for a retake — BUT only
-      // when the on-device GL quality check is actually reliable on this device.
-      // If GL is disabled/unreliable (assessQuality latched off → passthrough),
-      // we fall back to the original ADVISORY behavior and keep the photo, so a
-      // false block can never make the app unusable on weak devices (the same
-      // reason this used to be advisory-only). Thresholds are the existing,
-      // deliberately-permissive ones, so only truly bad frames are rejected.
-      if (!diag.isGpuDisabled()) {
-        if (quality.blurry) {
-          setGateMessage({
-            title: L("IMAGE NOT CLEAR", "SAWIRKU MA CADDA"),
-            hint: L("Hold the camera steady and try again.", "Kamarada si adag u hay oo mar kale isku day."),
-          });
-          return; // rejected — do not save; user retakes this shot
-        }
-        // Skip the lighting check on the torch step — the light legitimately
-        // brightens the frame there.
-        if (!currentStep.torch && (quality.lowLight || quality.overexposed)) {
-          setGateMessage({
-            title: L("IMPROVE LIGHTING", "HAGAAJI IFTIINKA"),
-            hint: quality.overexposed
-              ? L("Too bright — reduce glare and reflections.", "Aad u dhalaalaya — yaree dhalaalka.")
-              : L("Too dark — move to better light.", "Aad u madow — u guur iftiin fiican."),
-          });
-          return; // rejected — do not save; user retakes this shot
-        }
-      }
-
-      setBusyLabel(L("Enhancing photo…", "Sawirka waa la wanaajinayaa…"));
-      const [detectionBbox, enhanced] = await Promise.all([
-        detectSpecimenBoundingBox(photo.uri),
-        imageProcessorRef.current.enhance(photo.uri),
-      ]);
-
-      const captured: CapturedAngleImage = {
-        angle: currentStep.key,
-        originalUri: photo.uri,
-        processedUri: enhanced.uri,
-        quality,
-        detectionBbox,
-        // TEMPORARY diagnostic metadata: original capture pixel dimensions,
-        // already returned by takePictureAsync (zero cost). Used only for the
-        // memory-profiling logs; never persisted or uploaded.
-        originalWidth: photo.width,
-        originalHeight: photo.height,
-      };
-
-      setCapturedImages((prev) => [...prev.filter((i) => i.angle !== captured.angle), captured]);
-
-      if (!isLastStep) {
-        setStepIndex((i) => i + 1);
-      }
+      await finalizeShot(photo);
     } catch (err) {
       setRetakeReason((err as Error).message);
     } finally {
@@ -376,15 +537,16 @@ export default function CaptureScreen() {
     }
   }
 
-  function handleSkipOptional() {
-    if (currentStep.optional && !isLastStep) {
-      setStepIndex((i) => i + 1);
-    }
-  }
-
   const requiredStepsDone = activeSteps.filter((s) => !s.optional).every((s) =>
     capturedImages.some((c) => c.angle === s.key),
   );
+
+  // Keep the live loop's refs pointed at the latest values/closures each render
+  // (its setTimeout callback must never read stale state).
+  currentStepRef.current = currentStep;
+  isBusyRef.current = isBusy;
+  requiredDoneRef.current = requiredStepsDone;
+  finalizeShotRef.current = finalizeShot;
 
   // Tapping "Analyze" first opens the scan-type chooser. We compute the
   // on-device hint now so we can smart-recommend Deep Scan for likely-valuable
@@ -639,7 +801,13 @@ export default function CaptureScreen() {
           ) : (
             !isBusy && (
               <View style={styles.guidanceOverlay} pointerEvents="none">
-                <Text style={styles.guidanceCue}>{so ? currentStep.labelSo : currentStep.label}</Text>
+                {liveActive && liveCueKey ? (
+                  <Text style={[styles.guidanceCue, liveReady ? styles.cueReady : styles.cueCorrect]}>
+                    {so ? LIVE_CUE_TEXT[liveCueKey].so : LIVE_CUE_TEXT[liveCueKey].en}
+                  </Text>
+                ) : (
+                  <Text style={styles.guidanceCue}>{so ? currentStep.labelSo : currentStep.label}</Text>
+                )}
                 <Text style={styles.guidanceInstruction}>
                   {so ? currentStep.instructionsSo : currentStep.instructions}
                 </Text>
@@ -665,12 +833,6 @@ export default function CaptureScreen() {
             <Pressable style={styles.primaryButton} onPress={handleCapture}>
               <Text style={styles.primaryButtonText}>{L("Capture", "Qaad")} {so ? currentStep.labelSo : currentStep.label}</Text>
             </Pressable>
-
-            {currentStep.optional && !isLastStep && (
-              <Pressable style={styles.secondaryButton} onPress={handleSkipOptional}>
-                <Text style={styles.secondaryButtonText}>{L("Skip this angle", "Ka bood xagalkan")}</Text>
-              </Pressable>
-            )}
           </>
         )}
 
@@ -769,6 +931,10 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
+  // Live cue colors: green when the frame is capture-ready, amber while the
+  // user still needs to adjust.
+  cueReady: { color: "#2EE66E" },
+  cueCorrect: { color: "#FFD24A" },
   // Quality-gate reject banner — centered, unmissable.
   gateOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", padding: 20 },
   gateBadge: {
@@ -799,8 +965,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   primaryButtonText: { color: "#0B0B0C", fontWeight: "700", fontSize: 15 },
-  secondaryButton: { alignItems: "center", paddingVertical: 8 },
-  secondaryButtonText: { color: "#C9C9CC", fontSize: 13, textDecorationLine: "underline" },
   progressSummary: { color: "#8A8A8E", fontSize: 12 },
   analyzeButton: {
     backgroundColor: "#2E7D32",
