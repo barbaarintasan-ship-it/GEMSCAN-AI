@@ -470,9 +470,9 @@ export default function GoldVerificationScreen() {
     }
   }
 
-  function handlePay(method: "mobile" | "card") {
+  function handlePay() {
     if (!purchase) return;
-    Linking.openURL(buildGoldReportPaymentUrl(purchase.id, method)).catch(() => {});
+    Linking.openURL(buildGoldReportPaymentUrl(purchase.id)).catch(() => {});
   }
 
   async function handleCheckPaymentStatus() {
@@ -838,7 +838,7 @@ function GoldPaywallCard({
   L: (en: string, so: string) => string;
   checkingStatus: boolean;
   errorMsg: string | null;
-  onPay: (method: "mobile" | "card") => void;
+  onPay: () => void;
   onCheckStatus: () => void;
 }) {
   return (
@@ -869,16 +869,10 @@ function GoldPaywallCard({
       ) : (
         <>
           <Button
-            title={L("Mobile Pay", "Mobile Pay")}
+            title={L("Open the report on the website", "Fur warbixinta website-ka")}
             variant="primary"
-            icon={<Ionicons name="phone-portrait-outline" size={18} color="#0B0B0C" />}
-            onPress={() => onPay("mobile")}
-          />
-          <Button
-            title={L("Card Pay", "Card Pay")}
-            variant="outline"
-            icon={<Ionicons name="card-outline" size={18} color={colors.gold} />}
-            onPress={() => onPay("card")}
+            icon={<Ionicons name="open-outline" size={18} color="#0B0B0C" />}
+            onPress={() => onPay()}
           />
           <Button
             title={L("I've paid — check status", "Waan bixiyay — hubi xaaladda")}

@@ -218,21 +218,21 @@ const SEAL_SVG = `<svg width="150" height="150" viewBox="0 0 150 150" xmlns="htt
     <path id="sealTopArc" d="M 20,75 A 55,55 0 1 1 130,75" fill="none"/>
     <path id="sealBottomArc" d="M 20,75 A 55,55 0 1 0 130,75" fill="none"/>
   </defs>
-  <circle cx="75" cy="75" r="70" fill="none" stroke="#C9A227" stroke-width="1.5" opacity="0.85"/>
-  <circle cx="75" cy="75" r="62" fill="none" stroke="#C9A227" stroke-width="2.5"/>
-  <circle cx="75" cy="75" r="44" fill="none" stroke="#C9A227" stroke-width="1"/>
-  <text font-size="8.2" fill="#C9A227" font-family="Georgia, serif" font-weight="700" letter-spacing="2.2">
+  <circle cx="75" cy="75" r="70" fill="none" stroke="#1E50A2" stroke-width="1.5" opacity="0.85"/>
+  <circle cx="75" cy="75" r="62" fill="none" stroke="#1E50A2" stroke-width="2.5"/>
+  <circle cx="75" cy="75" r="44" fill="none" stroke="#1E50A2" stroke-width="1"/>
+  <text font-size="8.2" fill="#1E50A2" font-family="Georgia, serif" font-weight="700" letter-spacing="2.2">
     <textPath href="#sealTopArc" startOffset="50%" text-anchor="middle">GEMSCAN LAB COMPANY</textPath>
   </text>
-  <text font-size="6.5" fill="#C9A227" font-family="Georgia, serif" font-weight="600" letter-spacing="0.8">
+  <text font-size="6.5" fill="#1E50A2" font-family="Georgia, serif" font-weight="600" letter-spacing="0.8">
     <textPath href="#sealBottomArc" startOffset="50%" text-anchor="middle">GEM IDENTIFICATION LAB</textPath>
   </text>
   <g transform="translate(75,75)">
-    <polygon points="0,-18 15,-10 0,20 -15,-10" fill="none" stroke="#C9A227" stroke-width="1.5"/>
-    <polygon points="0,-18 15,-10 -15,-10" fill="none" stroke="#C9A227" stroke-width="1"/>
+    <polygon points="0,-18 15,-10 0,20 -15,-10" fill="none" stroke="#1E50A2" stroke-width="1.5"/>
+    <polygon points="0,-18 15,-10 -15,-10" fill="none" stroke="#1E50A2" stroke-width="1"/>
   </g>
-  <circle cx="46" cy="75" r="1.6" fill="#C9A227"/>
-  <circle cx="104" cy="75" r="1.6" fill="#C9A227"/>
+  <circle cx="46" cy="75" r="1.6" fill="#1E50A2"/>
+  <circle cx="104" cy="75" r="1.6" fill="#1E50A2"/>
 </svg>`;
 
 // ── HTML builder (pure) ──────────────────────────────────────────────────
@@ -565,9 +565,13 @@ export function buildReportHtml(data: PdfReportData, lang: Lang): string {
   }
   .disclaimer-block strong { color: #1B2A4A; }
 
-  .seal-row { display: flex; justify-content: flex-end; margin-top: 8px; page-break-inside: avoid; }
-  .seal-mark { width: 92px; height: 92px; transform: rotate(-8deg); opacity: 0.92; }
+  .seal-row { display: flex; justify-content: center; margin-top: 10px; page-break-inside: avoid; }
+  .seal-mark { width: 122px; height: 122px; transform: rotate(-8deg); opacity: 0.95; }
   .seal-mark svg { width: 100%; height: 100%; }
+  .signature-block { margin-top: 2px; text-align: center; page-break-inside: avoid; }
+  .signature-name { font-family: 'Segoe Script', 'Bradley Hand', 'Snell Roundhand', cursive; font-size: 27px; font-style: italic; color: #1E50A2; line-height: 1.1; }
+  .signature-line { width: 170px; height: 1px; background: #1E50A2; opacity: 0.55; margin: 3px auto; }
+  .signature-label { font-size: 10px; color: #555; letter-spacing: 0.4px; }
 </style>
 </head>
 <body>
@@ -616,6 +620,11 @@ export function buildReportHtml(data: PdfReportData, lang: Lang): string {
 
     <div class="seal-row">
       <div class="seal-mark">${SEAL_SVG}</div>
+    </div>
+    <div class="signature-block">
+      <div class="signature-name">Aw-Musse</div>
+      <div class="signature-line"></div>
+      <div class="signature-label">${t("Authorized signature", "Saxiixa la ogolaaday")}</div>
     </div>
 
     <div class="disclaimer-block">

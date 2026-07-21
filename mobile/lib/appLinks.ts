@@ -16,8 +16,11 @@ export const HIGH_VALUE_REPORT_PAYMENT_URL =
 // `purchaseId` is the high_value_report_purchases row id — the reference the
 // website page (and eventually the payment gateway webhook) uses to mark that
 // specific report as paid.
-export function buildHighValueReportPaymentUrl(purchaseId: string, method: "mobile" | "card"): string {
-  return `${HIGH_VALUE_REPORT_PAYMENT_URL}?ref=${encodeURIComponent(purchaseId)}&method=${method}`;
+export function buildHighValueReportPaymentUrl(purchaseId: string, method?: "mobile" | "card"): string {
+  const base = `${HIGH_VALUE_REPORT_PAYMENT_URL}?ref=${encodeURIComponent(purchaseId)}`;
+  // method is optional — the website shows/handles the payment-method choice, so
+  // the app no longer presents "Mobile Pay / Card Pay" in-app.
+  return method ? `${base}&method=${method}` : base;
 }
 
 // Placeholder destination for the $5 Gold Verification Report paywall (see
@@ -28,8 +31,9 @@ export const GOLD_REPORT_PAYMENT_URL =
   "https://barbaarintasan.com/gemscan-gold-report-payment";
 
 // `purchaseId` is the gold_report_purchases row id.
-export function buildGoldReportPaymentUrl(purchaseId: string, method: "mobile" | "card"): string {
-  return `${GOLD_REPORT_PAYMENT_URL}?ref=${encodeURIComponent(purchaseId)}&method=${method}`;
+export function buildGoldReportPaymentUrl(purchaseId: string, method?: "mobile" | "card"): string {
+  const base = `${GOLD_REPORT_PAYMENT_URL}?ref=${encodeURIComponent(purchaseId)}`;
+  return method ? `${base}&method=${method}` : base;
 }
 
 // Destination for the $10 Artifact Verification Report paywall (see
@@ -41,8 +45,9 @@ export const ARTIFACT_REPORT_PAYMENT_URL =
   "https://barbaarintasan.com/artifact-verification-report";
 
 // `purchaseId` is the artifact_report_purchases row id.
-export function buildArtifactReportPaymentUrl(purchaseId: string, method: "mobile" | "card"): string {
-  return `${ARTIFACT_REPORT_PAYMENT_URL}?ref=${encodeURIComponent(purchaseId)}&method=${method}`;
+export function buildArtifactReportPaymentUrl(purchaseId: string, method?: "mobile" | "card"): string {
+  const base = `${ARTIFACT_REPORT_PAYMENT_URL}?ref=${encodeURIComponent(purchaseId)}`;
+  return method ? `${base}&method=${method}` : base;
 }
 
 // GemScan sells its plans/reports on the website only. The app shows a
