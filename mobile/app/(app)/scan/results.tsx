@@ -746,7 +746,7 @@ export default function ResultsScreen() {
 
           <View style={styles.pdfPriceRow}>
             <Text style={styles.pdfPrice}>USD 14.99</Text>
-            <Text style={styles.pdfPriceUnit}>{L("/ year", "/ sannadkii")}</Text>
+            <Text style={styles.pdfPriceUnit}>{L("/ 6 months", "/ lix bilood")}</Text>
           </View>
 
           <Button
