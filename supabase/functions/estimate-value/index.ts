@@ -2,9 +2,11 @@
 //
 // A SEPARATE step from identification — it never touches the orchestrate-scan
 // ensemble. Given an already-identified label, Gemini returns an ESTIMATED USD
-// value range for a typical specimen of that kind, plus rarity/collectibility
-// flags used to decide whether to recommend an expert review. It is explicitly
-// prompted to never present exact prices as fact.
+// market price RANGE expressed in the correct pricing UNIT (per gram for metals,
+// per carat for cut gems, per specimen otherwise) — it never assumes the weight
+// of the pictured object — plus rarity/collectibility flags used to decide
+// whether to recommend an expert review. It is explicitly prompted to never
+// present exact prices as fact.
 //
 // Fails soft: any missing key / error returns { available: false } and the app
 // simply omits the valuation section.
@@ -39,17 +41,37 @@ Deno.serve(async (req) => {
         : `Write the "qualityNote" field in English.\n`;
 
     const prompt =
-      `You are a gemstone/mineral/coin/precious-metal market-valuation assistant.\n` +
-      `A specimen has been identified (from photographs, not lab-tested) as: "${label}".\n` +
+      `You are a gemstone / mineral / coin / precious-metal market-valuation assistant.\n` +
+      `An object has been identified from PHOTOGRAPHS ONLY (not lab-tested, not weighed) as: "${label}".\n` +
       (typeof confidence === "number" ? `Identification confidence: ${(confidence * 100).toFixed(0)}%.\n` : "") +
-      `Estimate a realistic USD market value RANGE for a typical commercial specimen of this kind, ` +
-      `considering species, typical size/quality/clarity/color/rarity and overall condition. ` +
-      `NEVER present exact prices as fact — these are photograph-based estimates only.\n` +
-      `If this kind of object is genuinely too variable or you cannot reasonably estimate, set lowConfidence true.\n` +
+      `CRITICAL RULES:\n` +
+      `- You CANNOT see weight, carat, or dimensions in a photograph. NEVER invent grams, carats, dimensions, ` +
+      `or a single total value for the pictured object.\n` +
+      `- Price by the correct MARKET UNIT for this material and set "unit" accordingly:\n` +
+      `  * Gold / silver / platinum / other precious metal → "gram". Price per gram. If a purity is standard or ` +
+      `visibly implied (24K/22K/18K/14K, 925 silver, etc.) set "purity" to it, else null. Do NOT estimate a total.\n` +
+      `  * Cut / faceted / polished gemstone (diamond, ruby, sapphire, emerald, tanzanite, spinel, opal, etc.) → ` +
+      `"carat". Price per carat. Never estimate the whole stone's total value — carat weight is unknown.\n` +
+      `  * Rough stone, mineral specimen, collectible, coin or artifact normally sold as a piece → "specimen". ` +
+      `Price per specimen (per piece). Use a per-kilogram figure ONLY if that is the accepted market standard for ` +
+      `that material, and still report "unit":"specimen" with the kg basis noted in "qualityNote".\n` +
+      `- ALWAYS give a realistic price RANGE (minUsd..maxUsd) — NEVER a single fixed number. "typicalUsd" is an ` +
+      `optional midpoint or null.\n` +
+      `- VALUE THE ITEM HONESTLY AT ITS REAL, CURRENT MARKET PRICE. For high-value items (diamond, ruby, sapphire, ` +
+      `emerald, gold, native gold, rare/ancient coin, antique or archaeological artifact, etc.) give the genuine ` +
+      `real-world market price — do NOT lowball, dismiss, or downplay it.\n` +
+      `- Assume the item IS the genuine identified item and price a GENUINE, AUTHENTIC example of it. You cannot ` +
+      `verify authenticity from a photo, so frame "qualityNote" conditionally — e.g. "If genuine, a piece like this ` +
+      `is worth roughly this today." This holds even if the photo may have come from the internet: value the ITEM ` +
+      `as identified, not the user's situation.\n` +
+      `- Do NOT add plausibility, geographic, "probably fake", or "unlikely to be found here / in your country" ` +
+      `caveats, and never comment on whether the user could realistically own it. Only value the item.\n` +
+      `- Do NOT set lowConfidence just because the item is rare, expensive, or seems unlikely — set it ONLY if the ` +
+      `item TYPE is genuinely too variable to price at all.\n` +
       langLine +
       `Respond with ONLY minified JSON of exactly this shape:\n` +
-      `{"minUsd": number, "typicalUsd": number, "premiumUsd": number|null, ` +
-      `"rarity": "common"|"uncommon"|"rare"|"very_rare", "collectible": boolean, ` +
+      `{"unit": "gram"|"carat"|"specimen", "purity": string|null, "minUsd": number, "maxUsd": number, ` +
+      `"typicalUsd": number|null, "rarity": "common"|"uncommon"|"rare"|"very_rare", "collectible": boolean, ` +
       `"qualityNote": string, "lowConfidence": boolean}`;
 
     const body = {
@@ -75,12 +97,16 @@ Deno.serve(async (req) => {
     const rarity = ["common", "uncommon", "rare", "very_rare"].includes(String(p.rarity))
       ? String(p.rarity)
       : "common";
+    const unit = ["gram", "carat", "specimen"].includes(String(p.unit)) ? String(p.unit) : "specimen";
+    const purity = p.purity != null && String(p.purity).trim() !== "" ? String(p.purity).trim() : null;
 
     return jsonResponse({
       available: true,
+      unit,
+      purity,
       minUsd: num(p.minUsd),
+      maxUsd: num(p.maxUsd),
       typicalUsd: num(p.typicalUsd),
-      premiumUsd: num(p.premiumUsd),
       rarity,
       collectible: p.collectible === true,
       qualityNote: String(p.qualityNote ?? ""),
