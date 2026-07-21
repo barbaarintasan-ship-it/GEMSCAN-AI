@@ -20,6 +20,7 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
 import type { ExplanationStyle, ExpertExplanationDTO } from "./scanUpload";
+import { priceUnitLabel, type PriceUnit } from "./valuation";
 
 export type PdfReportImage = { uri: string; caption?: string };
 
@@ -30,9 +31,11 @@ export type PdfHallmark = {
 };
 
 export type PdfValuation = {
+  unit?: PriceUnit;
+  purity?: string | null;
   minUsd?: number | null;
+  maxUsd?: number | null;
   typicalUsd?: number | null;
-  premiumUsd?: number | null;
   note?: string | null;
   lowConfidence?: boolean;
 };
@@ -389,27 +392,23 @@ export function buildReportHtml(data: PdfReportData, lang: Lang): string {
   let valueHtml = "";
   const v = data.valuation;
   const marketRows = expert ? fieldGroupRows(MARKET_FIELDS, expert, t) : "";
-  if (v && !v.lowConfidence && (v.minUsd != null || v.typicalUsd != null)) {
-    const rangeLine =
-      v.minUsd != null && v.premiumUsd != null
-        ? `<div class="value-figure">${money(v.minUsd)} – ${money(v.premiumUsd)}</div>`
-        : v.typicalUsd != null
-          ? `<div class="value-figure">~ ${money(v.typicalUsd)}</div>`
-          : "";
+  if (v && !v.lowConfidence && v.minUsd != null && v.maxUsd != null) {
+    const unitLbl = priceUnitLabel(v.unit ?? "specimen", v.purity ?? null, lang === "so");
+    const rangeLine = `<div class="value-figure">${money(v.minUsd)} – ${money(v.maxUsd)} <span class="value-unit">${esc(unitLbl)}</span></div>`;
     const typicalLine =
-      v.minUsd != null && v.premiumUsd != null && v.typicalUsd != null
-        ? `<div class="value-sub">${t("Typical value", "Qiimaha caadiga")}: ~ ${money(v.typicalUsd)}</div>`
+      v.typicalUsd != null
+        ? `<div class="value-sub">${t("Typical", "Caadi ahaan")}: ~ ${money(v.typicalUsd)} ${esc(unitLbl)}</div>`
         : "";
     valueHtml = `<section class="block">
-        <div class="section-head"><span class="section-icon">💰</span><h2>${t("Estimated Market Value", "Qiimaha Suuqa (Qiyaas)")}</h2></div>
+        <div class="section-head"><span class="section-icon">💰</span><h2>${t("Estimated Market Price", "Qiimaha Suuqa (Qiyaas)")}</h2></div>
         <div class="value-card">
           ${rangeLine}
           ${typicalLine}
           ${v.note ? `<div class="value-note">${esc(v.note)}</div>` : ""}
           ${marketRows ? `<table class="kv value-kv">${marketRows}</table>` : ""}
           <div class="estimate-tag">${t(
-            "ESTIMATE ONLY — based on photographs, not an official appraisal",
-            "QIYAAS KALIYA — ku saleysan sawirro, maaha qiimayn rasmi ah",
+            "Estimated from photographs only. Final value depends on the actual weight, size, clarity, treatment, origin, condition, laboratory verification, and current market prices.",
+            "Waxaa lagu qiyaasay sawirro kaliya. Qiimaha kama dambaysta ah wuxuu ku xidhan yahay culayska dhabta ah, cabbirka, saafinnimada, daaweynta, asalka, xaaladda, xaqiijinta shaybaarka, iyo qiimayaasha suuqa ee hadda.",
           )}</div>
         </div>
       </section>`;
@@ -540,6 +539,7 @@ export function buildReportHtml(data: PdfReportData, lang: Lang): string {
   /* ── Market value ──────────────────────────────────────────────────── */
   .value-card { background: #F1ECDF; border: 1px solid #E1D9C4; border-radius: 12px; padding: 16px; }
   .value-figure { font-size: 23px; font-weight: 800; color: #0F1E3A; }
+  .value-unit { font-size: 13px; font-weight: 700; color: #B8860B; }
   .value-sub { font-size: 12.5px; color: #444; margin-top: 2px; }
   .value-note { font-size: 12px; color: #555; margin-top: 6px; }
   .estimate-tag {

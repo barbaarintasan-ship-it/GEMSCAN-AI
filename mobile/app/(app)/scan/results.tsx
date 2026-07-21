@@ -16,7 +16,7 @@ import { supabase } from "../../../lib/supabase";
 import { useAuth } from "../../../lib/auth";
 import { submitScanFeedback } from "../../../lib/scanUpload";
 import { INSUFFICIENT_CONFIDENCE_MESSAGE_TEXT } from "../../../lib/constants";
-import { estimateValue, type Valuation } from "../../../lib/valuation";
+import { estimateValue, type Valuation, priceUnitLabel, formatValuationRange } from "../../../lib/valuation";
 import { EXPERT_WHATSAPP, HIGH_VALUE_THRESHOLD_USD, hasExpertContact } from "../../../lib/expertConfig";
 import { useSubscriptionStatus } from "../../../lib/subscription";
 import { generateAndSharePdf, type PdfReportData } from "../../../lib/pdfReport";
@@ -338,6 +338,27 @@ export default function ResultsScreen() {
     };
   }, [scan, lang]);
 
+  // Persisted feedback: if the user already answered "Was this correct?" for
+  // this scan, a scan_feedback row exists (RLS-scoped to them). Detect it on
+  // load so the Yes/No buttons don't reappear when they revisit the scan —
+  // instead they see the "thanks" state, matching that they already responded.
+  useEffect(() => {
+    if (!scanId || !session?.user.id || !isOnline) return;
+    let active = true;
+    (async () => {
+      const { data } = await supabase
+        .from("scan_feedback")
+        .select("id")
+        .eq("scan_id", scanId)
+        .limit(1)
+        .maybeSingle();
+      if (active && data) setFeedbackSent(true);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [scanId, session?.user.id, isOnline]);
+
   // Build a COMPLETE, professionally formatted report from everything the app
   // gathered. Reused by the native Share sheet and the WhatsApp expert contact.
   function buildReport(opts: { expertRequest?: boolean } = {}): string {
@@ -352,13 +373,8 @@ export default function ResultsScreen() {
     lines.push(so ? "💎 GemScan — Natiijada baaritaanka" : "💎 GemScan — Scan Result", "");
     if (fr?.bestMatch) lines.push(`${so ? "Aqoonsiga" : "Identification"}: ${fr.bestMatch}`);
     lines.push(`${so ? "Kalsooni" : "Confidence"}: ${pct}%`);
-    if (val && !val.lowConfidence && (val.minUsd != null || val.typicalUsd != null)) {
-      if (val.minUsd != null && val.premiumUsd != null) {
-        lines.push(`${so ? "Qiimaha suuqa (qiyaas)" : "Estimated value"}: USD ${Math.round(val.minUsd)}–${Math.round(val.premiumUsd)}`);
-      } else if (val.typicalUsd != null) {
-        lines.push(`${so ? "Qiimaha suuqa (qiyaas)" : "Estimated value"}: ~USD ${Math.round(val.typicalUsd)}`);
-      }
-    }
+    const valLine = val ? formatValuationRange(val, so) : null;
+    if (valLine) lines.push(`${so ? "Qiimaha suuqa (qiyaas)" : "Estimated price"}: ${valLine}`);
     if (alts.length) lines.push(`${so ? "Ikhtiyaarro kale" : "Other possibilities"}: ${alts.join(", ")}`);
     if (when) lines.push(`${so ? "Waqtiga" : "Scanned"}: ${when}`);
 
@@ -421,9 +437,11 @@ export default function ResultsScreen() {
         })),
         valuation: valuation
           ? {
+              unit: valuation.unit,
+              purity: valuation.purity,
               minUsd: valuation.minUsd,
+              maxUsd: valuation.maxUsd,
               typicalUsd: valuation.typicalUsd,
-              premiumUsd: valuation.premiumUsd,
               note: valuation.qualityNote,
               lowConfidence: valuation.lowConfidence,
             }
@@ -477,7 +495,7 @@ export default function ResultsScreen() {
     );
     const highValueSignal =
       !!valuation &&
-      ((valuation.typicalUsd ?? 0) >= HIGH_VALUE_THRESHOLD_USD ||
+      ((valuation.maxUsd ?? valuation.typicalUsd ?? 0) >= HIGH_VALUE_THRESHOLD_USD ||
         valuation.rarity === "rare" ||
         valuation.rarity === "very_rare" ||
         valuation.collectible ||
@@ -745,13 +763,13 @@ export default function ResultsScreen() {
       {valuation && (
         <Card style={styles.valueCard}>
           <View style={styles.valueHeader}>
-            <Text style={styles.sectionTitle}>{L("Estimated Market Value", "Qiimaha Suuqa (Qiyaas)")}</Text>
+            <Text style={styles.sectionTitle}>{L("Estimated Market Price", "Qiimaha Suuqa (Qiyaas)")}</Text>
             <View style={styles.estimateChip}>
               <Ionicons name="sparkles-outline" size={11} color={colors.gold} />
               <Text style={styles.estimateChipText}>{L("AI ESTIMATE", "QIYAAS AI")}</Text>
             </View>
           </View>
-          {valuation.lowConfidence || (valuation.minUsd == null && valuation.typicalUsd == null) ? (
+          {valuation.lowConfidence || valuation.minUsd == null || valuation.maxUsd == null ? (
             <Text style={styles.body}>
               {L(
                 "More photographs or laboratory testing are required for an accurate valuation.",
@@ -760,20 +778,20 @@ export default function ResultsScreen() {
             </Text>
           ) : (
             <>
-              {valuation.minUsd != null && valuation.premiumUsd != null && (
+              <View style={styles.priceRow}>
                 <Text style={styles.valueRange}>
-                  USD {Math.round(valuation.minUsd)}–{Math.round(valuation.premiumUsd)}
+                  USD {Math.round(valuation.minUsd)}–{Math.round(valuation.maxUsd)}
                 </Text>
-              )}
+                <View style={styles.unitBadge}>
+                  <Text style={styles.unitBadgeText}>
+                    {priceUnitLabel(valuation.unit, valuation.purity, lang === "so").toUpperCase()}
+                  </Text>
+                </View>
+              </View>
               {valuation.typicalUsd != null && (
                 <Text style={styles.valueTypical}>
-                  {L("Typical value", "Qiimaha caadiga")}: ~USD {Math.round(valuation.typicalUsd)}
-                </Text>
-              )}
-              {valuation.premiumUsd != null && valuation.collectible && (
-                <Text style={styles.valuePremium}>
-                  {L("Collector quality may exceed", "Tayada uruurinta way dhaafi kartaa")} USD{" "}
-                  {Math.round(valuation.premiumUsd)}
+                  {L("Typical", "Caadi ahaan")}: ~USD {Math.round(valuation.typicalUsd)}{" "}
+                  {priceUnitLabel(valuation.unit, valuation.purity, lang === "so")}
                 </Text>
               )}
               {!!valuation.qualityNote && <Text style={styles.valueNote}>{valuation.qualityNote}</Text>}
@@ -783,8 +801,8 @@ export default function ResultsScreen() {
             <Ionicons name="information-circle-outline" size={13} color={colors.textFaint} />
             <Text style={styles.disclaimer}>
               {L(
-                "This is an AI estimate, not a professional appraisal.",
-                "Tani waa qiyaas AI ah, maaha qiimayn xirfadeed.",
+                "Estimated from photographs only. Final value depends on the actual weight, size, clarity, treatment, origin, condition, laboratory verification, and current market prices.",
+                "Waxaa lagu qiyaasay sawirro kaliya. Qiimaha kama dambaysta ah wuxuu ku xidhan yahay culayska dhabta ah, cabbirka, saafinnimada, daaweynta, asalka, xaaladda, xaqiijinta shaybaarka, iyo qiimayaasha suuqa ee hadda.",
               )}
             </Text>
           </View>
@@ -875,7 +893,7 @@ export default function ResultsScreen() {
       {/* ── Expert Review Recommended (high-value / rare / collectible) ───── */}
       {valuation &&
         hasExpertContact() &&
-        ((valuation.typicalUsd ?? 0) >= HIGH_VALUE_THRESHOLD_USD ||
+        ((valuation.maxUsd ?? valuation.typicalUsd ?? 0) >= HIGH_VALUE_THRESHOLD_USD ||
           valuation.rarity === "rare" ||
           valuation.rarity === "very_rare" ||
           valuation.collectible) && (
@@ -1014,12 +1032,9 @@ export default function ResultsScreen() {
               {bandWord(finalResult.confidenceBand)} {L("CONFIDENCE", "KALSOONI")} · {pct}%
             </Text>
           </View>
-          {valuation && !valuation.lowConfidence && (valuation.minUsd != null || valuation.typicalUsd != null) && (
+          {valuation && formatValuationRange(valuation, lang === "so") && (
             <Text style={styles.scValue}>
-              {L("Estimated value", "Qiimaha suuqa (qiyaas)")}:{" "}
-              {valuation.minUsd != null && valuation.premiumUsd != null
-                ? `USD ${Math.round(valuation.minUsd)}–${Math.round(valuation.premiumUsd)}`
-                : `~USD ${Math.round(valuation.typicalUsd ?? 0)}`}
+              {L("Estimated price", "Qiimaha suuqa (qiyaas)")}: {formatValuationRange(valuation, lang === "so")}
             </Text>
           )}
           {alternatives.length > 0 && (
@@ -1154,9 +1169,17 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   estimateChipText: { color: colors.gold, fontWeight: "800", fontSize: 10, letterSpacing: 0.4 },
+  priceRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
   valueRange: { fontSize: 22, fontWeight: "800", color: "#C9A227" },
-  valueTypical: { fontSize: 14, color: "#F5F1E8" },
-  valuePremium: { fontSize: 13, color: "#C9A227" },
+  // Prominent pricing-unit chip so users instantly see per gram / carat / specimen.
+  unitBadge: {
+    backgroundColor: colors.goldSoft,
+    borderRadius: radius.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  unitBadgeText: { color: colors.gold, fontWeight: "900", fontSize: 11, letterSpacing: 0.4 },
+  valueTypical: { fontSize: 14, color: "#F5F1E8", marginTop: 4 },
   valueNote: { fontSize: 13, color: "#C9C9CC", lineHeight: 19, marginTop: 4 },
   disclaimer: { fontSize: 12, color: colors.textFaint, lineHeight: 16, flexShrink: 1 },
   disclaimerPill: {

@@ -19,6 +19,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Constants from "expo-constants";
+import * as Application from "expo-application";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../lib/auth";
 import { supabase } from "../../lib/supabase";
@@ -139,14 +140,24 @@ export default function SettingsScreen() {
     // The root auth gate redirects to /(auth)/login once the session clears.
   }
 
-  const appVersion = Constants.expoConfig?.version ?? "0.1.0";
+  // Show version name + build number, e.g. "1.0.1 (31)". The build number is
+  // the Android versionCode EAS auto-increments each build — the value the
+  // update check actually compares against app_config.latest_build.
+  const versionName = Constants.expoConfig?.version ?? "0.1.0";
+  const buildNumber = Application.nativeBuildVersion;
+  const appVersion = buildNumber ? `${versionName} (${buildNumber})` : versionName;
   const displayNameOrEmail = shownName || session?.user.email || "";
   const avatarInitial = displayNameOrEmail.trim().charAt(0).toUpperCase() || "?";
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={[styles.content, { paddingBottom: 40 + insets.bottom }]}>
-      {/* Profile header — name front and center, with an avatar initial. */}
-      <View style={styles.profileHeader}>
+      {/* Profile header — tap to edit name / phone / country / city. */}
+      <Pressable
+        style={styles.profileHeader}
+        onPress={() => router.push("/(app)/edit-profile")}
+        accessibilityRole="button"
+        accessibilityLabel={i18n.language === "so" ? "Wax ka beddel profile-ka" : "Edit profile"}
+      >
         <View style={styles.avatarCircle}>
           <Text style={styles.avatarInitial}>{avatarInitial}</Text>
         </View>
@@ -158,7 +169,11 @@ export default function SettingsScreen() {
             {session?.user.email ?? "—"}
           </Text>
         </View>
-      </View>
+        <View style={styles.editPill}>
+          <Ionicons name="create-outline" size={15} color={colors.gold} />
+          <Text style={styles.editPillText}>{i18n.language === "so" ? "Wax ka beddel" : "Edit"}</Text>
+        </View>
+      </Pressable>
 
       {/* Language */}
       <SectionLabel>{t("settings.languageSection")}</SectionLabel>
@@ -306,6 +321,16 @@ const styles = StyleSheet.create({
   profileHeaderText: { flex: 1, gap: 2 },
   profileName: { color: colors.text, fontSize: 18, fontWeight: "800" },
   profileEmail: { color: colors.textFaint, fontSize: 13 },
+  editPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.goldSoft,
+    borderRadius: radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  editPillText: { color: colors.gold, fontWeight: "800", fontSize: 12 },
   card: { backgroundColor: "#1A1A1D", borderRadius: 14, paddingHorizontal: 16 },
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 14 },
   selectRow: {

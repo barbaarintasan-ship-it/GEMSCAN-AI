@@ -28,7 +28,7 @@ import {
   type ScanLocation,
   type ScanType,
 } from "../../../lib/scanUpload";
-import { estimateValue } from "../../../lib/valuation";
+import { estimateValue, formatValuationRange } from "../../../lib/valuation";
 import { useSubscriptionStatus } from "../../../lib/subscription";
 import { PAYMENT_URL, EXTERNAL_PURCHASES_ENABLED } from "../../../lib/appLinks";
 import ScanTypeChooser from "../../../components/ScanTypeChooser";
@@ -164,13 +164,7 @@ export default function BatchScanScreen() {
         let valueLabel: string | null = null;
         if (fr.bestMatch && !fr.insufficientConfidence) {
           const val = await estimateValue(fr.bestMatch, fr.confidenceScore, lang).catch(() => null);
-          if (val && !val.lowConfidence) {
-            if (val.minUsd != null && val.premiumUsd != null) {
-              valueLabel = `USD ${Math.round(val.minUsd)}–${Math.round(val.premiumUsd)}`;
-            } else if (val.typicalUsd != null) {
-              valueLabel = `~USD ${Math.round(val.typicalUsd)}`;
-            }
-          }
+          valueLabel = val ? formatValuationRange(val, lang === "so") : null;
         }
 
         results.push({

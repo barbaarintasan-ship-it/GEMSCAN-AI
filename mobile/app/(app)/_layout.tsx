@@ -28,6 +28,7 @@ export default function AppLayout() {
       <Stack.Screen name="history" options={{ title: "My Collection" }} />
       <Stack.Screen name="collection-map" options={{ title: "Map" }} />
       <Stack.Screen name="settings" options={{ title: "Settings" }} />
+      <Stack.Screen name="edit-profile" options={{ title: "Edit Profile" }} />
       <Stack.Screen name="account" options={{ title: "Account" }} />
       <Stack.Screen name="scan" options={{ headerShown: false }} />
     </Stack>

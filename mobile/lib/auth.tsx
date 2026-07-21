@@ -16,6 +16,18 @@ type AuthContextValue = {
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<{ error: string | null }>;
+  // Edit the signed-in user's profile fields (stored in auth user_metadata;
+  // display_name is also mirrored into the profiles table).
+  updateProfile: (fields: ProfileUpdate) => Promise<{ error: string | null }>;
+  // Send a "forgot password" reset email.
+  resetPassword: (email: string) => Promise<{ error: string | null }>;
+};
+
+export type ProfileUpdate = {
+  fullName?: string;
+  phone?: string;
+  country?: string;
+  city?: string;
 };
 
 const FUNCTIONS_URL = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL;
@@ -115,9 +127,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Update profile fields. phone/country/city live ONLY in auth user_metadata
+  // (the profiles table has no such columns); display_name lives in both, so we
+  // also mirror it into profiles (best-effort). updateUser merges the provided
+  // keys into user_metadata and fires onAuthStateChange, refreshing the session.
+  const updateProfile = useCallback(async (fields: ProfileUpdate) => {
+    const data: Record<string, string | null> = {};
+    if (fields.fullName !== undefined) data.display_name = fields.fullName.trim() || null;
+    if (fields.phone !== undefined) data.phone = fields.phone.trim() || null;
+    if (fields.country !== undefined) data.country = fields.country.trim() || null;
+    if (fields.city !== undefined) data.city = fields.city.trim() || null;
+
+    const { error } = await supabase.auth.updateUser({ data });
+    if (error) return { error: error.message };
+
+    if ("display_name" in data) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from("profiles").update({ display_name: data.display_name }).eq("id", user.id);
+      }
+    }
+    return { error: null };
+  }, []);
+
+  // "Forgot password": emails a reset link. Where the link lands (in-app vs web)
+  // is governed by the project's Auth "Site URL" / redirect settings.
+  const resetPassword = useCallback(async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+    return { error: error?.message ?? null };
+  }, []);
+
   const value = useMemo(
-    () => ({ session, isLoading, signUp, signIn, signOut, deleteAccount }),
-    [session, isLoading, signUp, signIn, signOut, deleteAccount],
+    () => ({ session, isLoading, signUp, signIn, signOut, deleteAccount, updateProfile, resetPassword }),
+    [session, isLoading, signUp, signIn, signOut, deleteAccount, updateProfile, resetPassword],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

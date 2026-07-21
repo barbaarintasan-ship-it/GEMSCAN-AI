@@ -19,7 +19,7 @@ import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, type as typo } from "../../lib/theme";
 
 export default function LoginScreen() {
-  const { signIn } = useAuth();
+  const { signIn, resetPassword } = useAuth();
   const { i18n } = useTranslation();
   const insets = useSafeAreaInsets();
   const so = i18n.language === "so";
@@ -29,9 +29,12 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [resetMsg, setResetMsg] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   const onSubmit = async () => {
     setError(null);
+    setResetMsg(null);
     setIsSubmitting(true);
     const { error: signInError } = await signIn(email.trim(), password);
     setIsSubmitting(false);
@@ -40,6 +43,30 @@ export default function LoginScreen() {
       return;
     }
     router.replace("/(app)");
+  };
+
+  // Forgot password: emails a reset link to the address in the email field.
+  const onForgotPassword = async () => {
+    setError(null);
+    setResetMsg(null);
+    const em = email.trim();
+    if (!em) {
+      setError(L("Enter your email above first, then tap 'Forgot password'.", "Marka hore geli iimaylkaaga kore, ka dibna riix 'Furaha ma xasuusto'."));
+      return;
+    }
+    setResetting(true);
+    const { error: resetError } = await resetPassword(em);
+    setResetting(false);
+    if (resetError) {
+      setError(resetError);
+      return;
+    }
+    setResetMsg(
+      L(
+        `We've emailed a password reset link to ${em}. Check your inbox (and spam).`,
+        `Waxaan iimayl ugu dirnay xiriirka dib-u-dejinta furaha ${em}. Fiiri iimaylkaaga (iyo spam-ka).`,
+      ),
+    );
   };
 
   return (
@@ -94,6 +121,7 @@ export default function LoginScreen() {
         </View>
 
         {error && <Text style={styles.error}>{error}</Text>}
+        {resetMsg && <Text style={styles.success}>{resetMsg}</Text>}
 
         <Button
           title={isSubmitting ? L("Logging in…", "Waa la galayaa…") : L("Log in", "Gal")}
@@ -101,6 +129,14 @@ export default function LoginScreen() {
           loading={isSubmitting}
           style={styles.submitButton}
         />
+
+        <Pressable onPress={onForgotPassword} hitSlop={8} disabled={resetting}>
+          <Text style={styles.linkMuted}>
+            {resetting
+              ? L("Sending reset link…", "Waa la dirayaa xiriirka…")
+              : L("Forgot password?", "Furaha ma xasuusto?")}
+          </Text>
+        </Pressable>
 
         <Pressable onPress={() => router.push("/(auth)/register")} hitSlop={8}>
           <Text style={styles.link}>{L("Don't have an account? Sign up", "Akoon ma lihid? Is-diiwaangeli")}</Text>
@@ -139,5 +175,7 @@ const styles = StyleSheet.create({
   input: { flex: 1, color: colors.text, paddingVertical: 14, fontSize: 15 },
   submitButton: { marginTop: spacing.sm },
   link: { color: colors.gold, textAlign: "center", marginTop: spacing.lg },
+  linkMuted: { color: colors.textFaint, textAlign: "center", marginTop: spacing.md, fontSize: 14 },
   error: { color: colors.dangerStrong, textAlign: "center" },
+  success: { color: "#2EE66E", textAlign: "center", fontSize: 13, lineHeight: 19 },
 });
