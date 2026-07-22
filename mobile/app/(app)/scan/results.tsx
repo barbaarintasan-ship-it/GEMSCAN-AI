@@ -17,6 +17,7 @@ import { useAuth } from "../../../lib/auth";
 import { submitScanFeedback } from "../../../lib/scanUpload";
 import { INSUFFICIENT_CONFIDENCE_MESSAGE_TEXT } from "../../../lib/constants";
 import { estimateValue, type Valuation, priceUnitLabel, formatValuationRange } from "../../../lib/valuation";
+import { isGoldProspectHost } from "../../../lib/goldProspect";
 import { EXPERT_WHATSAPP, HIGH_VALUE_THRESHOLD_USD, hasExpertContact } from "../../../lib/expertConfig";
 import { useSubscriptionStatus } from "../../../lib/subscription";
 import { generateAndSharePdf, type PdfReportData } from "../../../lib/pdfReport";
@@ -537,6 +538,16 @@ export default function ResultsScreen() {
     return isArtifactFamily || artifactCategory;
   }, [scan, candidates]);
 
+  // Gold Prospect Evaluation (Gem Collector only): the identified rock is a
+  // common gold-associated host (quartz vein, pyrite, greenstone, ironstone…).
+  // Reuses labels already on screen — no new AI call, no new data.
+  const showGoldProspect = useMemo(() => {
+    const fr = scan?.final_result;
+    if (!fr || fr.insufficientConfidence || !fr.bestMatch) return false;
+    const allLabels = [fr.bestMatch, ...candidates.filter((c) => c.rank > 1).map((c) => c.label)];
+    return isGoldProspectHost(allLabels);
+  }, [scan, candidates]);
+
   const bannerMessage = useMemo(() => {
     if (dataSource !== "cache" || !cachedAt) return null;
     const age = formatCacheAge(cachedAt, lang === "so");
@@ -925,6 +936,35 @@ export default function ResultsScreen() {
             ))}
           </Card>
         )}
+
+      {/* ── Gold Prospect Evaluation (Gem Collector only) ────────────────── */}
+      {canPdf && showGoldProspect && (
+        <Card accent style={styles.verifyCard}>
+          <View style={styles.verifyHeader}>
+            <Ionicons name="earth-outline" size={18} color={colors.gold} />
+            <Text style={styles.verifyTitle}>{L("Gold Prospect Evaluation", "Qiimaynta Rajada Dahabka")}</Text>
+            <View style={styles.proTag}>
+              <Text style={styles.proTagText}>PRO</Text>
+            </View>
+          </View>
+          <Text style={styles.body}>
+            {L(
+              "This rock is a common host for gold. Run a geological prospect evaluation — it scores exploration potential and does NOT confirm that gold is present.",
+              "Dhagaxani waa marti caadi ah oo dahab. Samee qiimayn juqraafi — wuxuu qiimeeyaa suurtagalnimada sahaminta, MANA xaqiijiyo in dahab jiro.",
+            )}
+          </Text>
+          <View style={styles.verifyButtonRow}>
+            <Button
+              title={L("Evaluate Prospect", "Qiimee Rajada")}
+              variant="primary"
+              size="sm"
+              icon={<Ionicons name="analytics-outline" size={16} color="#0B0B0C" />}
+              onPress={() => router.push({ pathname: "/(app)/scan/gold-prospect", params: { scanId } })}
+              style={{ flex: 1 }}
+            />
+          </View>
+        </Card>
+      )}
 
       {alternatives.length > 0 && (
         <>

@@ -17,6 +17,7 @@ export default function ScanLayout() {
       <Stack.Screen name="batch" options={{ title: "Batch Scan" }} />
       <Stack.Screen name="batch-results" options={{ title: "Batch Results" }} />
       <Stack.Screen name="verify" options={{ title: "High-Value Gem Verification" }} />
+      <Stack.Screen name="gold-prospect" options={{ title: "Gold Prospect Evaluation" }} />
     </Stack>
   );
 }
