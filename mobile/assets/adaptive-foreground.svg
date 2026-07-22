@@ -10,8 +10,10 @@
       <stop offset="1" stop-color="#7CC6F5"/>
     </linearGradient>
   </defs>
-  <!-- Gem + scan marks scaled to ~62% and centered so it survives adaptive-icon masking -->
-  <g transform="translate(512 512) scale(0.62) translate(-512 -500)">
+  <!-- Gem + scan marks sized to match the previous (gold) launcher icon: content
+       bbox ~58% of the canvas, centred slightly above middle, still inside the
+       adaptive-icon safe zone. -->
+  <g transform="translate(512 500) scale(1.03) translate(-512 -521)">
     <g stroke="#080C14" stroke-width="6" stroke-linejoin="round">
       <path d="M280 452 L512 792 L744 452 Z" fill="url(#gemBlue)"/>
       <path d="M280 452 L392 452 L336 372 Z" fill="url(#gemBlue)"/>
