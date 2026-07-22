@@ -6,7 +6,7 @@
 // engine in lib/goldProspect.ts. It makes NO AI/model calls, adds NO new
 // tables or APIs, and never persists anything new.
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, Pressable, ScrollView, TextInput, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, Pressable, ScrollView, TextInput, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -29,7 +29,8 @@ import {
   type NearbyDensity,
   type Observation,
 } from "../../../lib/goldProspect";
-import { regionalGeologyContext, type GeologyContext } from "../../../lib/goldGeology";
+import { regionalGeologyContext, geologyByPlace, type GeologyContext } from "../../../lib/goldGeology";
+import { generateAndShareGoldProspectPdf } from "../../../lib/goldProspectPdfReport";
 
 export default function GoldProspectScreen() {
   const { scanId } = useLocalSearchParams<{ scanId: string }>();
@@ -43,15 +44,17 @@ export default function GoldProspectScreen() {
   const [labels, setLabels] = useState<string[]>([]);
   const [confidencePct, setConfidencePct] = useState(0);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [createdAt, setCreatedAt] = useState<string>("");
   const [answers, setAnswers] = useState<GoldProspectAnswers>(EMPTY_ANSWERS);
   const [report, setReport] = useState<GoldProspectReport | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   useEffect(() => {
     if (!scanId) return;
     let active = true;
     (async () => {
       const [{ data: scanRow }, { data: cands }] = await Promise.all([
-        supabase.from("scans").select("final_result, capture_location").eq("id", scanId).maybeSingle(),
+        supabase.from("scans").select("final_result, capture_location, created_at").eq("id", scanId).maybeSingle(),
         supabase.from("scan_candidates").select("label, rank").eq("scan_id", scanId).order("rank", { ascending: true }),
       ]);
       if (!active) return;
@@ -62,6 +65,7 @@ export default function GoldProspectScreen() {
       setConfidencePct(Math.round((fr?.confidenceScore ?? 0) * 100));
       const loc = (scanRow as { capture_location?: { lat?: number; lng?: number } | null } | null)?.capture_location;
       setLocation(loc && typeof loc.lat === "number" && typeof loc.lng === "number" ? { lat: loc.lat, lng: loc.lng } : null);
+      setCreatedAt((scanRow as { created_at?: string } | null)?.created_at ?? new Date().toISOString());
       setLoading(false);
     })();
     return () => {
@@ -71,9 +75,49 @@ export default function GoldProspectScreen() {
 
   const host = useMemo(() => detectGoldHost(labels), [labels]);
 
-  // Regional geology from the scan's GPS location (source-backed, honest — see
-  // lib/goldGeology). Cheap point-in-polygon; recomputed on language change.
-  const geology: GeologyContext | null = location ? regionalGeologyContext(location.lat, location.lng, L, so) : null;
+  // Regional geology (source-backed, honest — see lib/goldGeology). GPS is the
+  // primary source; if there is no GPS fix we fall back to the manually typed
+  // country. If neither is available it stays null → an informative empty state.
+  const geology: GeologyContext | null = useMemo(() => {
+    if (location) return regionalGeologyContext(location.lat, location.lng, L, so);
+    return geologyByPlace({ country: answers.country, region: answers.region, district: answers.district }, L, so);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location, answers.country, answers.region, answers.district, so]);
+
+  // Download / share the professional Gold Prospect PDF (Part 5). Pure local
+  // render — no AI, no network beyond the OS share sheet.
+  async function downloadPdf(r: GoldProspectReport) {
+    if (pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      await generateAndShareGoldProspectPdf(
+        {
+          scanId: scanId ?? null,
+          createdAt: createdAt || new Date().toISOString(),
+          hostRock: r.hostRock,
+          hostConfidencePct: r.hostConfidencePct,
+          environment: r.environment,
+          score: r.score,
+          categoryLabel: categoryLabel(r.category, so),
+          economicLabel: economicLabel(r.economic, so),
+          categoryColor: categoryColor(r.category),
+          evidenceFor: r.evidenceFor,
+          evidenceAgainst: r.evidenceAgainst,
+          nextSteps: r.nextSteps,
+          regionalGeology: geology ? { line: geology.line, source: geology.source, favorable: geology.favorable } : null,
+          location: location ? { lat: location.lat, lng: location.lng, label: geology?.locationLabel ?? null } : null,
+        },
+        so ? "so" : "en",
+      );
+    } catch {
+      Alert.alert(
+        L("Could not create PDF", "PDF lama abuuri karo"),
+        L("Please try again.", "Fadlan isku day mar kale."),
+      );
+    } finally {
+      setPdfBusy(false);
+    }
+  }
 
   function toggleObservation(o: Observation) {
     setAnswers((a) => ({
@@ -109,11 +153,15 @@ export default function GoldProspectScreen() {
   if (!host) {
     return (
       <View style={styles.centered}>
-        <Ionicons name="earth-outline" size={40} color={colors.textFaint} />
-        <Text style={styles.body}>
-          {L("This specimen isn't a common gold-associated host rock.", "Shaygani maaha dhagax marti caadi ah oo dahab.")}
+        <Ionicons name="earth-outline" size={44} color={colors.textFaint} />
+        <Text style={styles.emptyTitle}>{L("No gold-associated host rock", "Dhagax dahab lama helin")}</Text>
+        <Text style={[styles.body, { textAlign: "center" }]}>
+          {L(
+            "This specimen isn't one of the common gold host rocks (e.g. quartz vein, pyrite, greenstone). Gold Prospect Evaluation applies to gold-associated hosts only.",
+            "Shaygani maaha mid ka mid ah dhagxaanta caadiga ah ee dahabka (tusaale quartz vein, pyrite, greenstone). Qiimaynta Rajada Dahabka waxay khusaysaa dhagxaanta dahab-la-xiriira oo keliya.",
+          )}
         </Text>
-        <Button title={L("Back", "Dib u noqo")} variant="outline" onPress={() => router.back()} />
+        <Button title={L("Back to results", "Ku noqo natiijada")} variant="outline" onPress={() => router.back()} />
       </View>
     );
   }
@@ -207,10 +255,23 @@ export default function GoldProspectScreen() {
           </Text>
         </Card>
 
-        {/* Regional Geology (GPS-based, source-backed, honest) */}
-        {geology && (
+        {/* Regional Geology (GPS primary, manual fallback; honest, source-backed) */}
+        {geology ? (
           <Card style={styles.card}>
-            <SectionTitle icon="map-outline" text={L("Regional Geology", "Geology-ga Gobolka")} color={geology.favorable ? "#2E9E4F" : colors.gold} />
+            <SectionTitle
+              icon="map-outline"
+              text={L("Regional Geology", "Geology-ga Gobolka")}
+              color={geology.favorable ? "#2E9E4F" : colors.gold}
+            />
+            <View style={styles.chipRowInline}>
+              <StatusChip
+                text={geology.resolvedBy === "gps" ? L("GPS location", "Goob GPS") : L("Entered location", "Goob la geliyay")}
+                icon={geology.resolvedBy === "gps" ? "navigate" : "create"}
+              />
+              {geology.favorable && (
+                <StatusChip text={L("Documented province", "Gobol la diiwaangeliyay")} icon="checkmark-circle" tone="good" />
+              )}
+            </View>
             <View style={styles.evRow}>
               <Ionicons
                 name={geology.favorable ? "checkmark-circle" : "information-circle"}
@@ -223,6 +284,19 @@ export default function GoldProspectScreen() {
               {L("Source", "Isha")}: {geology.source}
             </Text>
           </Card>
+        ) : (
+          <Card style={styles.card}>
+            <SectionTitle icon="map-outline" text={L("Regional Geology", "Geology-ga Gobolka")} />
+            <View style={styles.emptyRow}>
+              <Ionicons name="location-outline" size={18} color={colors.textFaint} />
+              <Text style={styles.evText}>
+                {L(
+                  "Add your location to receive regional geological insights — enter a country under 'Edit answers', or scan again with GPS enabled.",
+                  "Ku dar goobtaada si aad u hesho aragtida juqraafi ee gobolka — geli wadan 'Wax ka beddel jawaabaha', ama dib u scan garee GPS oo shaqaynaya.",
+                )}
+              </Text>
+            </View>
+          </Card>
         )}
 
         {/* Map */}
@@ -234,23 +308,31 @@ export default function GoldProspectScreen() {
           </Card>
         )}
 
-        {/* Disclaimer */}
+        {/* Disclaimer (rule-based Geological Prospect Assessment — not AI) */}
         <View style={styles.disclaimerBox}>
-          <Ionicons name="information-circle-outline" size={16} color={colors.textFaint} />
+          <Ionicons name="shield-checkmark-outline" size={16} color={colors.textFaint} />
           <Text style={styles.disclaimer}>
             {L(
-              "This report is an AI geological interpretation. It does NOT confirm the existence of gold. Economic viability can only be determined through professional geological exploration.",
-              "Warbixintani waa fasiraad juqraafi oo AI ah. MA xaqiijiso jiritaanka dahabka. Suurtagalnimada dhaqaale waxaa kaliya go'aamin kara sahamin juqraafi oo xirfad leh.",
+              "Geological Prospect Assessment — a geological interpretation based on mineral identification, regional geology and established geological rules. It does NOT confirm the existence of gold. Economic viability can only be determined through professional geological exploration.",
+              "Qiimayn Rajo Juqraafi — fasiraad juqraafi oo ku salaysan aqoonsiga macdanta, geology-ga gobolka iyo qawaaniinta juqraafi ee la aasaasay. MA xaqiijiso jiritaanka dahabka. Suurtagalnimada dhaqaale waxaa kaliya go'aamin kara sahamin juqraafi oo xirfad leh.",
             )}
           </Text>
         </View>
 
         <Button
+          title={pdfBusy ? L("Preparing PDF…", "PDF diyaarinaya…") : L("Download PDF report", "Soo deji warbixinta PDF")}
+          variant="primary"
+          loading={pdfBusy}
+          icon={<Ionicons name="download-outline" size={18} color="#0B0B0C" />}
+          onPress={() => downloadPdf(report)}
+          style={{ marginTop: spacing.md }}
+        />
+        <Button
           title={L("Edit answers", "Wax ka beddel jawaabaha")}
           variant="outline"
           icon={<Ionicons name="create-outline" size={16} color={colors.gold} />}
           onPress={() => setReport(null)}
-          style={{ marginTop: spacing.md }}
+          style={{ marginTop: spacing.sm }}
         />
       </ScrollView>
     );
@@ -294,6 +376,12 @@ export default function GoldProspectScreen() {
 
       <Card style={styles.card}>
         <SectionTitle icon="location-outline" text={L("Where was it found?", "Xaggee laga helay?")} />
+        <Text style={styles.note}>
+          {L(
+            "Used for regional geology when GPS isn't available.",
+            "Loo isticmaalo geology-ga gobolka marka GPS la'aan.",
+          )}
+        </Text>
         <LabeledInput label={L("Country", "Wadan")} value={answers.country ?? ""} onChangeText={(t) => setAnswers((a) => ({ ...a, country: t }))} />
         <LabeledInput label={L("Region / State", "Gobol")} value={answers.region ?? ""} onChangeText={(t) => setAnswers((a) => ({ ...a, region: t }))} />
         <LabeledInput label={L("District", "Degmo")} value={answers.district ?? ""} onChangeText={(t) => setAnswers((a) => ({ ...a, district: t }))} />
@@ -330,6 +418,26 @@ function SectionTitle({ icon, text, color }: { icon: keyof typeof Ionicons.glyph
     <View style={styles.sectionTitleRow}>
       <Ionicons name={icon} size={16} color={color ?? colors.gold} />
       <Text style={[styles.sectionTitle, color ? { color } : null]}>{text}</Text>
+    </View>
+  );
+}
+
+// Small professional status chip (Part 7 polish) — a labeled pill used to tag
+// how a section's data was resolved (GPS vs typed) or its status.
+function StatusChip({
+  text,
+  icon,
+  tone,
+}: {
+  text: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  tone?: "good" | "neutral";
+}) {
+  const good = tone === "good";
+  return (
+    <View style={[styles.statusChip, good && styles.statusChipGood]}>
+      <Ionicons name={icon} size={12} color={good ? "#2E9E4F" : colors.textFaint} />
+      <Text style={[styles.statusChipText, good && { color: "#2E9E4F" }]}>{text}</Text>
     </View>
   );
 }
@@ -390,6 +498,22 @@ const styles = StyleSheet.create({
   barTrack: { height: 10, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.12)", overflow: "hidden", marginTop: 6 },
   barFill: { height: 10, borderRadius: 999 },
   evRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  emptyRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  emptyTitle: { fontSize: 17, fontWeight: "800", color: colors.text, textAlign: "center" },
+  chipRowInline: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 2 },
+  statusChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    backgroundColor: colors.surfaceAlt,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+  },
+  statusChipGood: { borderColor: "rgba(46,158,79,0.5)", backgroundColor: "rgba(46,158,79,0.12)" },
+  statusChipText: { fontSize: 11, color: colors.textFaint, fontWeight: "700" },
   evText: { flex: 1, fontSize: 13.5, color: "#D6D6D9", lineHeight: 19 },
   stepNum: { color: colors.gold, fontWeight: "800", fontSize: 13.5, width: 18 },
   econ: { fontSize: 18, fontWeight: "800" },

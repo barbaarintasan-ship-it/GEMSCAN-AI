@@ -18,6 +18,7 @@ import { submitScanFeedback } from "../../../lib/scanUpload";
 import { INSUFFICIENT_CONFIDENCE_MESSAGE_TEXT } from "../../../lib/constants";
 import { estimateValue, type Valuation, priceUnitLabel, formatValuationRange } from "../../../lib/valuation";
 import { isGoldProspectHost } from "../../../lib/goldProspect";
+import { goldProspectEnabled } from "../../../lib/entitlements";
 import { EXPERT_WHATSAPP, HIGH_VALUE_THRESHOLD_USD, hasExpertContact } from "../../../lib/expertConfig";
 import { useSubscriptionStatus } from "../../../lib/subscription";
 import { generateAndSharePdf, type PdfReportData } from "../../../lib/pdfReport";
@@ -938,7 +939,7 @@ export default function ResultsScreen() {
         )}
 
       {/* ── Gold Prospect Evaluation (Gem Collector only) ────────────────── */}
-      {canPdf && showGoldProspect && (
+      {goldProspectEnabled(sub) && showGoldProspect && (
         <Card accent style={styles.verifyCard}>
           <View style={styles.verifyHeader}>
             <Ionicons name="earth-outline" size={18} color={colors.gold} />

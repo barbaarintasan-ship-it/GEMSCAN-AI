@@ -21,6 +21,10 @@ export type SubscriptionFeatures = {
   inventoryManagement: boolean;
   pdfReports: boolean;
   batchScanning: boolean;
+  // Dedicated entitlement for Gold Prospect Evaluation. Optional because the
+  // backend does not send it yet; when absent, lib/entitlements.ts derives it
+  // from the tier so behavior is unchanged. See goldProspectEnabled().
+  goldProspectEvaluation?: boolean;
 };
 
 // Deep Scan balance the app DISPLAYS (read-only). Purchases happen on the
