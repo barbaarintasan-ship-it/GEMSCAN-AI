@@ -76,7 +76,7 @@ export function CommunityStats() {
 
   return (
     <Animated.View style={[styles.card, { opacity: fade }]}>
-      <Text style={styles.heading}>{so ? "Bulshada GemScan" : "The GemScan community"}</Text>
+      <Text style={styles.heading}>{so ? "Bulshada LuulScan" : "The LuulScan community"}</Text>
       <View style={styles.row}>
         <StatTile
           icon="people"

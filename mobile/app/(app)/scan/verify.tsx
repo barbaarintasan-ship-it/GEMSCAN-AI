@@ -740,7 +740,7 @@ export default function DiamondVerificationScreen() {
 }
 
 // $5 High-Value Verification Report paywall. Buttons only ever open the
-// GemScan website (Linking.openURL) — there is no in-app charge, no IAP, and
+// LuulScan website (Linking.openURL) — there is no in-app charge, no IAP, and
 // no way for this screen to fabricate a "paid" status; EXTERNAL_PURCHASES_ENABLED
 // hides the purchase CTA entirely on iOS (App Store Guideline 3.1.1), same as
 // PremiumGate/UpgradePrompt already do for subscriptions.

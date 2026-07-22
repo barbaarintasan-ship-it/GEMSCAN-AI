@@ -1,4 +1,4 @@
-// GemScan design tokens — the single source of truth for spacing, radius,
+// LuulScan design tokens — the single source of truth for spacing, radius,
 // typography, shadows and color that every screen should draw from, so the
 // app reads as one consistent product instead of per-screen ad-hoc styling.
 // This formalizes the palette/scale already in use across the app (no brand

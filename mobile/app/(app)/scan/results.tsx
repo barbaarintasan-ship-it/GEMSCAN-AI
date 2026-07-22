@@ -371,7 +371,7 @@ export default function ResultsScreen() {
     const val = valuation;
     const lines: string[] = [];
 
-    lines.push(so ? "💎 GemScan — Natiijada baaritaanka" : "💎 GemScan — Scan Result", "");
+    lines.push(so ? "💎 LuulScan — Natiijada baaritaanka" : "💎 LuulScan — Scan Result", "");
     if (fr?.bestMatch) lines.push(`${so ? "Aqoonsiga" : "Identification"}: ${fr.bestMatch}`);
     lines.push(`${so ? "Kalsooni" : "Confidence"}: ${pct}%`);
     const valLine = val ? formatValuationRange(val, so) : null;
@@ -385,8 +385,8 @@ export default function ResultsScreen() {
         : "I would like a professional review. I will attach my scan photos.");
     } else {
       lines.push("", so
-        ? "La aqoonsaday GemScan — aqoonsi khibrad leh oo dhagxaan, dahab & qadaadiic."
-        : "Identified with GemScan — expert gemstone, gold & coin identification.");
+        ? "La aqoonsaday LuulScan — aqoonsi khibrad leh oo dhagxaan, dahab & qadaadiic."
+        : "Identified with LuulScan — expert gemstone, gold & coin identification.");
     }
     return lines.join("\n");
   }
@@ -403,7 +403,7 @@ export default function ResultsScreen() {
       const uri = await node.capture();
       await Sharing.shareAsync(uri, {
         mimeType: "image/png",
-        dialogTitle: lang === "so" ? "La wadaag natiijada GemScan" : "Share your GemScan result",
+        dialogTitle: lang === "so" ? "La wadaag natiijada LuulScan" : "Share your LuulScan result",
       });
     } catch {
       /* capture/share failed or was dismissed — no-op */
@@ -761,7 +761,7 @@ export default function ResultsScreen() {
             icon={<Ionicons name="open-outline" size={18} color="#0B0B0C" />}
             onPress={() => Linking.openURL(PAYMENT_URL)}
             style={styles.pdfUpgradeButton}
-            accessibilityLabel={L("Open the GemScan website to unlock", "Fur website-ka GemScan si aad adeegga u furto")}
+            accessibilityLabel={L("Open the LuulScan website to unlock", "Fur website-ka LuulScan si aad adeegga u furto")}
           />
         </Card>
       ) : null}
@@ -1026,7 +1026,7 @@ export default function ResultsScreen() {
 
       <Text style={[styles.label, { marginTop: 20 }]}>{L("Was this correct?", "Kani ma saxaa?")}</Text>
       {feedbackSent ? (
-        <Text style={styles.body}>{L("Thanks — your feedback helps improve GemScan.", "Mahadsanid — jawaabtaadu waxay ka caawinaysaa hagaajinta GemScan.")}</Text>
+        <Text style={styles.body}>{L("Thanks — your feedback helps improve LuulScan.", "Mahadsanid — jawaabtaadu waxay ka caawinaysaa hagaajinta LuulScan.")}</Text>
       ) : (
         <View style={{ flexDirection: "row", gap: 12 }}>
           <Pressable style={styles.feedbackButton} onPress={() => handleFeedback(true)}>
@@ -1051,7 +1051,7 @@ export default function ResultsScreen() {
     <View style={styles.offscreen} pointerEvents="none">
       <ViewShot ref={shareCardRef} options={{ format: "png", quality: 0.95 }}>
         <View style={styles.shareCard} collapsable={false}>
-          <Text style={styles.scLogo}>💎 GemScan</Text>
+          <Text style={styles.scLogo}>💎 LuulScan</Text>
           {photoUrl && (
             <Image
               source={{ uri: photoUrl }}
@@ -1080,8 +1080,8 @@ export default function ResultsScreen() {
           )}
           <Text style={styles.scFooter}>
             {L(
-              "Identified with GemScan — expert gemstone, gold & coin identification.",
-              "La aqoonsaday GemScan — aqoonsi khibrad leh oo dhagxaan, dahab & qadaadiic.",
+              "Identified with LuulScan — expert gemstone, gold & coin identification.",
+              "La aqoonsaday LuulScan — aqoonsi khibrad leh oo dhagxaan, dahab & qadaadiic.",
             )}
           </Text>
         </View>

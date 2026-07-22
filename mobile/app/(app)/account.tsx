@@ -25,7 +25,7 @@ export default function AccountScreen() {
   const confirmDelete = () => {
     Alert.alert(
       "Delete account?",
-      "This permanently deletes your GemScan account and all your scans and data. This cannot be undone.",
+      "This permanently deletes your LuulScan account and all your scans and data. This cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -64,7 +64,7 @@ export default function AccountScreen() {
         )}
         {EXTERNAL_PURCHASES_ENABLED && (
           <Text style={styles.cardSubtext}>
-            Subscriptions are managed exclusively on the GemScan website. If you just upgraded
+            Subscriptions are managed exclusively on the LuulScan website. If you just upgraded
             and don't see it reflected here, tap refresh below.
           </Text>
         )}

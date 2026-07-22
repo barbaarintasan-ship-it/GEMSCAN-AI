@@ -54,8 +54,8 @@ export async function checkForUpdate(): Promise<AppUpdateInfo | null> {
       updateAvailable: true,
       forced: belowMin,
       message: {
-        en: data.update_message_en || "A new version of GemScan is available.",
-        so: data.update_message_so || "Nooc cusub oo GemScan ah ayaa diyaar ah.",
+        en: data.update_message_en || "A new version of LuulScan is available.",
+        so: data.update_message_so || "Nooc cusub oo LuulScan ah ayaa diyaar ah.",
       },
       storeUrl:
         data.store_url || "https://play.google.com/store/apps/details?id=com.gemscan.ai",

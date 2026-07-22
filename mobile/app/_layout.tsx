@@ -10,6 +10,7 @@ import { captureException, initMonitoring } from "../lib/monitoring";
 // Chained handler (observe + delegate) — remove with lib/scanDiag.ts once done.
 import { installCrashDiagnostics } from "../lib/scanDiag";
 import UpdateGate from "../components/UpdateGate";
+import { AnimatedSplash } from "../components/AnimatedSplash";
 import "../lib/i18n";
 
 const queryClient = new QueryClient();
@@ -37,7 +38,7 @@ class RootErrorBoundary extends React.Component<
       // unexpected error never looks like the app simply died.
       return (
         <View style={styles.fallback}>
-          <Text style={styles.fallbackLogo}>💎 GemScan</Text>
+          <Text style={styles.fallbackLogo}>💎 LuulScan</Text>
           <Text style={styles.fallbackTitle}>Something went wrong</Text>
           <Text style={styles.fallbackBody}>
             Wax baa qaldamay. Fadlan isku day mar kale.{"\n"}Please try again.
@@ -75,6 +76,10 @@ const styles = StyleSheet.create({
 });
 
 export default function RootLayout() {
+  // The animated boot logo plays once per cold start, layered on top of the app
+  // while it mounts underneath. When it finishes it unmounts itself.
+  const [bootDone, setBootDone] = React.useState(false);
+
   return (
     <RootErrorBoundary>
       <SafeAreaProvider>
@@ -85,6 +90,7 @@ export default function RootLayout() {
             <UpdateGate />
           </AuthProvider>
         </QueryClientProvider>
+        {!bootDone && <AnimatedSplash onFinish={() => setBootDone(true)} />}
       </SafeAreaProvider>
     </RootErrorBoundary>
   );

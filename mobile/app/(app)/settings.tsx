@@ -66,8 +66,8 @@ export default function SettingsScreen() {
         Alert.alert(
           so ? "Waad heysaa nooca ugu dambeeya" : "You're up to date",
           so
-            ? "Waxaad haysataa nooca GemScan ugu dambeeyay."
-            : "You have the latest version of GemScan.",
+            ? "Waxaad haysataa nooca LuulScan ugu dambeeyay."
+            : "You have the latest version of LuulScan.",
         );
       }
     } finally {

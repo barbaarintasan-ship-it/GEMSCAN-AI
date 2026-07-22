@@ -52,14 +52,14 @@ export function PremiumGate({ requiredTier, children, featureName }: Props) {
         {featureName ? `${featureName} is a premium feature` : "This is a premium feature"}
       </Text>
       <Text style={styles.subtitle}>
-        Upgrade on the GemScan website to unlock this. Once you subscribe, your account unlocks
+        Upgrade on the LuulScan website to unlock this. Once you subscribe, your account unlocks
         automatically.
       </Text>
       <Pressable
         style={styles.button}
         onPress={() => Linking.openURL(WEBSITE_PRICING_URL)}
         accessibilityRole="link"
-        accessibilityLabel="Open GemScan pricing page in browser"
+        accessibilityLabel="Open LuulScan pricing page in browser"
       >
         <Text style={styles.buttonText}>Unlock on the website</Text>
       </Pressable>

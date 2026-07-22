@@ -100,7 +100,7 @@ function buildBatchSummaryHtml(items: BatchItemResult[], photos: (string | null)
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>GemScan ${t("Batch Scan Summary", "Soo Koobid Batch Scan")}</title>
+<title>LuulScan ${t("Batch Scan Summary", "Soo Koobid Batch Scan")}</title>
 <style>
   @page { size: A4; margin: 14mm 12mm; }
   * { box-sizing: border-box; }
@@ -189,7 +189,7 @@ export async function generateBatchSummaryPdf(items: BatchItemResult[], lang: La
   const html = buildBatchSummaryHtml(items, photos, lang);
   const { uri } = await Print.printToFileAsync({ html, base64: false });
 
-  const safeName = `GemScan-Batch-Summary-${Date.now()}.pdf`;
+  const safeName = `LuulScan-Batch-Summary-${Date.now()}.pdf`;
   let shareUri = uri;
   try {
     const dest = (FileSystem.cacheDirectory ?? "") + safeName;

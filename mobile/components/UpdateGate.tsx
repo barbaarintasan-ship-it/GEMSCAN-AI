@@ -38,7 +38,7 @@ export default function UpdateGate() {
     >
       <View style={styles.backdrop}>
         <View style={styles.card}>
-          <Text style={styles.logo}>💎 GemScan</Text>
+          <Text style={styles.logo}>💎 LuulScan</Text>
           <Text style={styles.title}>{so ? "Nooc cusub ayaa jira" : "Update available"}</Text>
           <Text style={styles.body}>{message}</Text>
 

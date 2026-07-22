@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "GemScan",
+    "appName": "LuulScan",
     "back": "Back",
     "cancel": "Cancel",
     "loading": "Loading…",
@@ -58,7 +58,7 @@
     "verifying": "verifying…",
     "holdRotate": "Hold the gemstone steady, then rotate it slowly",
     "analyzing": "Identifying your specimen — this can take up to 30 seconds…",
-    "cameraNeeded": "GemScan needs camera access to scan gemstones.",
+    "cameraNeeded": "LuulScan needs camera access to scan gemstones.",
     "grantCamera": "Grant camera access",
     "analyzeNow": "Analyze now",
     "uploadInstead": "Upload gemstone photos",

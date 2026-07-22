@@ -91,7 +91,7 @@ export default function LoginScreen() {
         keyboardDismissMode="interactive"
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.title}>💎 GemScan</Text>
+        <Text style={styles.title}>💎 LuulScan</Text>
         <Text style={styles.subtitle}>{L("Log in to your account", "Gal akoonkaaga")}</Text>
 
         <View style={styles.inputRow}>

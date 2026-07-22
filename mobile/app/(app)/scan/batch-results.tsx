@@ -73,7 +73,7 @@ export default function BatchResultsScreen() {
     setSharing(true);
     try {
       const lines = [
-        L("💎 GemScan — Batch Scan summary", "💎 GemScan — Soo koobid Batch Scan"),
+        L("💎 LuulScan — Batch Scan summary", "💎 LuulScan — Soo koobid Batch Scan"),
         "",
         `${L("Items", "Shayada")}: ${items.length}`,
         `${L("Completed", "Dhammaystiran")}: ${completed}`,

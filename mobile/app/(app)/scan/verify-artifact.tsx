@@ -720,7 +720,7 @@ export default function ArtifactVerificationScreen() {
   );
 }
 
-// $5 Artifact Verification Report paywall. Buttons only ever open the GemScan
+// $5 Artifact Verification Report paywall. Buttons only ever open the LuulScan
 // website (Linking.openURL) — no in-app charge; EXTERNAL_PURCHASES_ENABLED
 // hides the CTA on iOS (App Store Guideline 3.1.1).
 function ArtifactPaywallCard({

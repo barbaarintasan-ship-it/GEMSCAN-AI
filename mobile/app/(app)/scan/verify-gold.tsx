@@ -819,7 +819,7 @@ export default function GoldVerificationScreen() {
   );
 }
 
-// $5 Gold Verification Report paywall. Buttons only ever open the GemScan
+// $5 Gold Verification Report paywall. Buttons only ever open the LuulScan
 // website (Linking.openURL) — there is no in-app charge, no IAP, and no way
 // for this screen to fabricate a "paid" status; EXTERNAL_PURCHASES_ENABLED
 // hides the purchase CTA entirely on iOS (App Store Guideline 3.1.1), same

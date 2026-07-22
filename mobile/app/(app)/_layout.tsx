@@ -24,7 +24,7 @@ export default function AppLayout() {
         contentStyle: { backgroundColor: "#0B0B0C" },
       }}
     >
-      <Stack.Screen name="index" options={{ title: "GemScan" }} />
+      <Stack.Screen name="index" options={{ title: "LuulScan" }} />
       <Stack.Screen name="history" options={{ title: "My Collection" }} />
       <Stack.Screen name="collection-map" options={{ title: "Map" }} />
       <Stack.Screen name="settings" options={{ title: "Settings" }} />

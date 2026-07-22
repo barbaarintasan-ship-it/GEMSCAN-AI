@@ -26,8 +26,8 @@ export default function ExplanationStyleChooser({ visible, onChoose }: Props) {
           <Text style={styles.title}>{L("Choose Explanation Style", "Dooro Habka Sharaxaadda")}</Text>
           <Text style={styles.subtitle}>
             {L(
-              "How would you like GemScan to explain your results? You can change this any time in Settings.",
-              "Sideed jeceshahay in GemScan kuu sharaxo natiijooyinkaaga? Waxaad ka beddeli kartaa mar kasta Settings.",
+              "How would you like LuulScan to explain your results? You can change this any time in Settings.",
+              "Sideed jeceshahay in LuulScan kuu sharaxo natiijooyinkaaga? Waxaad ka beddeli kartaa mar kasta Settings.",
             )}
           </Text>
 

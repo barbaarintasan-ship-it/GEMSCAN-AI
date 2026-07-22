@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "GemScan",
+    "name": "LuulScan",
     "slug": "gemestone",
     "owner": "gemestones-team",
     "version": "1.0.1",
@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0B0B0C"
+      "backgroundColor": "#080C14"
     },
     "runtimeVersion": "1.0.0",
     "updates": {
@@ -25,19 +25,19 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "GemScan needs camera access to scan and identify gemstones, minerals, and jewelry."
+          "cameraPermission": "LuulScan needs camera access to scan and identify gemstones, minerals, and jewelry."
         }
       ],
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "GemScan records the location where you scan a specimen, so you can see your finds on a map. This is optional."
+          "locationWhenInUsePermission": "LuulScan records the location where you scan a specimen, so you can see your finds on a map. This is optional."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "GemScan needs access to your photos so you can upload an existing picture of a gemstone, mineral, coin, or jewelry to identify it."
+          "photosPermission": "LuulScan needs access to your photos so you can upload an existing picture of a gemstone, mineral, coin, or jewelry to identify it."
         }
       ]
     ],
@@ -46,8 +46,8 @@
       "bundleIdentifier": "com.gemscan.ai",
       "icon": "./assets/icon-ios.png",
       "infoPlist": {
-        "NSCameraUsageDescription": "GemScan needs camera access to scan and identify gemstones, minerals, and jewelry.",
-        "NSPhotoLibraryUsageDescription": "GemScan needs access to your photos so you can upload an existing picture of a gemstone, mineral, coin, or jewelry to identify it.",
+        "NSCameraUsageDescription": "LuulScan needs camera access to scan and identify gemstones, minerals, and jewelry.",
+        "NSPhotoLibraryUsageDescription": "LuulScan needs access to your photos so you can upload an existing picture of a gemstone, mineral, coin, or jewelry to identify it.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },

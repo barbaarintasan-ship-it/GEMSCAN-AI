@@ -50,7 +50,7 @@ export function buildArtifactReportPaymentUrl(purchaseId: string, method?: "mobi
   return method ? `${base}&method=${method}` : base;
 }
 
-// GemScan sells its plans/reports on the website only. The app shows a
+// LuulScan sells its plans/reports on the website only. The app shows a
 // price-less "unlock on the website" call-to-action that opens the checkout
 // page; after paying there, entitlement unlocks automatically (read via
 // verify-subscription). NO price is ever displayed in-app.

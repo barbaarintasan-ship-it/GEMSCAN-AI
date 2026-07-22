@@ -58,7 +58,7 @@ function push(entry: StageLog) {
   // development only — production stays quiet (the Debug screen reads the
   // in-memory `logs` array, not the console).
   if (__DEV__) {
-    const tag = entry.level === "error" ? "[GEMSCAN✗]" : "[GEMSCAN]";
+    const tag = entry.level === "error" ? "[LUULSCAN✗]" : "[LUULSCAN]";
     // eslint-disable-next-line no-console
     console.log(`${tag} ${entry.stage}${entry.detail ? ` — ${entry.detail}` : ""}`);
   }

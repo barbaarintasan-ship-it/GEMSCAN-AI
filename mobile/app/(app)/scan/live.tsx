@@ -375,7 +375,7 @@ export default function LiveScanScreen() {
   if (!permission.granted) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.body}>{L("GemScan needs camera access to scan.", "GemScan wuxuu u baahan yahay kamerada.")}</Text>
+        <Text style={styles.body}>{L("LuulScan needs camera access to scan.", "LuulScan wuxuu u baahan yahay kamerada.")}</Text>
         <Pressable style={styles.primaryButton} onPress={requestPermission}>
           <Text style={styles.primaryButtonText}>{L("Grant camera access", "Ogolow kamerada")}</Text>
         </Pressable>

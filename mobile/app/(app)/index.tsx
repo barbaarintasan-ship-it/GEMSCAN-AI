@@ -88,7 +88,7 @@ export default function HomeScreen() {
       style={styles.screen}
       contentContainerStyle={[styles.container, { paddingBottom: 40 + insets.bottom }]}
     >
-      <Text style={styles.logo}>💎 GemScan</Text>
+      <Text style={styles.logo}>💎 LuulScan</Text>
       {firstName ? (
         <Text style={styles.greeting}>
           {greeting}, <Text style={styles.greetingName}>{firstName}</Text> 👋

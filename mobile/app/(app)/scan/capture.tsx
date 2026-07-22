@@ -430,7 +430,7 @@ export default function CaptureScreen() {
   if (!permission.granted) {
     return (
       <View style={styles.container}>
-        <Text style={styles.body}>{L("GemScan needs camera access to scan specimens.", "GemScan wuxuu u baahan yahay kamerada si uu u baaro shayada.")}</Text>
+        <Text style={styles.body}>{L("LuulScan needs camera access to scan specimens.", "LuulScan wuxuu u baahan yahay kamerada si uu u baaro shayada.")}</Text>
         <Pressable style={styles.primaryButton} onPress={requestPermission}>
           <Text style={styles.primaryButtonText}>{L("Grant camera access", "Ogolow kamerada")}</Text>
         </Pressable>

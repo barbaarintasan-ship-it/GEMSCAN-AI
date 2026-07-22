@@ -2,7 +2,7 @@ import React from "react";
 import { View, Image, ActivityIndicator, StyleSheet } from "react-native";
 
 // Branded loading screen shown while the auth session is being restored, so the
-// GemScan AI logo stays on screen during the transition from the native splash
+// LuulScan AI logo stays on screen during the transition from the native splash
 // into the app instead of a blank dark frame.
 export default function LoadingScreen() {
   return (
