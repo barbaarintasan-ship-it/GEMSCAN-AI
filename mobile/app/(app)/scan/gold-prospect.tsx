@@ -29,6 +29,7 @@ import {
   type NearbyDensity,
   type Observation,
 } from "../../../lib/goldProspect";
+import { regionalGeologyContext, type GeologyContext } from "../../../lib/goldGeology";
 
 export default function GoldProspectScreen() {
   const { scanId } = useLocalSearchParams<{ scanId: string }>();
@@ -70,6 +71,10 @@ export default function GoldProspectScreen() {
 
   const host = useMemo(() => detectGoldHost(labels), [labels]);
 
+  // Regional geology from the scan's GPS location (source-backed, honest — see
+  // lib/goldGeology). Cheap point-in-polygon; recomputed on language change.
+  const geology: GeologyContext | null = location ? regionalGeologyContext(location.lat, location.lng, L, so) : null;
+
   function toggleObservation(o: Observation) {
     setAnswers((a) => ({
       ...a,
@@ -78,7 +83,17 @@ export default function GoldProspectScreen() {
   }
 
   function generate() {
-    setReport(evaluateGoldProspect({ labels, confidencePct, answers }, L));
+    setReport(
+      evaluateGoldProspect(
+        {
+          labels,
+          confidencePct,
+          answers,
+          geology: geology ? { favorable: geology.favorable, documentedNearby: geology.documentedNearby } : undefined,
+        },
+        L,
+      ),
+    );
   }
 
   if (loading) {
@@ -191,6 +206,24 @@ export default function GoldProspectScreen() {
             )}
           </Text>
         </Card>
+
+        {/* Regional Geology (GPS-based, source-backed, honest) */}
+        {geology && (
+          <Card style={styles.card}>
+            <SectionTitle icon="map-outline" text={L("Regional Geology", "Geology-ga Gobolka")} color={geology.favorable ? "#2E9E4F" : colors.gold} />
+            <View style={styles.evRow}>
+              <Ionicons
+                name={geology.favorable ? "checkmark-circle" : "information-circle"}
+                size={15}
+                color={geology.favorable ? "#2E9E4F" : colors.textFaint}
+              />
+              <Text style={styles.evText}>{geology.line}</Text>
+            </View>
+            <Text style={styles.note}>
+              {L("Source", "Isha")}: {geology.source}
+            </Text>
+          </Card>
+        )}
 
         {/* Map */}
         {location && (

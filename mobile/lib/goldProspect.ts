@@ -98,7 +98,13 @@ export function economicOf(score: number): EconomicPotential {
 const uniq = (arr: string[]): string[] => Array.from(new Set(arr));
 
 export function evaluateGoldProspect(
-  input: { labels: string[]; confidencePct: number; answers: GoldProspectAnswers },
+  input: {
+    labels: string[];
+    confidencePct: number;
+    answers: GoldProspectAnswers;
+    // Optional regional-geology signal (see lib/goldGeology). Absent = no effect.
+    geology?: { favorable: boolean; documentedNearby: boolean };
+  },
   L: Translate,
 ): GoldProspectReport | null {
   const host = detectGoldHost(input.labels);
@@ -138,6 +144,13 @@ export function evaluateGoldProspect(
   }
 
   if (input.confidencePct < 55) { score -= 5; againstE.push(L("Identification confidence is limited (image quality or ambiguity).", "Kalsoonida aqoonsiga waa xaddidan (tayada sawirka ama madmadow).")); }
+
+  // Regional geology (source-backed, honest — see lib/goldGeology).
+  if (input.geology) {
+    if (input.geology.favorable) { score += 6; forE.push(L("Regional geology is favorable — within a province with documented gold mineralization.", "Geology-ga gobolku waa mid wanaagsan — gobol leh macdanayn dahab oo la diiwaangeliyay.")); }
+    else againstE.push(L("No documented gold-bearing formation is mapped for this region.", "Ma jiro qaab dahab-leh oo la diiwaangeliyay oo gobolkan loo sawiray."));
+    if (input.geology.documentedNearby) { score += 4; forE.push(L("Documented mineral occurrences are recorded in this broader region.", "Macdano la diiwaangeliyay ayaa lagu jira gobolkan ballaaran.")); }
+  }
 
   const answered = a.observations.length + (a.foundContext !== "unknown" ? 1 : 0) + (a.nearbyDensity !== "unknown" ? 1 : 0);
   if (answered === 0) againstE.push(L("Limited field information — this score is based on the host rock alone.", "Macluumaad goob oo xaddidan — dhibcahani waxay ku salaysan yihiin dhagaxa martida oo keliya."));

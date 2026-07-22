@@ -73,6 +73,16 @@ describe("evaluateGoldProspect", () => {
     expect(strong.category).toBe("very_high");
   });
 
+  it("raises the score and adds evidence when regional geology is favorable", () => {
+    const base = evaluateGoldProspect({ labels: ["Quartz vein"], confidencePct: 90, answers: EMPTY_ANSWERS }, L)!;
+    const withGeo = evaluateGoldProspect(
+      { labels: ["Quartz vein"], confidencePct: 90, answers: EMPTY_ANSWERS, geology: { favorable: true, documentedNearby: true } },
+      L,
+    )!;
+    expect(withGeo.score).toBeGreaterThan(base.score);
+    expect(withGeo.evidenceFor.join(" ")).toMatch(/Regional geology is favorable/);
+  });
+
   it("always produces evidence, next steps and never confirms gold", () => {
     const r = evaluateGoldProspect({ labels: ["Pyrite"], confidencePct: 70, answers: EMPTY_ANSWERS }, L)!;
     expect(r.nextSteps.length).toBeGreaterThan(0);
