@@ -316,4 +316,25 @@ With Amendment A2 folded in:
 
 ---
 
-*End of Amendment A2. Design only — no code, SQL, or migrations produced.*
+## A2.10 — Implementation status (Sprint 1 + Sprint 2 complete)
+
+The schema designed here has been **implemented and shadow-tested** in migrations
+`0018`–`0032` (see [SPRINT2_COMPLETION_REPORT.md](./SPRINT2_COMPLETION_REPORT.md)).
+Final verified state: **57 tables** (enterprise 51 · geo 3 · ml 3), 22 enums, 12
+GIST indexes, 80 FKs, 10 `updated_at` triggers; consumer `public` unchanged.
+
+Two design points from A2 were adjusted during implementation and recorded as ADRs:
+
+- **A2.6 / A2.8.3 partitioning** — deferred (empty-table pre-production recreate)
+  to keep clean single-column `sample_id` FKs → **[ADR-0001](./adr/ADR-0001-partitioning-deferred.md)**.
+- **FK ON DELETE policy** — data-preserving (creator refs `SET NULL`; junctions
+  `CASCADE`) → **[ADR-0002](./adr/ADR-0002-fk-on-delete-policy.md)**.
+- **Migration VERIFY-query standard** → **[ADR-0003](./adr/ADR-0003-migration-verify-standard.md)**.
+
+The A2.4 security requirements and A2.5 storage requirements remain **binding
+acceptance criteria for Sprint 3+** (RLS, Edge Functions, storage), not yet
+implemented.
+
+---
+
+*End of Amendment A2. Design implemented in migrations 0018–0032 (Sprint 1–2); see ADRs 0001–0003 for adjustments.*
