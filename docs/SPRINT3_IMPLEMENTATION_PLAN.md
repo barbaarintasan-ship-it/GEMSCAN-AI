@@ -26,9 +26,9 @@ with **all enterprise writes flowing through Edge Functions** (Sprint 4).
 ## 2. What Sprint 3 delivers
 
 1. **RLS enabled + default-deny** on every table in `enterprise`, `geo`, `ml`.
-2. **RLS-support helper functions** (read-only, `security definer` where needed):
-   e.g. "is the caller a member of org X", "caller's contributor role",
-   "is area A community/public". (Functions, not schema changes.)
+2. **RLS-support helper functions** (read-only) — e.g. "is caller a member of
+   org X", "caller's contributor role", "is area A community". Governed by the
+   **Helper-function rules (§2.1)**. (Functions, not schema changes.)
 3. **Policies** per surface (§4).
 4. **Column-level protection** of `field_contributor.role` / `reputation_score` /
    `status` (GRANT UPDATE only on safe columns; a `BEFORE UPDATE` guard trigger as
@@ -40,6 +40,19 @@ with **all enterprise writes flowing through Edge Functions** (Sprint 4).
 
 **Explicitly NOT in Sprint 3:** Edge Functions (Sprint 5), Storage buckets/policies
 (Sprint 4), app code, production apply, any schema/DDL change.
+
+### 2.1 Helper-function rules (review requirement)
+
+- **`SECURITY DEFINER` functions MUST explicitly `SET search_path`** (e.g.
+  `set search_path = enterprise, extensions, pg_temp`) — a definer function
+  without a pinned search_path is a classic privilege-escalation / search_path
+  injection vector. Prefer **`SECURITY INVOKER`** unless definer is strictly
+  required (and justify it in the migration comment).
+- **Volatility declared explicitly.** RLS predicate helpers (membership/role/area
+  lookups) are **`STABLE`** — they read DB state within a statement but do not
+  modify it. They are **never `VOLATILE`** (defeats per-statement caching and
+  hurts RLS performance) and **not `IMMUTABLE`** (they depend on DB state).
+- Every helper used inside a policy must be **index-backed and cheap** (see §5.1).
 
 ---
 
@@ -77,7 +90,7 @@ never alters table structure.
 | **exploration_area (private, project)** | org members only | org members ≥ contributor |
 | **sample + children / observations / surveys** | own always; others only when `status ≥ community_confirmed` (community) or same tenant (private) | **service role only** (via Edge Fn) |
 | **occurrence_evidence / verifications / lab_result** | scoped as above | insert: service role; expert-level / lab_assay / drill = expert/admin/accredited only |
-| **audit_log** | admin / service | **append-only; no update/delete for anyone** |
+| **audit_log** | admin **read-only** | **append-only — writes = service role; NO UPDATE/DELETE for ANYONE, not even admin** |
 | **event / notification** | own notifications; org events for members | service role |
 | **geo (coverage_cell, geological_layer, raster_registry)** | read follows area/authenticated | admin / service |
 | **ml (feature/model/score)** | read follows entity; scores read-only | service only |
@@ -85,6 +98,25 @@ never alters table structure.
 
 Tenant predicate (from A2.2.1): a row is visible iff
 `EXISTS (organization_member where organization_id = <row org> and user_id = auth.uid())`.
+
+### 4.1 Refinements & future enhancements (review feedback)
+
+- **audit_log — absolute immutability.** No `UPDATE`/`DELETE` policy is created for
+  any role. Admins get **read-only**; the only writer is the service role
+  (append-only). Tampering is thus impossible via the API and detectable via the
+  A3.1.5 hash chain (`prev_hash`/`row_hash`).
+- **feature_flag scope tiering** (public / authenticated / internal) — a good idea,
+  but it needs a new `scope` **column** = a **schema change**. Per Freeze rule #1
+  that requires a **new ADR** and is therefore **OUT of Sprint 3 scope**. Sprint 3
+  keeps the current schema: authenticated read, admin/service write. Logged as a
+  **future enhancement (ADR-0004 candidate)**.
+- **geo visibility tiering** (public geology / licensed / private) — likewise needs
+  a `visibility`/tenant **column** on geo tables = schema change = **new ADR,
+  future**, not Sprint 3. Sprint 3 keeps: authenticated read of public layers,
+  tenant-scoped read of area-linked/coverage data.
+
+These two are **enhancements, not blockers** — captured here so they are not lost,
+and explicitly deferred to preserve the freeze.
 
 ---
 
@@ -97,6 +129,45 @@ each cell of the test matrix. Consumer `public` isolation asserted every cycle.
 
 Rollback for RLS = drop the added policies and (where applicable) `disable row
 level security`; structure is never touched.
+
+**Mandatory review gate (review requirement):** just as every Sprint-2 migration
+passed *verification + rollback*, **every Sprint-3 migration MUST pass a Security
+Review (§5.2) AND a Performance Review (§5.1)** before commit. A migration is not
+"done" until both reviews are green.
+
+### 5.1 Performance rules (RLS)
+
+RLS policies run on **every row of every query**, so they must be cheap:
+
+- **Avoid nested/repeated `EXISTS`** in a policy where a single indexed lookup or
+  a `STABLE` helper (cached per statement) will do.
+- **Every predicate must be index-backed** — membership checks hit
+  `organization_member(user_id, organization_id)`; status gates hit
+  `sample(status)`; area/tenant joins hit indexed FK columns.
+- **No expensive PostGIS inside a policy** — never call `ST_DWithin`/`ST_Contains`
+  or geometry math in an RLS `USING`/`WITH CHECK` clause; spatial filtering belongs
+  in the query, not the row-security predicate.
+- Wrap repeated sub-checks in a `STABLE` helper so the planner caches them.
+- Prefer simple `auth.uid() = <col>` ownership checks (fastest) before falling
+  back to membership/tenant `EXISTS`.
+
+### 5.2 Security review checklist (per migration)
+
+- ☐ **No `SECURITY DEFINER` leaks** — every definer function pins `search_path`
+  and is minimal & justified (§2.1).
+- ☐ **No bypass role** — no policy grants a blanket `USING (true)` to a non-service
+  role; anon has no policy at all (default-deny).
+- ☐ **No owner bypass** — table owner / `BYPASSRLS` is not relied on for app access;
+  `force row level security` considered where the owner could otherwise bypass.
+- ☐ **No anonymous policy** — anon is denied on every enterprise/geo/ml table.
+- ☐ **No policy overlap** — permissive policies don't unintentionally widen access
+  (review the union of `USING` clauses per command).
+- ☐ **No recursive policy** — a policy must not query its own table in a way that
+  re-triggers RLS and loops (use a `SECURITY DEFINER` STABLE helper if needed).
+- ☐ **Write gates hold** — sample/media/occurrence/verification/audit reject direct
+  client writes; audit rejects UPDATE/DELETE for all.
+- ☐ **Self-escalation blocked** — `field_contributor.role`/`reputation_score`
+  unwritable by the user (column GRANT + trigger).
 
 ---
 
@@ -133,6 +204,7 @@ All eight must pass before Sprint 3 is accepted.
 | 8 | Consumer `public` unchanged; no schema/DDL change (freeze respected) | Freeze rule #2 |
 | 9 | Each migration idempotent, rollback-documented, VERIFY-carrying | ADR-0003 |
 | 10 | Production not touched | Freeze rule #3 |
+| 11 | Each migration passed **Security Review (§5.2) + Performance Review (§5.1)** | review requirement |
 
 ---
 
