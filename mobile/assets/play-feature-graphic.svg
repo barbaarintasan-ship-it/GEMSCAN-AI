@@ -1,0 +1,60 @@
+<svg width="1024" height="500" viewBox="0 0 1024 500" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="500" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0E1826"/>
+      <stop offset="1" stop-color="#070A12"/>
+    </linearGradient>
+    <linearGradient id="gemBlue" x1="512" y1="300" x2="512" y2="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8FD8FF"/>
+      <stop offset="0.5" stop-color="#3AA0E8"/>
+      <stop offset="1" stop-color="#1B62B4"/>
+    </linearGradient>
+    <linearGradient id="gemLight" x1="380" y1="320" x2="560" y2="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#DFF4FF"/>
+      <stop offset="1" stop-color="#7CC6F5"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="235" cy="250" r="270" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3AA0E8" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#3AA0E8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="luulGold" x1="470" y1="190" x2="720" y2="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F4D77A"/>
+      <stop offset="0.5" stop-color="#FFF3C9"/>
+      <stop offset="1" stop-color="#D9B23B"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="500" fill="url(#bg)"/>
+  <circle cx="235" cy="250" r="270" fill="url(#glow)"/>
+
+  <!-- Diamond, scaled + moved to the left third -->
+  <g transform="translate(235 250) scale(0.60) translate(-512 -582)">
+    <g stroke="#070A12" stroke-width="6" stroke-linejoin="round">
+      <path d="M280 452 L512 792 L744 452 Z" fill="url(#gemBlue)"/>
+      <path d="M280 452 L392 452 L336 372 Z" fill="url(#gemBlue)"/>
+      <path d="M392 452 L512 452 L456 372 Z" fill="url(#gemLight)"/>
+      <path d="M512 452 L632 452 L568 372 Z" fill="url(#gemBlue)"/>
+      <path d="M632 452 L744 452 L688 372 Z" fill="url(#gemLight)"/>
+      <path d="M336 372 L456 372 L392 452 L280 452 Z" fill="url(#gemLight)"/>
+      <path d="M456 372 L568 372 L512 452 L392 452 Z" fill="url(#gemBlue)"/>
+      <path d="M568 372 L688 372 L744 452 L632 452 Z" fill="url(#gemLight)"/>
+      <path d="M280 452 L392 452 L512 792 Z" fill="url(#gemBlue)"/>
+      <path d="M392 452 L512 452 L512 792 Z" fill="url(#gemLight)"/>
+      <path d="M512 452 L632 452 L512 792 Z" fill="url(#gemBlue)"/>
+      <path d="M632 452 L744 452 L512 792 Z" fill="url(#gemLight)"/>
+    </g>
+    <g stroke="#3AA0E8" stroke-width="16" stroke-linecap="round" fill="none">
+      <path d="M232 300 L232 250 L282 250"/>
+      <path d="M792 300 L792 250 L742 250"/>
+      <path d="M232 700 L232 750 L282 750"/>
+      <path d="M792 700 L792 750 L742 750"/>
+    </g>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="452" y="248" font-family="Arial, 'Segoe UI', Helvetica, sans-serif" font-size="84" font-weight="800" letter-spacing="1">
+    <tspan fill="url(#luulGold)">Luul</tspan><tspan fill="#3AA0E8">Scan</tspan>
+  </text>
+  <text x="455" y="300" font-family="Arial, 'Segoe UI', Helvetica, sans-serif" font-size="24" font-weight="500" fill="#9FBBDA" letter-spacing="0.4">Gems · minerals · coins · artifacts · gold</text>
+  <text x="455" y="342" font-family="Arial, 'Segoe UI', Helvetica, sans-serif" font-size="22" font-weight="400" fill="#5E7A9E">AI-powered identification &amp; valuation</text>
+</svg>

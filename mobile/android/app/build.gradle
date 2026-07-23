@@ -127,7 +127,7 @@ android {
         applicationId 'com.gemscan.ai'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 39
+        versionCode 40
         versionName "1.0.1"
     }
     signingConfigs {
