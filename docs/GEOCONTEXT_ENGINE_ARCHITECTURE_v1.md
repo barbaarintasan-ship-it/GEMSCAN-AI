@@ -1,7 +1,12 @@
-# Luul Scan — GeoContext Engine Architecture v1.0
+# Luul Scan — GeoContext Engine Architecture v1.1
 
 **Status:** Design (pre-implementation). Extends the frozen Phase-1 enterprise
 foundation (migrations 0018–0043, tag `v1.0-security-complete`).
+
+**v1.1 refinements (pre-implementation review):** full data lineage (§6), temporal
+awareness (§6/§8), a normalized geological ontology instead of jsonb-only (§16),
+explicit provider priority & conflict resolution (§9a), `reasoningFactors[]` in the
+output (§8), and a `geo.dataset_registry` (§11).
 
 ## 1. Purpose
 
@@ -134,7 +139,41 @@ interface ProviderContribution {
 interface GeoContextProvider {
   readonly name: string;
   readonly category: "spatial" | "knowledge";
+  readonly priority: number;         // conflict-resolution rank (see §9a)
   fetch(q: GeoQuery): Promise<ProviderContribution>;   // must be side-effect free + cacheable
+}
+```
+
+### Provenance, data lineage & temporal (v1.1)
+
+Every evidence item and every stored knowledge/occurrence row carries a full
+lineage + temporal block, so that when a dataset is updated the change is
+traceable and the AI can weight 1968 data differently from 2026 data.
+
+```ts
+interface Provenance {
+  source: string;              // "UNESCO Geological Map of Somalia" | "MRDS" | "Greenwood 1982"
+  datasetVersion: string;      // FK → geo.dataset_registry.version
+  reference?: string;          // citation / record id
+  page?: number;               // for document-derived facts
+  quote?: string;              // verbatim supporting text
+  // ── lineage ──
+  extractionVersion?: string;  // knowledge-extraction ruleset version, e.g. "2026.07"
+  parser?: string;             // e.g. "knowledge-pipeline-v1"
+  ingestedAt: string;          // ISO timestamp the fact entered the DB
+}
+
+interface Temporal {
+  observationDate?: string;    // when the observation/sample was made
+  publicationYear?: number;    // when the source was published
+  explorationPeriod?: string;  // e.g. "1968-1973" campaign window
+}
+
+interface EvidenceItem {
+  statement: string;           // human-readable, e.g. "Quartz vein within 400 m"
+  weight: number;              // 0..1, feeds confidence
+  provenance: Provenance;
+  temporal?: Temporal;
 }
 ```
 
@@ -171,11 +210,29 @@ GeoContextEngine.run(query)
   "geochemistry": { "anomalies": [ { "element": "Au", "medium": "stream sediment", "source": "UNDP", "reference": "…" } ] },
   "geophysics":   { "anomalies": [] },
   "remoteSensing":{ "alteration": [] },
-  "historicalReports": [ { "source": "Greenwood 1982", "observation": "…", "reference": "…", "page": 0 } ],
+  "historicalReports": [ {
+    "source": "Greenwood 1982", "observation": "…",
+    "provenance": { "datasetVersion": "1.0", "page": 123, "quote": "…",
+                    "extractionVersion": "2026.07", "parser": "knowledge-pipeline-v1",
+                    "ingestedAt": "2026-07-27T…" },
+    "temporal": { "publicationYear": 1982, "explorationPeriod": "1968-1973" }
+  } ],
   "communityEvidence": { "verifiedScans": 0, "expertConfirmations": 0, "labConfirmations": 0, "clusterDensity": 0.0 },
+  "reasoningFactors": [
+    "Quartz vein within 400 m",
+    "MRDS occurrence 1.2 km (Au, orogenic)",
+    "Host rock compatible (metasediment)",
+    "Fault proximity < 800 m",
+    "Historical Au anomaly reported (Greenwood 1982, p.123)"
+  ],
   "confidence": { "overall": "Moderate", "score": 0.0, "byProvider": {}, "factors": ["…"] }
 }
 ```
+
+`reasoningFactors[]` is the plain, ranked evidence list the downstream AI reasoning
+engine consumes directly — each factor is derived from an `EvidenceItem` and is
+traceable to its provenance. It is what lets the engine "explain why" without ever
+asserting presence.
 
 ## 9. Intelligence & confidence rules
 
@@ -194,6 +251,28 @@ Confidence weighting factors:
 - **Corroboration** — multiple independent providers agreeing raises confidence.
 - **Community** — *only strengthens* existing evidence; **never used alone**.
 
+## 9a. Provider priority & conflict resolution
+
+When two providers disagree about the same attribute (e.g. lithology or age at a
+point), the engine resolves deterministically by **provider priority** — a
+configurable precedence, not hard-coded logic (stored in `enterprise.config_entry`,
+namespace `geocontext.priority`, so it is tunable without a deploy):
+
+```
+UNESCO (mapped GIS)  >  MRDS  >  IAEA  >  Greenwood  >  GEOSOM / UNDP  >  Community
+```
+
+Rules:
+- **Priority decides the winning *value*** on a direct conflict; the losing value is
+  retained under `alternatives[]` with its provenance (never silently dropped).
+- **Priority ≠ confidence.** `evidence_tier` still sets each item's *weight*;
+  priority is only the tie-breaker when values are mutually exclusive. Corroboration
+  across providers still *raises* overall confidence even across priority levels.
+- Community can only *raise* confidence of an already-supported signal; it can never
+  win a conflict against a higher-priority scientific source, and never stands alone.
+- The precedence is versioned in `dataset_registry`/config so a change to the policy
+  is itself auditable.
+
 ## 10. AI independence boundary
 
 - **Runtime:** GeoContext → JSON only. It never calls GPT/Claude/Gemini. The AI
@@ -210,10 +289,25 @@ Confidence weighting factors:
 
 **New — post-freeze migrations `0044+` (geo schema, same migration discipline as
 Sprint 3: one migration → shadow test → VERIFY → RLS → review → commit):**
-- `geo.mineral_occurrence` — external reference occurrences (MRDS + extracted): commodity, deposit_type, host_rocks[], geom(Point), source, reference, tier.
-- `geo.knowledge_source` — report metadata: title, author, year, org, source_type, uri/checksum.
-- `geo.geological_knowledge` — normalized extracted facts: source_id FK, kind, geom(nullable), attributes jsonb, quote, page, tier.
-- `geo.mineral_association` — commodity association KB (setting/host → commodities[], weight).
+- `geo.dataset_registry` — canonical record of every dataset **version**: source,
+  version, checksum, license, update/release date, coverage (bbox/region), CRS,
+  record count. All provenance `datasetVersion` references point here, so any UNESCO/
+  MRDS refresh is diffable and auditable. (Refinement §Data-lineage.)
+- `geo.mineral_occurrence` — external reference occurrences (MRDS + extracted):
+  commodity, deposit_type, host_rocks[], geom(Point), source, reference, tier,
+  **+ lineage** (dataset_version FK, extraction_version, parser, ingested_at)
+  **+ temporal** (observation_date, publication_year, exploration_period).
+- `geo.knowledge_source` — report metadata: title, author, year, org, source_type,
+  uri/checksum, **publication_year, exploration_period**.
+- `geo.geological_knowledge` — normalized extracted facts: source_id FK, kind,
+  geom(nullable), quote, page, tier, **+ lineage + temporal columns**, plus
+  **ontology FKs** (§16) instead of relying on jsonb alone (jsonb kept only for
+  source-specific extras).
+- `geo.mineral_association` — commodity association KB (setting/host → commodities[],
+  weight); now expressed via the ontology (§16).
+- **Geological ontology tables (§16)** — `geo.commodity`, `geo.deposit_style`,
+  `geo.host_rock`, `geo.lithology`, `geo.formation`, `geo.tectonic_setting`, and the
+  typed link tables between them.
 - `geo.geocontext_cache` — H3 cell → cached GeoContext JSON + version + expires_at.
 
 > **Note — post-freeze extension:** the v1.0 freeze covered the Phase-1 enterprise
@@ -255,3 +349,48 @@ change to the engine, contract, or runtime**.
    tracking, so large datasets don't bloat migrations).
 3. **Knowledge extraction LLM + QA tooling** (P2) — chosen offline model + the
    human-review surface — to be specified when P2 begins.
+
+## 16. Geological ontology (v1.1)
+
+Instead of storing geological attributes only as free `jsonb`, GeoContext uses a
+**normalized ontology** so reasoning can traverse relationships instead of parsing
+strings. The core chain:
+
+```
+Commodity → Deposit Style → Host Rock → Lithology → Formation → Tectonic Setting
+```
+
+Modeled as reference tables + typed links (all in `geo`, reference data readable by
+authenticated, writes service-only — same RLS shape as migration 0040):
+
+| Table | Holds | Example |
+|---|---|---|
+| `geo.commodity` | economic commodities | Au, REE, Cr, Ni, Be |
+| `geo.deposit_style` | deposit models (aligns with `enterprise.deposit_model`, 0019) | orogenic gold, VMS, pegmatite, carbonatite |
+| `geo.host_rock` | host-rock classes | quartz vein, ultramafic, pegmatite |
+| `geo.lithology` | lithology (aligns with `enterprise.taxonomy`) | metasediment, granite, basalt |
+| `geo.formation` | named formations | (from UNESCO layer) |
+| `geo.tectonic_setting` | tectonic provinces/settings | greenstone belt, rift, craton margin |
+
+Typed link tables express the associations (replacing the flat `mineral_association`
+KB with a graph): e.g. `commodity_deposit_style`, `deposit_style_host_rock`,
+`host_rock_lithology`, `formation_tectonic_setting`, each carrying a `weight` and its
+own provenance. This makes queries like *"which commodities are favored by this
+lithology + structural setting, and how strongly?"* a join, not string-matching —
+directly feeding `commodityAssociations[]` and `reasoningFactors[]`.
+
+Extracted knowledge and occurrences reference these ontology rows by FK, so the
+whole system speaks one controlled vocabulary; `jsonb` is retained only for
+genuinely source-specific extras.
+
+---
+
+### v1.1 changelog
+1. **Data lineage** — `Provenance` now carries datasetVersion / extractionVersion /
+   parser / ingestedAt (§6); stored on every knowledge/occurrence row (§11).
+2. **Temporal support** — observationDate / publicationYear / explorationPeriod (§6, §8, §11).
+3. **Geological ontology** — normalized ontology tables replace jsonb-only (§16, §11).
+4. **Provider priority** — explicit, configurable conflict-resolution precedence (§9a).
+5. **reasoningFactors[]** — plain, traceable evidence list in the output (§8).
+6. **Dataset registry** — `geo.dataset_registry` tracks source/version/checksum/
+   license/date/coverage/CRS (§11).
