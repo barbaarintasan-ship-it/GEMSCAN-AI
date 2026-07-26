@@ -9,10 +9,13 @@ import { computeConfidence } from "./confidence.ts";
 import { fuse } from "./fusion.ts";
 import type {
   CacheStore,
+  DatasetRef,
+  EvidenceReport,
   GeoContext,
   GeoContextProvider,
   GeoQuery,
   ProviderContribution,
+  ProviderEvidence,
 } from "./types.ts";
 
 export interface EngineOptions {
@@ -51,10 +54,26 @@ export class GeoContextEngine {
     const contributions: ProviderContribution[] = [];
     const providersRun: string[] = [];
     const providersFailed: string[] = [];
+    const providerEvidence: ProviderEvidence[] = [];
     results.forEach((r, i) => {
-      const name = this.opts.providers[i].name;
-      if (r.status === "fulfilled") { contributions.push(r.value); providersRun.push(name); }
-      else providersFailed.push(name);
+      const p = this.opts.providers[i];
+      if (r.status === "fulfilled") {
+        contributions.push(r.value);
+        providersRun.push(p.name);
+        const contributed = r.value.evidence.length > 0 || Object.keys(r.value.data).length > 0;
+        providerEvidence.push({
+          provider: p.name, category: p.category, contributed,
+          confidence: r.value.confidence, evidenceCount: r.value.evidence.length,
+          datasets: r.value.datasets ?? [],
+        });
+      } else {
+        providersFailed.push(p.name);
+        providerEvidence.push({
+          provider: p.name, category: p.category, contributed: false,
+          confidence: 0, evidenceCount: 0, datasets: [],
+          error: (r.reason as Error)?.message ?? "provider error",
+        });
+      }
     });
 
     // 3. Fusion + 4. Confidence.
@@ -63,11 +82,23 @@ export class GeoContextEngine {
     for (const c of contributions) byProvider[c.provider] = c.confidence;
     const confidence = computeConfidence(fused.evidence, { byProvider, providersRun, providersFailed });
 
+    // Explainability: union of all datasets/versions behind the conclusion.
+    const seen = new Set<string>();
+    const datasetUnion: DatasetRef[] = [];
+    for (const pe of providerEvidence) {
+      for (const d of pe.datasets) {
+        const key = `${d.datasetId ?? ""}|${d.source}|${d.version ?? ""}`;
+        if (!seen.has(key)) { seen.add(key); datasetUnion.push(d); }
+      }
+    }
+    const evidence: EvidenceReport = { providers: providerEvidence, datasets: datasetUnion };
+
     // 5. Assemble GeoContext JSON.
     const ctx: GeoContext = {
       location: { lat: query.lat, lng: query.lng, h3: query.h3 },
       ...fused.data,
       reasoningFactors: fused.reasoningFactors,
+      evidence,
       confidence,
       meta: {
         engineVersion: this.opts.engineVersion,

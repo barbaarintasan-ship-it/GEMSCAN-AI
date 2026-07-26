@@ -38,6 +38,13 @@ export interface EvidenceItem {
   temporal?: Temporal;
 }
 
+// A dataset/version the caller can trace a conclusion back to.
+export interface DatasetRef {
+  datasetId?: string; // geo.dataset_registry.id
+  source: string; // e.g. 'USGS MRDS'
+  version?: string; // dataset version
+}
+
 // A provider's partial view of the world at the query location.
 export interface ProviderContribution {
   provider: string;
@@ -46,6 +53,7 @@ export interface ProviderContribution {
   data: Partial<GeoContextData>; // provider-shaped partial context
   evidence: EvidenceItem[];
   confidence: number; // 0..1 provider-local confidence
+  datasets?: DatasetRef[]; // dataset/version IDs this contribution drew from
 }
 
 export interface GeoContextProvider {
@@ -98,9 +106,27 @@ export interface ConfidenceBlock {
   factors: string[];
 }
 
+// Explainability: exactly which providers contributed, their confidence, and the
+// datasets/versions behind the conclusion — so the UI can show WHY.
+export interface ProviderEvidence {
+  provider: string;
+  category: ProviderCategory;
+  contributed: boolean; // ran successfully AND produced data/evidence
+  confidence: number;
+  evidenceCount: number;
+  datasets: DatasetRef[];
+  error?: string; // set when the provider failed
+}
+
+export interface EvidenceReport {
+  providers: ProviderEvidence[];
+  datasets: DatasetRef[]; // union across contributing providers
+}
+
 export interface GeoContext extends GeoContextData {
   location: { lat: number; lng: number; h3?: string };
   reasoningFactors: string[];
+  evidence: EvidenceReport;
   confidence: ConfidenceBlock;
   meta: {
     engineVersion: string;
