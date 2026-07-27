@@ -106,6 +106,7 @@
       "unknown"
     ],
     "collectionPriority": [
+      "P0-Critical",
       "P1",
       "P2",
       "P3"
@@ -1789,8 +1790,8 @@
       "id": "LSC-0045",
       "catalogRef": "RU1",
       "title": "Геология и полезные ископаемые докембрия Сомали (Precambrian geology & mineral resources of Somalia)",
-      "authorsOrOrg": "Kononov, Yu.V.",
-      "publisher": "Russian National Library (NEB)",
+      "authorsOrOrg": "Kononov, Yu.V. (Yuriy Vyacheslavovich)",
+      "publisher": "Inst. of Geochemistry & Physics of Minerals, AN USSR, Kyiv (preprint); held at Russian National Library, St. Petersburg",
       "year": "1976",
       "language": "ru",
       "country": "Somalia",
@@ -1812,7 +1813,7 @@
         "translate:ru",
         "institutional-request"
       ],
-      "collectionPriority": "P1",
+      "collectionPriority": "P0-Critical",
       "qualityTier": "T2",
       "extractionReady": false,
       "relations": [
@@ -1824,7 +1825,12 @@
       "status": "cataloged",
       "checksum": null,
       "source_confidence": "primary",
-      "scientific_weight": 5
+      "scientific_weight": 5,
+      "pageCount": 41,
+      "acquisitionTrack": "institutional-request",
+      "acquisitionStatus": "no-lawful-digital-copy-found",
+      "availability": "restricted-physical",
+      "acquisitionEvidence": "docs/corpus/LSC-0045_ACQUISITION_EVIDENCE.md"
     },
     {
       "id": "LSC-0046",
