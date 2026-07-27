@@ -70,6 +70,42 @@ located during physical collection.
 for Natural Resources Exploration (UNRFNRE); Somali Republic Geological Survey Department
 report series; Istituto Agronomico per l'Oltremare (Florence) GEOSOM-87 proceedings.
 
+### E. Non-English / multilingual sources (first-class; translate during extraction)
+
+**🇮🇹 Italian** (treated as first-class per directive)
+| # | Source | Holding / access |
+|---|---|---|
+| IT1 | **"Geologia stratigrafica della Somalia" (QGS)** — full monograph | https://arcadia.sba.uniroma3.it/bitstream/2307/5412/1/Geologia%20stratigrafica%20della%20Somalia_QGS.pdf (Univ. Roma Tre archive) |
+| IT2 | **Conti, P. 1989** — Geology of the Garbahaarrey–Giuba area (Gedo, SW Somalia); geol. map + structural map + explanatory text | Istituto Italo-Africano, Roma — https://www.pconti.net/paper.html |
+| IT3 | **"Il contributo di Maurizio Sacchi alla conoscenza geologica della Somalia e dell'Etiopia"** | https://www.academia.edu/33504260 |
+| IT4 | **Bollettino della Società Geologica Italiana** (incl. Italian-Somalia papers 1920s–40s) | BHL https://www.biodiversitylibrary.org/bibliography/110271 · https://www.socgeol.it/287/pubblicazioni.html |
+| IT5 | **BSGI — "Elenco di scritti d'interesse geografico relativi all'A.O.I. (1937–1938)"** (bibliography → citation seed) | https://www.bsgi.it/index.php/bsgi/article/download/5482/4800 |
+| IT6 | **ISPRA — Servizio Geologico d'Italia** (historical archive, predecessor of GS d'Italia) | https://www.isprambiente.gov.it/it/servizi/il-servizio-geologico-ditalia/la-storia |
+| IT7 | **IGG-CNR** (Istituto di Geoscienze e Georisorse) + Firenze/Padua Earth-Science doctoral theses | https://www.igg.cnr.it/en/ |
+
+**🇷🇺 Russian**
+| RU1 | **Kononov, Yu.V. 1976 — "Геология и полезные ископаемые докембрия Сомали"** (Precambrian geology & mineral resources of Somalia) 🔴 major Soviet monograph | Russian National Library / NEB — https://rusneb.ru/catalog/000200_000018_rc_3162770/ |
+| RU2 | **Rosgeolfond (Росгеолфонд)** — Soviet expedition report holdings | https://rfgf.ru/about/history (institutional; request needed) |
+| RU3 | **VSEGEI (ВСЕГЕИ)** — Известия ВСЕГЕИ | institutional archive |
+
+**🇫🇷 French** | FR1 **BRGM InfoTerre** report repository (query "Somalie") — http://infoterre.brgm.fr/ · FR2 **BRGM SIGAfrique** continental mineral-deposit DB (~40,000 deposits) — http://infoterre.brgm.fr/rapports/RP-54328-FR.pdf
+
+**🇩🇪 German** | DE1 "Zur Geologie des zentralen Ost-Afrika" (Springer/IJES, historical) — https://link.springer.com/content/pdf/10.1007/BF01802463.pdf · DE2 Mineralienatlas / **mindat.org Somalia locality DB** — https://www.mindat.org/loc-32228.html · DE3 BGR archives (no Somalia-specific report located; query target)
+
+**🇨🇳 Chinese** | CN1 **Shi Guanghai (施光海) et al. 2024 — Somaliland amphibole-jade deposit** (China Univ. of Geosciences, Beijing; first amphibole jade in Africa) — https://bm.cugb.edu.cn/kjc/c/2024-03-18/799578.shtml · CN2 全国地质资料馆 **National Geological Archives of China** — https://www.ngac.cn/ (query target)
+
+**🇸🇦 Arabic (regional reports)** | AR1 Mogadishu Center — "الذهب في الصومال" (Gold in Somalia, 2016) — https://mogadishucenter.com/2016/06/الذهب-في-الصومال/ · AR2 attaqa.net / alsomalalyaum — Somaliland minerals analyses
+
+**🇸🇪🇳🇴 Scandinavian / basement geochronology** (peer-reviewed; institutions to mine for MSc/PhD theses)
+| SC1 | Kröner & Sassi — "Evolution of the northern Somali basement: new constraints from zircon ages" | ScienceDirect 0899-5362(95)00121-2 |
+| SC2 | "The crystalline basement of northern Somalia: lithostratigraphy and sequence of events" | ResearchGate 291992926 |
+| SC3 | "Late Precambrian/early Palaeozoic granitoids in the Pan-African belt of Somalia" | Springer 10.1007/BF01083233 |
+| SC-gap | Specific Uppsala/Lund/Bergen/NGU theses **not located** — pending direct repository search |
+
+**Thesis repositories (all languages)** | TH1 **ProQuest Dissertations & Theses Global** · TH2 **EThOS** (UK) · TH3 **NDLTD** · TH4 University of Johannesburg geology theses
+
+**Museum geological collections** | MU1 **Smithsonian NMNH — Mineral Sciences Collections Search** (600k+ specimens; query Somalia localities) — https://collections.nmnh.si.edu/search/ms/ · MU2 **mindat.org Somalia locality** — https://www.mindat.org/loc-32228.html · MU3 Smithsonian meteorite catalog — https://siarchives.si.edu/collections/siris_sic_3339
+
 ### C. Pan-African programmes (discovery + future partnerships)
 | # | Source | Role | Access |
 |---|---|---|---|
@@ -82,23 +118,24 @@ report series; Istituto Agronomico per l'Oltremare (Florence) GEOSOM-87 proceedi
 
 ## 2. Approval-gate summary
 
-**Total concrete sources cataloged:** **41** distinct entries — 17 Somalia-specific
+**Total concrete sources cataloged:** **70** distinct entries — 17 Somalia-specific
 (S1–S17), 7 international portals/datasets (I1–I7), 13 citation-chase additions (D1–D13),
-4 pan-African programmes (P1–P4). Several are *collections* containing many documents
-(e.g., MRDS ≈ thousands of records; BGS Publications Viewer; INIS Somalia set), so
+29 multilingual/thesis/museum (Section E), 4 pan-African programmes (P1–P4). Several are
+*collections* containing many documents (MRDS ≈ thousands; BGS Publications Viewer; INIS
+Somalia set; ProQuest/EThOS; Smithsonian 600k specimens; InfoTerre; NEB; NGAC), so
 document-level counts will be far higher after the collection step.
 
-**Deep-discovery pass status (this round):** citation chasing from Somalia report
-bibliographies (via WebFetch download + local pdftotext) completed → 13 new real works
-(D1–D13), surfacing three high-value institutional archives (UNRFNRE, Somali Geological
-Survey Dept. series, Florence GEOSOM-87 proceedings). **Search-based sub-searches of the
-final pass are INCOMPLETE:** the WebSearch quota was exhausted mid-pass (resets ~05:00
-Afric/Nairobi). **Still pending (search-dependent), to resume after reset:** Italian
-geological libraries/university catalogs (Firenze/Padua/CNR direct holdings), French
-(BRGM InfoTerre Somalia), German (BGR — no Somalia-specific report found yet),
-Chinese/Japanese/Scandinavian institutions, MSc/PhD thesis repositories (ProQuest/EThOS/
-AJOL), and museum geological collections (NHM London, Smithsonian, meteoritics). These
-were NOT run — not fabricated.
+**Deep-discovery pass status:** (1) citation chasing from Somalia report bibliographies
+(WebFetch download + local pdftotext) → 13 works (D1–D13). (2) **Multilingual pass
+COMPLETE** — Italian (first-class: IT1–IT7 incl. full "Geologia stratigrafica della
+Somalia" + Conti 1989 + Bollettino SGI + BSGI A.O.I. bibliography), Russian (Kononov 1976
+monograph + Rosgeolfond/VSEGEI), French (BRGM InfoTerre/SIGAfrique), German, Chinese
+(CUGB Somaliland jade + NGAC archive), Arabic regional reports, Scandinavian/basement
+geochronology, thesis repositories, museum collections. **Residual gaps (require
+institutional contact or the download step, not more web search):** specific Uppsala/
+Lund/Bergen/NGU theses; direct GEOSOM / UNRFNRE / Rosgeolfond primary holdings;
+proprietary AGIP-ENI/company exploration reports; Japanese-institution sources (none
+located). New discoveries have reached **diminishing returns** for open web sources.
 
 **Source categories covered:** national surveys (USGS, BGS, BRGM, GEOSOM legacy),
 international orgs (UNESCO, IAEA, UNDP, UN, World Bank, FAO, ESCWA), historical/colonial
