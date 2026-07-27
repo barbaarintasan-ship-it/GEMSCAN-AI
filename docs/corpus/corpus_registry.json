@@ -5,8 +5,8 @@
   "frozen": true,
   "frozenAt": "2026-07-27",
   "phase": "P2.1 finalized & frozen (pre-collection; no files downloaded)",
-  "recordCount": 72,
-  "activeRecordCount": 70,
+  "recordCount": 73,
+  "activeRecordCount": 71,
   "logicalDuplicates": 2,
   "vocabularies": {
     "commodities": [
@@ -239,10 +239,16 @@
           "target": "LSC-0072"
         }
       ],
-      "status": "cataloged",
-      "checksum": null,
+      "status": "collected",
+      "checksum": "beaafe46539e29eeb55af3c12a66b00b30e516abfac44eb1097b6269a8d0e83d",
       "source_confidence": "primary",
-      "scientific_weight": 5
+      "scientific_weight": 5,
+      "fileSize": 656209,
+      "snapshotVersion": "v1",
+      "storageLocation": "raw/beaafe46539e29eeb55af3c12a66b00b30e516abfac44eb1097b6269a8d0e83d.pdf",
+      "collectionTimestamp": "2026-07-27T05:17:47.587482+00:00",
+      "availability": "available",
+      "validationNote": "text layer present"
     },
     {
       "id": "LSC-0003",
@@ -324,10 +330,12 @@
           "target": "LSC-0005"
         }
       ],
-      "status": "cataloged",
+      "status": "failed",
       "checksum": null,
       "source_confidence": "primary",
-      "scientific_weight": 5
+      "scientific_weight": 5,
+      "collectionTimestamp": "2026-07-27T06:00:54.107188+00:00",
+      "availability": "resolve-error"
     },
     {
       "id": "LSC-0005",
@@ -362,10 +370,16 @@
           "target": "LSC-0006"
         }
       ],
-      "status": "cataloged",
-      "checksum": null,
+      "status": "collected",
+      "checksum": "007ac44f38d697b89fb5afe8451712c0c45730cacaced4c16a723b4b7012d756",
       "source_confidence": "primary",
-      "scientific_weight": 5
+      "scientific_weight": 5,
+      "fileSize": 18231243,
+      "snapshotVersion": "v1",
+      "storageLocation": "raw/007ac44f38d697b89fb5afe8451712c0c45730cacaced4c16a723b4b7012d756.pdf",
+      "collectionTimestamp": "2026-07-27T06:01:15.585290+00:00",
+      "availability": "available",
+      "validationNote": "text layer"
     },
     {
       "id": "LSC-0006",
@@ -393,12 +407,18 @@
       ],
       "collectionPriority": "P2",
       "qualityTier": "T2",
-      "extractionReady": true,
+      "extractionReady": false,
       "relations": [],
-      "status": "cataloged",
-      "checksum": null,
+      "status": "collected-but-invalid",
+      "checksum": "618fdfd432cdc11607c57d1e9ab03916dccc266b9630dc89b46d10d59a6c3d99",
       "source_confidence": "secondary",
-      "scientific_weight": 4
+      "scientific_weight": 4,
+      "fileSize": 33423,
+      "snapshotVersion": "v1",
+      "storageLocation": "raw/618fdfd432cdc11607c57d1e9ab03916dccc266b9630dc89b46d10d59a6c3d99.pdf",
+      "collectionTimestamp": "2026-07-27T06:01:17.666196+00:00",
+      "availability": "available",
+      "validationNote": "pdftotext failed to parse"
     },
     {
       "id": "LSC-0007",
@@ -657,10 +677,16 @@
       "qualityTier": "T2",
       "extractionReady": true,
       "relations": [],
-      "status": "cataloged",
-      "checksum": null,
+      "status": "collected",
+      "checksum": "3c0bdd1be31fa2f19e8e90c47f51fc198b555ec9d199f4307b64cdf9bb38b56d",
       "source_confidence": "primary",
-      "scientific_weight": 4
+      "scientific_weight": 4,
+      "fileSize": 4529203,
+      "snapshotVersion": "v1",
+      "storageLocation": "raw/3c0bdd1be31fa2f19e8e90c47f51fc198b555ec9d199f4307b64cdf9bb38b56d.pdf",
+      "collectionTimestamp": "2026-07-27T06:01:26.198248+00:00",
+      "availability": "available",
+      "validationNote": "text layer"
     },
     {
       "id": "LSC-0014",
@@ -692,10 +718,12 @@
       "qualityTier": "T2",
       "extractionReady": true,
       "relations": [],
-      "status": "cataloged",
+      "status": "failed",
       "checksum": null,
       "source_confidence": "secondary",
-      "scientific_weight": 4
+      "scientific_weight": 4,
+      "collectionTimestamp": "2026-07-27T06:01:28.617910+00:00",
+      "availability": "download-error"
     },
     {
       "id": "LSC-0015",
@@ -724,10 +752,16 @@
       "qualityTier": "T2",
       "extractionReady": true,
       "relations": [],
-      "status": "cataloged",
-      "checksum": null,
+      "status": "collected",
+      "checksum": "0a23f322f51cb6a71d905372e7bb0df4773ec655ca2e5c4c797c740a5dcbd443",
       "source_confidence": "secondary",
-      "scientific_weight": 3
+      "scientific_weight": 3,
+      "fileSize": 1111213,
+      "snapshotVersion": "v1",
+      "storageLocation": "raw/0a23f322f51cb6a71d905372e7bb0df4773ec655ca2e5c4c797c740a5dcbd443.pdf",
+      "collectionTimestamp": "2026-07-27T06:01:31.498436+00:00",
+      "availability": "available",
+      "validationNote": "text layer"
     },
     {
       "id": "LSC-0016",
@@ -800,10 +834,16 @@
       "qualityTier": "Tref",
       "extractionReady": true,
       "relations": [],
-      "status": "cataloged",
-      "checksum": null,
+      "status": "collected",
+      "checksum": "6ed7d4eedf2532f1b6614950ca6da85170e25c66ee8c635c559e75551c8aa4b6",
       "source_confidence": "tertiary",
-      "scientific_weight": 2
+      "scientific_weight": 2,
+      "fileSize": 10060793,
+      "snapshotVersion": "v1",
+      "storageLocation": "raw/6ed7d4eedf2532f1b6614950ca6da85170e25c66ee8c635c559e75551c8aa4b6.pdf",
+      "collectionTimestamp": "2026-07-27T06:02:56.166336+00:00",
+      "availability": "available",
+      "validationNote": "text layer"
     },
     {
       "id": "LSC-0018",
@@ -876,13 +916,14 @@
           "target": "LSC-0018"
         }
       ],
-      "status": "blocked",
+      "status": "derived",
       "checksum": null,
       "source_confidence": "primary",
       "scientific_weight": 5,
       "collectionTimestamp": "2026-07-27T05:39:30.512184+00:00",
-      "availability": "no-standalone-endpoint",
-      "validationNote": "not collected (blocked: subset of LSC-0018)"
+      "availability": "derive-at-processing-time",
+      "validationNote": "Africa subset derived by filtering MRDS (LSC-0018); not a separate download",
+      "derivedFrom": "LSC-0018"
     },
     {
       "id": "LSC-0020",
@@ -911,7 +952,12 @@
       "collectionPriority": "P1",
       "qualityTier": "T1",
       "extractionReady": true,
-      "relations": [],
+      "relations": [
+        {
+          "rel": "companion",
+          "target": "LSC-0073"
+        }
+      ],
       "status": "collected",
       "checksum": "bd00e2a1d8d0a6cbb37bb9179c6828170ae7bd37c1e6af40219b24404455be67",
       "source_confidence": "primary",
@@ -922,6 +968,47 @@
       "collectionTimestamp": "2026-07-27T05:41:54.358873+00:00",
       "availability": "available",
       "validationNote": "FileGDB present (geometry not deep-validated: no gdal)"
+    },
+    {
+      "id": "LSC-0073",
+      "catalogRef": "I3-companion",
+      "title": "Africa_GIS Supporting Data (companion to USGS Africa GIS)",
+      "authorsOrOrg": "USGS",
+      "publisher": "USGS (ScienceBase)",
+      "year": "current",
+      "language": "en",
+      "country": "Africa",
+      "geographicCoverage": "continental",
+      "commodities": [
+        "all"
+      ],
+      "geologicalThemes": [
+        "mineral-occurrences",
+        "mining-sector"
+      ],
+      "docType": "dataset",
+      "url": "https://www.sciencebase.gov/catalog/file/get/607611a9d34e018b3201cbbf?f=__disk__34%2F4b%2Fcb%2F344bcb00f8be64dc390047b679eb0bec50dd95d5",
+      "license": "us-gov-public-domain",
+      "licenseStatus": "confirmed",
+      "extractionRequirements": [
+        "gis-direct"
+      ],
+      "collectionPriority": "P3",
+      "qualityTier": "T1",
+      "extractionReady": false,
+      "source_confidence": "primary",
+      "scientific_weight": 5,
+      "optional": true,
+      "relations": [
+        {
+          "rel": "companion",
+          "target": "LSC-0020"
+        }
+      ],
+      "status": "available-not-downloaded",
+      "availability": "available-not-downloaded",
+      "fileSize": 489908250,
+      "checksum": null
     },
     {
       "id": "LSC-0021",
@@ -949,17 +1036,19 @@
       ],
       "collectionPriority": "P2",
       "qualityTier": "T1",
-      "extractionReady": true,
+      "extractionReady": false,
       "relations": [
         {
           "rel": "companion",
           "target": "LSC-0022"
         }
       ],
-      "status": "cataloged",
+      "status": "blocked",
       "checksum": null,
       "source_confidence": "secondary",
-      "scientific_weight": 4
+      "scientific_weight": 4,
+      "collectionTimestamp": "2026-07-27T06:02:59.241675+00:00",
+      "availability": "portal-resolver-pending"
     },
     {
       "id": "LSC-0022",
@@ -988,12 +1077,14 @@
       ],
       "collectionPriority": "P2",
       "qualityTier": "T1",
-      "extractionReady": true,
+      "extractionReady": false,
       "relations": [],
-      "status": "cataloged",
+      "status": "blocked",
       "checksum": null,
       "source_confidence": "primary",
-      "scientific_weight": 5
+      "scientific_weight": 5,
+      "collectionTimestamp": "2026-07-27T06:02:59.243343+00:00",
+      "availability": "portal-resolver-pending"
     },
     {
       "id": "LSC-0023",
@@ -2477,17 +2568,19 @@
       ],
       "collectionPriority": "P3",
       "qualityTier": "Tref",
-      "extractionReady": true,
+      "extractionReady": false,
       "relations": [
         {
           "rel": "companion",
           "target": "LSC-0066"
         }
       ],
-      "status": "cataloged",
+      "status": "blocked",
       "checksum": null,
       "source_confidence": "primary",
-      "scientific_weight": 2
+      "scientific_weight": 2,
+      "collectionTimestamp": "2026-07-27T06:02:59.244454+00:00",
+      "availability": "portal-resolver-pending"
     },
     {
       "id": "LSC-0065",
@@ -2788,10 +2881,16 @@
           "target": "LSC-0033"
         }
       ],
-      "status": "cataloged",
-      "checksum": null,
+      "status": "collected",
+      "checksum": "1df17b562c1feec9f19080931d11d0ce2241b599cbe0f284d5701225dc8f3b90",
       "source_confidence": "secondary",
-      "scientific_weight": 3
+      "scientific_weight": 3,
+      "fileSize": 595655,
+      "snapshotVersion": "v1",
+      "storageLocation": "raw/1df17b562c1feec9f19080931d11d0ce2241b599cbe0f284d5701225dc8f3b90.pdf",
+      "collectionTimestamp": "2026-07-27T06:02:58.486003+00:00",
+      "availability": "available",
+      "validationNote": "text layer"
     }
   ],
   "vocabExtensionNote": "v1.2 (approved): added source_confidence + scientific_weight; no existing scientific metadata changed."
