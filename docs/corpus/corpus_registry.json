@@ -330,12 +330,27 @@
           "target": "LSC-0005"
         }
       ],
-      "status": "failed",
-      "checksum": null,
+      "status": "collected",
+      "checksum": "d6ce00e6cc898d4bb6bc153d24aa54dc768a100ebbdb028060b17e3e070ebc43",
       "source_confidence": "primary",
       "scientific_weight": 5,
-      "collectionTimestamp": "2026-07-27T06:00:54.107188+00:00",
-      "availability": "resolve-error"
+      "collectionTimestamp": "2026-07-27T06:21:52.278372+00:00",
+      "availability": "available",
+      "fileSize": 24444278,
+      "snapshotVersion": "v1",
+      "storageLocation": "raw/d6ce00e6cc898d4bb6bc153d24aa54dc768a100ebbdb028060b17e3e070ebc43.pdf",
+      "validationNote": "IUREP Orientation Phase Mission - Somalia (text layer)",
+      "collectionMethod": "manual",
+      "fileCount": 1,
+      "files": [
+        {
+          "label": "IUREP Orientation Phase Mission - Somalia",
+          "sha256": "d6ce00e6cc898d4bb6bc153d24aa54dc768a100ebbdb028060b17e3e070ebc43",
+          "bytes": 24444278,
+          "storageLocation": "raw/d6ce00e6cc898d4bb6bc153d24aa54dc768a100ebbdb028060b17e3e070ebc43.pdf",
+          "extractionReady": true
+        }
+      ]
     },
     {
       "id": "LSC-0005",
@@ -407,18 +422,36 @@
       ],
       "collectionPriority": "P2",
       "qualityTier": "T2",
-      "extractionReady": false,
+      "extractionReady": true,
       "relations": [],
-      "status": "collected-but-invalid",
-      "checksum": "618fdfd432cdc11607c57d1e9ab03916dccc266b9630dc89b46d10d59a6c3d99",
+      "status": "collected",
+      "checksum": "4928a2061e09a5d41e2d68c5b5e41ef72422608570d4d5b9f1783ec020e2ffd6",
       "source_confidence": "secondary",
       "scientific_weight": 4,
-      "fileSize": 33423,
+      "fileSize": 153487,
       "snapshotVersion": "v1",
-      "storageLocation": "raw/618fdfd432cdc11607c57d1e9ab03916dccc266b9630dc89b46d10d59a6c3d99.pdf",
-      "collectionTimestamp": "2026-07-27T06:01:17.666196+00:00",
+      "storageLocation": "raw/4928a2061e09a5d41e2d68c5b5e41ef72422608570d4d5b9f1783ec020e2ffd6.pdf",
+      "collectionTimestamp": "2026-07-27T06:21:52.278405+00:00",
       "availability": "available",
-      "validationNote": "pdftotext failed to parse"
+      "validationNote": "UDEPO deposit: Alio Ghelle (text layer); UDEPO deposit: Dusa Mareb-El Bur District (text layer)",
+      "collectionMethod": "manual",
+      "fileCount": 2,
+      "files": [
+        {
+          "label": "UDEPO deposit: Alio Ghelle",
+          "sha256": "4928a2061e09a5d41e2d68c5b5e41ef72422608570d4d5b9f1783ec020e2ffd6",
+          "bytes": 76725,
+          "storageLocation": "raw/4928a2061e09a5d41e2d68c5b5e41ef72422608570d4d5b9f1783ec020e2ffd6.pdf",
+          "extractionReady": true
+        },
+        {
+          "label": "UDEPO deposit: Dusa Mareb-El Bur District",
+          "sha256": "40123cae8b682bf867888b7978e7a282e92273ec66d804e378e6d9e962bd4273",
+          "bytes": 76762,
+          "storageLocation": "raw/40123cae8b682bf867888b7978e7a282e92273ec66d804e378e6d9e962bd4273.pdf",
+          "extractionReady": true
+        }
+      ]
     },
     {
       "id": "LSC-0007",
