@@ -7,8 +7,8 @@
 // stays deliberately dumb — validation and authorization are enforced there.
 import { decode } from "base64-arraybuffer";
 import * as FileSystem from "expo-file-system";
+import * as Location from "expo-location";
 import { supabase } from "./supabase";
-import { getPreciseLocation } from "./location";
 
 const FUNCTIONS_URL = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL!;
 
@@ -157,9 +157,40 @@ export async function getSample(id: string): Promise<SampleDetail> {
   return body;
 }
 
-/** Convenience: capture the current GPS fix for a new sample. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("gps timeout")), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
+/**
+ * Capture the current GPS fix for a new sample. Robust against the "spinner that
+ * never stops": it uses a fast last-known fix first, then races a fresh reading
+ * against a 15 s timeout (High, not Highest — Highest can hang indoors/cold-start),
+ * and always resolves (best available or null) so the UI never gets stuck.
+ */
 export async function captureSampleLocation(): Promise<{ lat: number; lng: number; gps_accuracy_m?: number } | null> {
-  const loc = await getPreciseLocation();
-  if (!loc) return null;
-  return { lat: loc.lat, lng: loc.lng, gps_accuracy_m: loc.acc };
+  const { status } = await Location.requestForegroundPermissionsAsync();
+  if (status !== "granted") return null;
+
+  let best: { lat: number; lng: number; acc?: number | null } | null = null;
+
+  // 1) Instant provisional fix from cache so the UI shows something immediately.
+  try {
+    const last = await Location.getLastKnownPositionAsync({ maxAge: 60000 });
+    if (last) best = { lat: last.coords.latitude, lng: last.coords.longitude, acc: last.coords.accuracy };
+  } catch { /* ignore */ }
+
+  // 2) Fresh reading, but never hang — cap at 15 s.
+  try {
+    const fresh = await withTimeout(
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+      15000,
+    );
+    if (fresh) best = { lat: fresh.coords.latitude, lng: fresh.coords.longitude, acc: fresh.coords.accuracy };
+  } catch { /* keep last-known if we have it */ }
+
+  if (!best) return null;
+  return { lat: best.lat, lng: best.lng, gps_accuracy_m: best.acc != null ? Math.round(best.acc) : undefined };
 }

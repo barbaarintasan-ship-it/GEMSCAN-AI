@@ -107,13 +107,28 @@ export default function NewSampleScreen() {
     return sub;
   }, [navigation, dirty, submitting, clearDraft]);
 
-  const addPhoto = useCallback(async () => {
-    // System camera (expo-image-picker): native back arrow + hardware back work
-    // and it returns automatically — no custom camera dead-end (§18).
-    const result = await ImagePicker.launchCameraAsync({ quality: 1 });
-    if (result.canceled || !result.assets?.[0]) return;
-    setPhotos((p) => [...p, result.assets[0].uri]);
+  // Take a new photo OR pick existing ones from the gallery (§3). System pickers:
+  // native back arrow + hardware back work and they return automatically.
+  const pickFrom = useCallback(async (mode: "camera" | "library") => {
+    const result = mode === "camera"
+      ? await ImagePicker.launchCameraAsync({ quality: 1 })
+      : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsMultipleSelection: true,
+          quality: 1,
+        });
+    if (result.canceled) return;
+    const uris = (result.assets ?? []).map((a) => a.uri).filter(Boolean);
+    if (uris.length) setPhotos((p) => [...p, ...uris]);
   }, []);
+
+  const addPhoto = useCallback(() => {
+    Alert.alert("Add photo", undefined, [
+      { text: "Take Photo", onPress: () => pickFrom("camera") },
+      { text: "Choose from Library", onPress: () => pickFrom("library") },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }, [pickFrom]);
 
   const addMineral = useCallback(() => {
     const m = mineralDraft.trim();
