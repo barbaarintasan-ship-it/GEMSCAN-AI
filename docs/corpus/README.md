@@ -26,8 +26,16 @@ collection phase it seeds a `geo.corpus_source` table (its own migration).
 | `extractionRequirements` | gis-direct · structured-import · pdf-text · ocr · translate:xx · portal-query · institutional-request |
 | `collectionPriority` | P1 (backbone/top) · P2 (authoritative PDF) · P3 (historical/secondary/portal-later) |
 | `qualityTier` | T1 (structured, ingestible) · T2 (authoritative PDF) · T3 (historical, OCR) · Tref (portal/reference) |
+| `source_confidence` | `primary` (original survey/dataset/report) · `secondary` (synthesis/portal/review/aggregator) · `tertiary` (news/bibliography/catalog-of-others) |
+| `scientific_weight` | 1–5 evidential strength for auto-weighting when sources conflict. Anchors: UNESCO map / Greenwood / UNDP / peer-reviewed journal = 5; MSc thesis = 3; museum catalog = 2; news article = 1 |
 | `status` | `cataloged` (pre-collection) → later: queued · collected · verified |
 | `checksum` | `null` until the (permission-gated) download step |
+
+### Collection-state fields (the ONLY fields Physical Collection may write)
+`status`, `checksum`, plus (added at collection time): `fileSize`, `snapshotVersion`,
+`storageLocation`, `collectionTimestamp`, `availability`. Scientific metadata and
+`source_confidence`/`scientific_weight` are **immutable** during collection unless an
+objective correction is required; vocabulary changes require explicit review.
 
 ## Governance rules
 - **IDs are permanent.** Superseded/duplicate items are marked, never re-numbered.
