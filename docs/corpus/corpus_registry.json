@@ -181,10 +181,16 @@
           "target": "LSC-0027"
         }
       ],
-      "status": "cataloged",
-      "checksum": null,
+      "status": "collected",
+      "checksum": "42e29086df00509c9049b26d2f78a9524bd24642238d080a6bfe29637263d199",
       "source_confidence": "primary",
-      "scientific_weight": 5
+      "scientific_weight": 5,
+      "fileSize": 36216832,
+      "snapshotVersion": "v1",
+      "storageLocation": "raw/42e29086df00509c9049b26d2f78a9524bd24642238d080a6bfe29637263d199.gpkg",
+      "collectionTimestamp": "2026-07-27T05:17:45.164746+00:00",
+      "availability": "available",
+      "validationNote": "1 layer(s): fixed_geometries_1.7"
     },
     {
       "id": "LSC-0002",
@@ -573,10 +579,16 @@
       "qualityTier": "T1",
       "extractionReady": true,
       "relations": [],
-      "status": "cataloged",
-      "checksum": null,
+      "status": "collected",
+      "checksum": "a2084f9e311c3e37b2592576456e79672f33810024a5b99c31ad1529418dec8c",
       "source_confidence": "primary",
-      "scientific_weight": 4
+      "scientific_weight": 4,
+      "fileSize": 580248,
+      "snapshotVersion": "v1",
+      "storageLocation": "raw/a2084f9e311c3e37b2592576456e79672f33810024a5b99c31ad1529418dec8c.json",
+      "collectionTimestamp": "2026-07-27T05:18:05.995512+00:00",
+      "availability": "available",
+      "validationNote": "portal export, 25 records"
     },
     {
       "id": "LSC-0012",
@@ -819,10 +831,16 @@
       "qualityTier": "T1",
       "extractionReady": true,
       "relations": [],
-      "status": "cataloged",
-      "checksum": null,
+      "status": "collected",
+      "checksum": "31be4baaa86b082787bc74989146183db21badf7157db39b3f0a6fe0b38a5477",
       "source_confidence": "primary",
-      "scientific_weight": 5
+      "scientific_weight": 5,
+      "fileSize": 25791223,
+      "snapshotVersion": "v1",
+      "storageLocation": "raw/31be4baaa86b082787bc74989146183db21badf7157db39b3f0a6fe0b38a5477.zip",
+      "collectionTimestamp": "2026-07-27T05:39:29.777998+00:00",
+      "availability": "available",
+      "validationNote": "csv archive (1 csv)"
     },
     {
       "id": "LSC-0019",
@@ -850,17 +868,20 @@
       ],
       "collectionPriority": "P1",
       "qualityTier": "T1",
-      "extractionReady": true,
+      "extractionReady": false,
       "relations": [
         {
           "rel": "subset-of",
           "target": "LSC-0018"
         }
       ],
-      "status": "cataloged",
+      "status": "blocked",
       "checksum": null,
       "source_confidence": "primary",
-      "scientific_weight": 5
+      "scientific_weight": 5,
+      "collectionTimestamp": "2026-07-27T05:39:30.512184+00:00",
+      "availability": "no-standalone-endpoint",
+      "validationNote": "not collected (blocked: subset of LSC-0018)"
     },
     {
       "id": "LSC-0020",
@@ -890,10 +911,16 @@
       "qualityTier": "T1",
       "extractionReady": true,
       "relations": [],
-      "status": "cataloged",
-      "checksum": null,
+      "status": "collected",
+      "checksum": "bd00e2a1d8d0a6cbb37bb9179c6828170ae7bd37c1e6af40219b24404455be67",
       "source_confidence": "primary",
-      "scientific_weight": 5
+      "scientific_weight": 5,
+      "fileSize": 138139197,
+      "snapshotVersion": "v1",
+      "storageLocation": "raw/bd00e2a1d8d0a6cbb37bb9179c6828170ae7bd37c1e6af40219b24404455be67.zip",
+      "collectionTimestamp": "2026-07-27T05:41:54.358873+00:00",
+      "availability": "available",
+      "validationNote": "FileGDB present (geometry not deep-validated: no gdal)"
     },
     {
       "id": "LSC-0021",
