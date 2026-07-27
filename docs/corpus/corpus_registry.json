@@ -5,8 +5,8 @@
   "frozen": true,
   "frozenAt": "2026-07-27",
   "phase": "P2.1 finalized & frozen (pre-collection; no files downloaded)",
-  "recordCount": 73,
-  "activeRecordCount": 71,
+  "recordCount": 74,
+  "activeRecordCount": 72,
   "logicalDuplicates": 2,
   "vocabularies": {
     "commodities": [
@@ -186,12 +186,30 @@
       "checksum": "42e29086df00509c9049b26d2f78a9524bd24642238d080a6bfe29637263d199",
       "source_confidence": "primary",
       "scientific_weight": 5,
-      "fileSize": 36216832,
+      "fileSize": 45400285,
       "snapshotVersion": "v1",
       "storageLocation": "raw/42e29086df00509c9049b26d2f78a9524bd24642238d080a6bfe29637263d199.gpkg",
       "collectionTimestamp": "2026-07-27T05:17:45.164746+00:00",
       "availability": "available",
-      "validationNote": "1 layer(s): fixed_geometries_1.7"
+      "validationNote": "multi-format: GPKG + explanatory PDF",
+      "files": [
+        {
+          "label": "UNESCO Somalia geology GPKG",
+          "sha256": "42e29086df00509c9049b26d2f78a9524bd24642238d080a6bfe29637263d199",
+          "bytes": 36216832,
+          "storageLocation": "raw/42e29086df00509c9049b26d2f78a9524bd24642238d080a6bfe29637263d199.gpkg",
+          "extractionReady": true
+        },
+        {
+          "label": "Geological map of Somalia (Abbate et al.) — PDF",
+          "sha256": "47e5fc63f2f504adbc20d4d17e13e9a49438f95dfa95c0b41b6a7aabee324af9",
+          "bytes": 9183453,
+          "storageLocation": "raw/47e5fc63f2f504adbc20d4d17e13e9a49438f95dfa95c0b41b6a7aabee324af9.pdf",
+          "extractionReady": true
+        }
+      ],
+      "fileCount": 2,
+      "collectionMethod": "mixed"
     },
     {
       "id": "LSC-0002",
@@ -292,10 +310,18 @@
           "target": "LSC-0071"
         }
       ],
-      "status": "cataloged",
-      "checksum": null,
+      "status": "collected",
+      "checksum": "a39d46f633e4428c0ea70c0008d555ae1be9fdcd18ea6e9b01d7e61b127345fe",
       "source_confidence": "primary",
-      "scientific_weight": 5
+      "scientific_weight": 5,
+      "availability": "available",
+      "fileSize": 40643445,
+      "storageLocation": "raw/a39d46f633e4428c0ea70c0008d555ae1be9fdcd18ea6e9b01d7e61b127345fe.pdf",
+      "snapshotVersion": "v1",
+      "collectionTimestamp": "2026-07-27T09:27:08.023039+00:00",
+      "validationNote": "full DP/SF/UN/37 report (397pp); registry '133 pp' referred to the summary",
+      "collectionMethod": "manual",
+      "pageCount": 397
     },
     {
       "id": "LSC-0004",
@@ -2924,6 +2950,45 @@
       "collectionTimestamp": "2026-07-27T06:02:58.486003+00:00",
       "availability": "available",
       "validationNote": "text layer"
+    },
+    {
+      "id": "LSC-0074",
+      "catalogRef": "R3",
+      "title": "Mining Policy Framework Assessment — Somalia",
+      "authorsOrOrg": "IGF (Intergovernmental Forum on Mining, Minerals, Metals & Sustainable Development)",
+      "publisher": "International Institute for Sustainable Development (IISD)",
+      "year": "2025",
+      "language": "en",
+      "country": "Somalia",
+      "geographicCoverage": "national",
+      "commodities": [
+        "all"
+      ],
+      "geologicalThemes": [
+        "mining-sector"
+      ],
+      "docType": "pdf-report",
+      "url": "—",
+      "license": "cc-nc-sa",
+      "licenseStatus": "confirmed",
+      "extractionRequirements": [
+        "pdf-text"
+      ],
+      "collectionPriority": "P3",
+      "qualityTier": "T2",
+      "extractionReady": true,
+      "source_confidence": "secondary",
+      "scientific_weight": 3,
+      "relations": [],
+      "status": "collected",
+      "checksum": "c977e3b0c228c3d4d0b2ee5aef10f9517707631bcd115b3f0b12e4989f45457a",
+      "availability": "available",
+      "fileSize": 6624130,
+      "storageLocation": "raw/c977e3b0c228c3d4d0b2ee5aef10f9517707631bcd115b3f0b12e4989f45457a.pdf",
+      "snapshotVersion": "v1",
+      "collectionTimestamp": "2026-07-27T09:27:08.117111+00:00",
+      "validationNote": "text layer",
+      "collectionMethod": "manual"
     }
   ],
   "vocabExtensionNote": "v1.2 (approved): added source_confidence + scientific_weight; no existing scientific metadata changed."
