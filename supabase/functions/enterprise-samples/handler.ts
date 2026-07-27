@@ -46,6 +46,7 @@ export const defaultDeps: Deps = {
       throw new Error(`submit_sample: ${error.message}`);
     }
     const id = (data as { sample_id: string }).sample_id;
+    triggerAnalysis(id); // auto-run the Geological Intelligence Engine (non-blocking, §6)
     const { data: detail } = await svc.from("sample").select(DETAIL).eq("id", id).maybeSingle();
     return { ...(data as object), sample: detail };
   },
@@ -65,6 +66,23 @@ export const defaultDeps: Deps = {
 function num(v: unknown): number | null {
   const n = typeof v === "string" ? Number(v) : (v as number);
   return Number.isFinite(n) ? n : null;
+}
+
+// Fire-and-forget: kick off analyze-sample right after a submit. Non-blocking so
+// the submit response stays fast; EdgeRuntime.waitUntil keeps it alive past the
+// response. analyze-sample is idempotent + daily-capped, so this is safe to retry.
+function triggerAnalysis(sampleId: string): void {
+  const url = Deno.env.get("SUPABASE_URL");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !key) return;
+  const p = fetch(`${url}/functions/v1/analyze-sample`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "content-type": "application/json" },
+    body: JSON.stringify({ sample_id: sampleId }),
+  }).then(() => {}).catch(() => {});
+  // deno-lint-ignore no-explicit-any
+  const er = (globalThis as any).EdgeRuntime;
+  if (er?.waitUntil) er.waitUntil(p);
 }
 
 // Validate + normalize the POST body into the RPC payload (throws BadRequestError).
