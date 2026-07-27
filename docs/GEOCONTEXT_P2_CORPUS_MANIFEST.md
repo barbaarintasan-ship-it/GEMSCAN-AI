@@ -46,6 +46,30 @@ its own micro-phase). Nothing here is fabricated — unknown fields are marked `
 | I6 | **BGS OpenGeoscience + Publications Viewer** | 400+ datasets, scanned reports/maps, Africa Groundwater Atlas | maps/data/PDF | https://www.bgs.ac.uk/geological-data/opengeoscience/ · https://webapps.bgs.ac.uk/data/publications/pubs.cfc?method=viewHome |
 | I7 | **IAEA INIS repository** | nuclear/geoscience literature (uranium, radiometrics) | PDF | https://inis.iaea.org/ |
 
+### D. Deep-pass additions — recursive citation chasing (from Somalia report bibliographies)
+Extracted from the reference lists of two Somalia mineral reviews (downloaded + parsed
+locally with pdftotext). These are **real cited works**; URLs/holdings still to be
+located during physical collection.
+| # | Author(s) / Year | Title | Publisher / archive to target | Note |
+|---|---|---|---|---|
+| D1 | **Chakrabarti, A.K. 1988** | An appraisal of the mineral potential of the Somali Democratic Republic (230 pp) | **UN Revolving Fund for Natural Resources Exploration (UNRFNRE)**, Mogadishu | 🔴 major national appraisal — high priority |
+| D2 | **Somali Republic Geological Survey Dept. — Report series** (e.g. Gellatly D.C. 1961, vol. 12, Dhalan cassiterite, Erigabo) | Geological Survey reports | **GEOSOM predecessor archive** | 🔴 the national survey's own legacy series |
+| D3 | **GEOSOM 87 proceedings** — "Geology and mineral resources of Somalia and surrounding regions" (Frizzo 1993 ch., 517–540) | Ist. Agronomico per l'Oltremare, Firenze — Relaz. e Monogr. 113 | **Italian institution (Florence)** | key basement ore geology |
+| D4 | **Greenwood, W. 1970** | Mineral and groundwater survey of Somalia, UN Report (133 pp) | UN / UNDP | distinct from OFR 82-788 |
+| D5 | **Lartsev, V.S. & Dahir, M.A. 1970** | Black sands at the mouth of the Juba River and coastal area | UNDP, Mogadishu | **Soviet author** — placer minerals |
+| D6 | **Cameron, J. 1970** | Alio Ghelle radioactive mineral occurrence, Bur Region | IAEA Panel Proceedings Series | uranium/Bur basement |
+| D7 | **Artini, E. 1926** | Mineralogy of sand dunes near Chisimaio (Oltregiuba) | Agricoltura Coloniale 40 | **Italian colonial** legacy |
+| D8 | **Gregory, J.W. 1900** | On the geology and fossil corals and echinids of Somaliland | Q. J. Geol. Soc. London, vol. 56 | **British historical** |
+| D9 | **Kinnaird, J.A. & Jackson, B. 2000** | Somaliland — a potential gem producer in the Mozambique Belt | Journal of Gemmology 27(3) | gemstones |
+| D10 | **Frizzo P., Jama Aden & Frizzo, zircon-age studies** | Geochemistry/geochronology of the northern Somali crystalline basement | J. African Earth Sciences | Italian–Somali basement |
+| D11 | **Ali, M.Y. & Watts, A.B.** | Tectonic evolution of the sedimentary basins of northern Somalia | Basin Research | structural context |
+| D12 | **Kamenov, B.K. & Petrov, P. 2013** | Unidentified hydrothermal mineral occurrences in northern Somalia — mineral thermometry | (academia.edu) | occurrence thermometry |
+| D13 | **Singer, Stahr & Zarei 1998** | Sepiolite (Meerschaum) from Central Somalia | Clay Minerals 33 | industrial mineral |
+
+**New institutional archives surfaced to target during collection:** UN Revolving Fund
+for Natural Resources Exploration (UNRFNRE); Somali Republic Geological Survey Department
+report series; Istituto Agronomico per l'Oltremare (Florence) GEOSOM-87 proceedings.
+
 ### C. Pan-African programmes (discovery + future partnerships)
 | # | Source | Role | Access |
 |---|---|---|---|
@@ -58,11 +82,23 @@ its own micro-phase). Nothing here is fabricated — unknown fields are marked `
 
 ## 2. Approval-gate summary
 
-**Total concrete sources cataloged:** **28** distinct entries — 17 Somalia-specific
-(S1–S17), 7 international portals/datasets (I1–I7), 4 pan-African programmes (P1–P4).
-Several are *collections* containing many documents (e.g., MRDS ≈ thousands of records;
-BGS Publications Viewer; INIS Somalia set), so document-level counts will be far higher
-after the collection step.
+**Total concrete sources cataloged:** **41** distinct entries — 17 Somalia-specific
+(S1–S17), 7 international portals/datasets (I1–I7), 13 citation-chase additions (D1–D13),
+4 pan-African programmes (P1–P4). Several are *collections* containing many documents
+(e.g., MRDS ≈ thousands of records; BGS Publications Viewer; INIS Somalia set), so
+document-level counts will be far higher after the collection step.
+
+**Deep-discovery pass status (this round):** citation chasing from Somalia report
+bibliographies (via WebFetch download + local pdftotext) completed → 13 new real works
+(D1–D13), surfacing three high-value institutional archives (UNRFNRE, Somali Geological
+Survey Dept. series, Florence GEOSOM-87 proceedings). **Search-based sub-searches of the
+final pass are INCOMPLETE:** the WebSearch quota was exhausted mid-pass (resets ~05:00
+Afric/Nairobi). **Still pending (search-dependent), to resume after reset:** Italian
+geological libraries/university catalogs (Firenze/Padua/CNR direct holdings), French
+(BRGM InfoTerre Somalia), German (BGR — no Somalia-specific report found yet),
+Chinese/Japanese/Scandinavian institutions, MSc/PhD thesis repositories (ProQuest/EThOS/
+AJOL), and museum geological collections (NHM London, Smithsonian, meteoritics). These
+were NOT run — not fabricated.
 
 **Source categories covered:** national surveys (USGS, BGS, BRGM, GEOSOM legacy),
 international orgs (UNESCO, IAEA, UNDP, UN, World Bank, FAO, ESCWA), historical/colonial
