@@ -12,6 +12,7 @@ import { CommunityStats } from "../../components/CommunityStats";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { colors, spacing, radius, type as typo } from "../../lib/theme";
+import { isOwnerEmail } from "../../lib/enterpriseSamples";
 
 // What the scanner identifies — shown as coloured gem marks. Names are the real
 // gem/material names; the count below is deliberately honest (see the note).
@@ -144,6 +145,14 @@ export default function HomeScreen() {
         <Ionicons name="albums-outline" size={16} color={colors.gold} />
         <Text style={styles.collectionButtonText}>{t("home.myCollection")}</Text>
       </Pressable>
+
+      {/* Enterprise owner beta (Sprint 4.2) — visible only to the owner allowlist. */}
+      {isOwnerEmail(session?.user?.email) && (
+        <Pressable style={styles.collectionButton} onPress={() => router.push("/(app)/enterprise/samples")} hitSlop={8}>
+          <Ionicons name="briefcase-outline" size={16} color={colors.gold} />
+          <Text style={styles.collectionButtonText}>Enterprise · Field Samples</Text>
+        </Pressable>
+      )}
 
       {/* Gemstone showcase */}
       <View style={styles.showcase}>
