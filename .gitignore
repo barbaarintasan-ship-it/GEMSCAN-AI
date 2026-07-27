@@ -101,3 +101,14 @@ mobile/*.jks
 
 # ---- Raw / user-imported screenshots (curate before committing) ----
 mobile/assets/store-screenshots/raw-user-imports/
+
+# ---- GeoContext corpus binaries (kept in the CAS store + corpus_registry.json;
+#       never committed to git). Root is the corpus drop-zone. Root-anchored so
+#       subdir binaries (e.g. wordpress-plugin/*.zip) are NOT affected.
+#       Override for an intended file with:  git add -f <file>
+/*.pdf
+/*.zip
+/*.shp
+/*.shx
+/*.dbf
+/*.prj
