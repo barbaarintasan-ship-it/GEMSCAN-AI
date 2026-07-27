@@ -18,7 +18,8 @@ export type VisualAspect =
 const ASPECTS: VisualAspect[] = ["texture", "color", "mineral", "vein", "alteration", "weathering", "structure", "other"];
 
 export interface VisualObservation {
-  statement: string;
+  statement: string;    // English
+  statementSo: string;  // Somali
   aspect: VisualAspect;
   clarity: number; // 0..1 — how clearly it is visible (image-limited)
 }
@@ -39,9 +40,10 @@ export function buildVisionPrompt(): string {
     "commodity, and do NOT infer genesis — those are decided later from other evidence.",
     "List each distinct visual observation (grain size/texture, colour, visible mineral phases,",
     "veining, alteration coatings, weathering, fractures/structure).",
-    "For each, give: a short factual statement, an aspect, and a clarity score 0..1 reflecting",
-    "how clearly it can be seen given the image quality.",
-    'Output STRICT JSON only: {"observations":[{"statement":"...","aspect":"texture|color|mineral|vein|alteration|weathering|structure|other","clarity":0.0}]}',
+    "For each, give: a short factual statement in BOTH English (statement) and Somali",
+    "(statement_so), an aspect, and a clarity score 0..1 reflecting how clearly it can be",
+    "seen given the image quality.",
+    'Output STRICT JSON only: {"observations":[{"statement":"...","statement_so":"...","aspect":"texture|color|mineral|vein|alteration|weathering|structure|other","clarity":0.0}]}',
     'If the images are too poor to observe anything, return {"observations":[]}.',
   ].join("\n");
 }
@@ -58,9 +60,10 @@ export function parseVisionResponse(text: string): VisualObservation[] {
     const r = raw as Record<string, unknown>;
     const statement = typeof r.statement === "string" ? r.statement.trim() : "";
     if (!statement) continue;
+    const statementSo = typeof r.statement_so === "string" && r.statement_so.trim() ? r.statement_so.trim() : statement;
     const aspect = ASPECTS.includes(r.aspect as VisualAspect) ? (r.aspect as VisualAspect) : "other";
     const clarity = clamp01(typeof r.clarity === "number" ? r.clarity : Number(r.clarity));
-    out.push({ statement, aspect, clarity });
+    out.push({ statement, statementSo, aspect, clarity });
     if (out.length >= 24) break; // cap
   }
   return out;
@@ -74,6 +77,7 @@ export function visualEvidence(obs: VisualObservation[], imageQuality = 1): Evid
     source: "gemini_vision",
     evType: "visual",
     statement: o.statement,
+    statementSo: o.statementSo,
     isObservation: true, // describing what is literally visible
     tier: "ai_visual",
     quality: clamp01(o.clarity * iq),

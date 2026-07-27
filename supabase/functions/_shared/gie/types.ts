@@ -15,11 +15,16 @@ export type EvidenceType =
 
 // One evidence item. `id` is a short, stable handle (e1, e2, …) that the reasoning
 // stage references so every conclusion links back to concrete evidence.
+// Bilingual text — the app runs in English or Somali, so AI-facing content
+// carries both; the UI picks by language and falls back to English.
+export interface Bilingual { en: string; so: string }
+
 export interface EvidenceNode {
   id: string;
   source: string;          // provider / table the item came from
   evType: EvidenceType;
-  statement: string;       // human-readable
+  statement: string;       // human-readable (English)
+  statementSo?: string;    // Somali translation when available (else fall back to en)
   isObservation: boolean;  // true ⇒ fact, false ⇒ derived/inferred
   tier?: string;           // evidence_tier code (drives confidence weighting, S4)
   quality: number;         // 0..1 item strength/quality

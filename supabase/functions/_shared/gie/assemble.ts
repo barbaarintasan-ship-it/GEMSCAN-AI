@@ -6,7 +6,7 @@
 // DB trigger), compute each conclusion's confidence + the overall (scoring.ts),
 // build weighted edges, and flag any recommendation that over-reaches (>10 m
 // without ≥2 independent dataset groups).
-import type { EvidenceNode, EvidenceSet, EvidenceType } from "./types.ts";
+import type { Bilingual, EvidenceNode, EvidenceSet, EvidenceType } from "./types.ts";
 import type { ConclusionKind, ReasoningOutput } from "./reasoning.ts";
 import { edgeWeight, overallConfidence, scoreConclusion } from "./scoring.ts";
 
@@ -19,12 +19,14 @@ export interface AssembledEdge {
 export interface AssembledConclusion {
   kind: ConclusionKind;
   statement: string;
+  statementSo: string;
   isInterpretation: boolean;
   confidence: number; // 0..100
   edges: AssembledEdge[];
 }
 export interface AssembledRecommendation {
   action: string;
+  actionSo: string;
   scaleM?: number;
   evidenceIds: string[];
   flagged: boolean; // over-reach: distance not justified by ≥2 independent datasets
@@ -34,8 +36,8 @@ export interface Assessment {
   conclusions: AssembledConclusion[];
   evidence: EvidenceNode[];
   report: {
-    uncertainties: string[];
-    missingInformation: string[];
+    uncertainties: Bilingual[];
+    missingInformation: Bilingual[];
     recommendations: AssembledRecommendation[];
   };
   droppedConclusions: number; // conclusions removed for lacking valid evidence
@@ -66,7 +68,7 @@ export function assembleAssessment(set: EvidenceSet, reasoning: ReasoningOutput)
       })),
     ];
     kept.push({
-      c: { kind: rc.kind, statement: rc.statement, isInterpretation: rc.isInterpretation, confidence: score.confidence, edges },
+      c: { kind: rc.kind, statement: rc.statement, statementSo: rc.statementSo, isInterpretation: rc.isInterpretation, confidence: score.confidence, edges },
       score,
     });
   }
@@ -80,7 +82,7 @@ export function assembleAssessment(set: EvidenceSet, reasoning: ReasoningOutput)
     const groups = new Set<EvidenceType>();
     for (const id of ids) groups.add(byId.get(id)!.evType);
     const overReach = (r.scaleM ?? 0) > CONSERVATIVE_M && groups.size < 2;
-    return { action: r.action, scaleM: r.scaleM, evidenceIds: ids, flagged: overReach };
+    return { action: r.action, actionSo: r.actionSo, scaleM: r.scaleM, evidenceIds: ids, flagged: overReach };
   });
 
   return {

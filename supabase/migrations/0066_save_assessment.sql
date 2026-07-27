@@ -40,8 +40,8 @@ begin
   -- Evidence nodes → build the client-id → uuid map for edge wiring.
   for el in select * from jsonb_array_elements(coalesce(p_payload->'evidence','[]'::jsonb)) loop
     insert into geo.assessment_evidence
-      (assessment_id, source, ev_type, statement, is_observation, tier, quality, dataset_id, provenance)
-    values (v_assessment, el->>'source', el->>'evType', el->>'statement',
+      (assessment_id, source, ev_type, statement, statement_so, is_observation, tier, quality, dataset_id, provenance)
+    values (v_assessment, el->>'source', el->>'evType', el->>'statement', el->>'statementSo',
       coalesce((el->>'isObservation')::boolean, false), nullif(el->>'tier',''),
       nullif(el->>'quality','')::numeric, nullif(el->>'datasetId','')::uuid, el->'provenance')
     returning id into v_ev_uuid;
@@ -51,8 +51,8 @@ begin
   -- Conclusions + their edges.
   for el in select * from jsonb_array_elements(coalesce(p_payload->'conclusions','[]'::jsonb)) loop
     insert into geo.assessment_conclusion
-      (assessment_id, kind, statement, is_interpretation, confidence)
-    values (v_assessment, el->>'kind', el->>'statement',
+      (assessment_id, kind, statement, statement_so, is_interpretation, confidence)
+    values (v_assessment, el->>'kind', el->>'statement', el->>'statementSo',
       coalesce((el->>'isInterpretation')::boolean, true), nullif(el->>'confidence','')::numeric)
     returning id into v_concl;
 

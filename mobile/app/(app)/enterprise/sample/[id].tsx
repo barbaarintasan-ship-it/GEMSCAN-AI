@@ -5,6 +5,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Image } from "react-native";
 import { useLocalSearchParams } from "expo-router";
+import { useTranslation } from "react-i18next";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../../../lib/supabase";
 import { colors, spacing, radius, type as t } from "../../../../lib/theme";
@@ -14,6 +15,8 @@ import { getSample, type SampleDetail, type AssessmentEvidence } from "../../../
 
 export default function SampleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { i18n } = useTranslation();
+  const so = i18n.language === "so";
   const [sample, setSample] = useState<SampleDetail | null>(null);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -124,8 +127,8 @@ export default function SampleDetailScreen() {
       )}
 
       {/* AI Geological Assessment (§6/§7/§10/§11) */}
-      <SectionLabel>AI Geological Analysis</SectionLabel>
-      <AiAnalysis sample={sample} />
+      <SectionLabel>{so ? "Falanqaynta Juqraafi ee AI" : "AI Geological Analysis"}</SectionLabel>
+      <AiAnalysis sample={sample} so={so} />
     </ScrollView>
   );
 }
@@ -159,18 +162,25 @@ const KIND_LABELS: Record<string, string> = {
   gangue_mineral: "Gangue minerals", environment: "Geological environment",
   deposit_model: "Deposit model", exploration_significance: "Exploration significance",
 };
+const KIND_LABELS_SO: Record<string, string> = {
+  rock_type: "Nooca dhagaxa", mineralization: "Macdaneed", ore_mineral: "Macdanaha birta",
+  gangue_mineral: "Macdanaha aan faa'iidada lahayn", environment: "Deegaanka juqraafi",
+  deposit_model: "Qaabka kaydka", exploration_significance: "Muhiimadda sahaminta",
+};
 
 // AI Geological Assessment — conclusions each shown with the evidence that
 // produced them (the traceable graph), plus recommendations and uncertainties.
-function AiAnalysis({ sample }: { sample: SampleDetail }) {
+// Bilingual: shows Somali text when the app language is 'so', else English.
+function AiAnalysis({ sample, so }: { sample: SampleDetail; so: boolean }) {
   const a = sample.assessment;
+  const evStatement = (e: AssessmentEvidence) => (so && e.statement_so) ? e.statement_so : e.statement;
   if (!a) {
     return (
       <Card>
         <Text style={styles.pendingText}>
           {sample.status === "ai_processing"
-            ? "AI analysis in progress…"
-            : "AI analysis runs automatically after submission. Pull to refresh."}
+            ? (so ? "Falanqaynta AI-gu waa socotaa…" : "AI analysis in progress…")
+            : (so ? "Falanqaynta AI-gu si toos ah ayey u shaqaysaa gudbinta kadib. Hoos u jiid si aad u cusboonaysiiso." : "AI analysis runs automatically after submission. Pull to refresh.")}
         </Text>
       </Card>
     );
@@ -191,7 +201,7 @@ function AiAnalysis({ sample }: { sample: SampleDetail }) {
         <Card>
           <View style={styles.detailRow}>
             <Ionicons name="sparkles-outline" size={16} color={colors.gold} />
-            <Text style={styles.bodyText}>Overall AI confidence: {Math.round(a.overall_confidence)}%</Text>
+            <Text style={styles.bodyText}>{so ? "Kalsoonida guud ee AI" : "Overall AI confidence"}: {Math.round(a.overall_confidence)}%</Text>
           </View>
         </Card>
       )}
@@ -201,25 +211,25 @@ function AiAnalysis({ sample }: { sample: SampleDetail }) {
         return (
           <Card key={c.id} style={{ marginTop: 8 }}>
             <View style={styles.conclHeader}>
-              <Text style={styles.conclKind}>{KIND_LABELS[c.kind] ?? c.kind}</Text>
+              <Text style={styles.conclKind}>{(so ? KIND_LABELS_SO : KIND_LABELS)[c.kind] ?? c.kind}</Text>
               {c.confidence != null && (
                 <View style={styles.confPill}><Text style={styles.confPillText}>{Math.round(c.confidence)}%</Text></View>
               )}
             </View>
-            <Text style={styles.bodyText}>{c.statement}</Text>
-            <Text style={styles.tag}>{c.is_interpretation ? "interpretation" : "observation"}</Text>
+            <Text style={styles.bodyText}>{(so && c.statement_so) ? c.statement_so : c.statement}</Text>
+            <Text style={styles.tag}>{c.is_interpretation ? (so ? "fasiraad" : "interpretation") : (so ? "indho-indhayn" : "observation")}</Text>
             {support.length > 0 && (
               <View style={styles.evBlock}>
-                <Text style={styles.evLabel}>Supporting evidence</Text>
+                <Text style={styles.evLabel}>{so ? "Caddaynta taageerta" : "Supporting evidence"}</Text>
                 {support.map((e) => (
-                  <Text key={e.id} style={styles.evItem}>• {e.statement} <Text style={styles.evSrc}>({e.ev_type})</Text></Text>
+                  <Text key={e.id} style={styles.evItem}>• {evStatement(e)} <Text style={styles.evSrc}>({e.ev_type})</Text></Text>
                 ))}
               </View>
             )}
             {contra.length > 0 && (
               <View style={styles.evBlock}>
-                <Text style={[styles.evLabel, { color: colors.danger }]}>Contradicting</Text>
-                {contra.map((e) => <Text key={e.id} style={styles.evItem}>• {e.statement}</Text>)}
+                <Text style={[styles.evLabel, { color: colors.danger }]}>{so ? "Caddayn ka hor imanaysa" : "Contradicting"}</Text>
+                {contra.map((e) => <Text key={e.id} style={styles.evItem}>• {evStatement(e)}</Text>)}
               </View>
             )}
           </Card>
@@ -227,12 +237,12 @@ function AiAnalysis({ sample }: { sample: SampleDetail }) {
       })}
       {recs.length > 0 && (
         <>
-          <SectionLabel>Recommendations</SectionLabel>
+          <SectionLabel>{so ? "Talooyin" : "Recommendations"}</SectionLabel>
           <Card>
             {recs.map((r, i) => (
               <View key={i} style={styles.detailRow}>
                 <Ionicons name={r.flagged ? "alert-circle-outline" : "arrow-forward-circle-outline"} size={16} color={r.flagged ? colors.danger : colors.gold} />
-                <Text style={styles.bodyText}>{r.action}{r.scaleM ? ` (${r.scaleM} m)` : ""}</Text>
+                <Text style={styles.bodyText}>{(so && r.actionSo) ? r.actionSo : r.action}{r.scaleM ? ` (${r.scaleM} m)` : ""}</Text>
               </View>
             ))}
           </Card>
@@ -240,14 +250,14 @@ function AiAnalysis({ sample }: { sample: SampleDetail }) {
       )}
       {(unc.length > 0 || missing.length > 0) && (
         <>
-          <SectionLabel>Uncertainties & missing data</SectionLabel>
+          <SectionLabel>{so ? "Hubin la'aan & xog maqan" : "Uncertainties & missing data"}</SectionLabel>
           <Card>
-            {unc.map((u, i) => <Text key={`u${i}`} style={styles.evItem}>• {u}</Text>)}
-            {missing.map((m, i) => <Text key={`m${i}`} style={[styles.evItem, { color: colors.textFaint }]}>• missing: {m}</Text>)}
+            {unc.map((u, i) => <Text key={`u${i}`} style={styles.evItem}>• {so ? u.so : u.en}</Text>)}
+            {missing.map((m, i) => <Text key={`m${i}`} style={[styles.evItem, { color: colors.textFaint }]}>• {so ? "maqan" : "missing"}: {so ? m.so : m.en}</Text>)}
           </Card>
         </>
       )}
-      <Text style={styles.traceNote}>Every conclusion is linked to the evidence that produced it.</Text>
+      <Text style={styles.traceNote}>{so ? "Gunaanad kasta wuxuu ku xiran yahay caddaynta soo saartay." : "Every conclusion is linked to the evidence that produced it."}</Text>
     </>
   );
 }

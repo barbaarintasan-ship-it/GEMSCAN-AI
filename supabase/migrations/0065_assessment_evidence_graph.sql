@@ -21,7 +21,8 @@ create table if not exists geo.assessment_conclusion (
   assessment_id     uuid not null references geo.geological_assessment(id) on delete cascade,
   kind              text not null,          -- rock_type|mineralization|ore_mineral|gangue_mineral|
                                             -- environment|deposit_model|exploration_significance
-  statement         text not null,
+  statement         text not null,          -- English
+  statement_so      text,                   -- Somali (falls back to English in the UI)
   is_interpretation boolean not null default true,   -- false ⇒ direct observation
   confidence        numeric(5,2),           -- engine-computed 0..100
   created_at        timestamptz not null default now(),
@@ -38,7 +39,8 @@ create table if not exists geo.assessment_evidence (
   assessment_id  uuid not null references geo.geological_assessment(id) on delete cascade,
   source         text not null,            -- provider/table the item came from
   ev_type        text not null,            -- field|visual|spatial|occurrence|knowledge|association|prior_sample
-  statement      text not null,
+  statement      text not null,            -- English
+  statement_so   text,                     -- Somali (falls back to English in the UI)
   is_observation boolean not null default false,  -- true ⇒ fact, false ⇒ derived/inferred
   tier           text,                     -- evidence_tier code (drives weighting)
   quality        numeric(6,4),             -- 0..1 item quality

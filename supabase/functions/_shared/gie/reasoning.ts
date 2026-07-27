@@ -5,7 +5,7 @@
 // ids (supporting / contradicting); it is FORBIDDEN from emitting confidence
 // numbers — the engine computes those from the evidence (scoring.ts). The AI
 // proposes; the engine adjudicates. The call is injected so parsing stays pure.
-import type { EvidenceNode } from "./types.ts";
+import type { Bilingual, EvidenceNode } from "./types.ts";
 
 const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-flash-latest";
 
@@ -20,16 +20,17 @@ const KINDS: ConclusionKind[] = [
 export interface EvidenceLink { evidenceId: string; contribution: number }
 export interface RawConclusion {
   kind: ConclusionKind;
-  statement: string;
+  statement: string;   // English
+  statementSo: string; // Somali
   isInterpretation: boolean;
   supporting: EvidenceLink[];
   contradicting: EvidenceLink[];
 }
-export interface RawRecommendation { action: string; scaleM?: number; evidenceIds: string[] }
+export interface RawRecommendation { action: string; actionSo: string; scaleM?: number; evidenceIds: string[] }
 export interface ReasoningOutput {
   conclusions: RawConclusion[];
-  uncertainties: string[];
-  missingInformation: string[];
+  uncertainties: Bilingual[];
+  missingInformation: Bilingual[];
   recommendations: RawRecommendation[];
 }
 
@@ -58,16 +59,19 @@ export function buildReasoningPrompt(nodes: EvidenceNode[], sampleSummary: strin
     "  (document outcrop, collect nearby, expose fresh surface, measure vein orientation,",
     "  record structure, inspect alteration, photograph angles). Only propose larger",
     "  distances when multiple independent datasets justify it; put the distance in scale_m.",
+    "- Write ALL human text in BOTH English and Somali: every statement/action/uncertainty/",
+    "  missing item needs an English field and a Somali field (…_so). Keep mineral, rock and",
+    "  place names as given.",
     "",
     "Conclusion kinds: rock_type, mineralization, ore_mineral, gangue_mineral, environment,",
     "deposit_model, exploration_significance.",
     "",
     "Output STRICT JSON only:",
-    '{"conclusions":[{"kind":"rock_type","statement":"...","is_interpretation":true,',
+    '{"conclusions":[{"kind":"rock_type","statement":"...","statement_so":"...","is_interpretation":true,',
     '  "supporting":[{"evidence_id":"e1","contribution":0.7}],',
     '  "contradicting":[{"evidence_id":"e9","contribution":0.3}]}],',
-    '"uncertainties":["..."],"missing_information":["..."],',
-    '"recommendations":[{"action":"...","scale_m":2,"evidence_ids":["e1"]}]}',
+    '"uncertainties":[{"en":"...","so":"..."}],"missing_information":[{"en":"...","so":"..."}],',
+    '"recommendations":[{"action":"...","action_so":"...","scale_m":2,"evidence_ids":["e1"]}]}',
   ].join("\n");
 }
 
@@ -86,6 +90,7 @@ export function parseReasoningResponse(text: string): ReasoningOutput {
     conclusions.push({
       kind,
       statement,
+      statementSo: str(r.statement_so) || statement,
       isInterpretation: r.is_interpretation !== false,
       supporting: links(r.supporting),
       contradicting: links(r.contradicting),
@@ -93,8 +98,10 @@ export function parseReasoningResponse(text: string): ReasoningOutput {
   }
   const recommendations: RawRecommendation[] = asArray(obj.recommendations).map((raw) => {
     const r = raw as Record<string, unknown>;
+    const action = str(r.action);
     return {
-      action: str(r.action),
+      action,
+      actionSo: str(r.action_so) || action,
       scaleM: Number.isFinite(Number(r.scale_m)) ? Number(r.scale_m) : undefined,
       evidenceIds: asArray(r.evidence_ids).map(str).filter(Boolean),
     };
@@ -102,10 +109,20 @@ export function parseReasoningResponse(text: string): ReasoningOutput {
 
   return {
     conclusions,
-    uncertainties: asArray(obj.uncertainties).map(str).filter(Boolean),
-    missingInformation: asArray(obj.missing_information).map(str).filter(Boolean),
+    uncertainties: bilinguals(obj.uncertainties),
+    missingInformation: bilinguals(obj.missing_information),
     recommendations,
   };
+}
+
+// Accept either ["text"] (mirror to both) or [{en,so}] and normalise to Bilingual[].
+function bilinguals(v: unknown): Bilingual[] {
+  return asArray(v).map((raw) => {
+    if (typeof raw === "string") { const t = raw.trim(); return { en: t, so: t }; }
+    const r = raw as Record<string, unknown>;
+    const en = str(r.en); const so = str(r.so) || en;
+    return { en, so };
+  }).filter((b) => b.en);
 }
 
 export async function runReasoning(nodes: EvidenceNode[], sampleSummary: string, deps: ReasoningDeps): Promise<ReasoningOutput> {

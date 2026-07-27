@@ -23,46 +23,50 @@ type RawNode = EvidenceInput;
 // ── Field evidence (the sample itself) — direct observations ─────────────────
 export function fieldEvidence(s: SampleInput): RawNode[] {
   const out: RawNode[] = [];
-  const push = (statement: string, quality: number) =>
-    out.push({ source: "field_sample", evType: "field", statement, isObservation: true, tier: "field_observation", quality });
+  const push = (statement: string, statementSo: string, quality: number) =>
+    out.push({ source: "field_sample", evType: "field", statement, statementSo, isObservation: true, tier: "field_observation", quality });
 
   // Location + elevation
   const accPart = s.gpsAccuracyM != null ? ` (±${Math.round(s.gpsAccuracyM)} m)` : "";
   const elevPart = s.altitudeM != null ? `, elevation ${Math.round(s.altitudeM)} m` : "";
-  push(`Sample located at ${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}${accPart}${elevPart}`,
+  const elevPartSo = s.altitudeM != null ? `, dhererka ${Math.round(s.altitudeM)} m` : "";
+  const coords = `${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`;
+  push(`Sample located at ${coords}${accPart}${elevPart}`,
+    `Sample-ku wuxuu ku yaal ${coords}${accPart}${elevPartSo}`,
     s.gpsAccuracyM != null && s.gpsAccuracyM <= 10 ? 0.95 : 0.8);
 
-  if (s.terrainType) push(`Terrain: ${s.terrainType}`, 0.7);
-  if (s.geologicalEnvironment) push(`Field-recorded geological environment: ${s.geologicalEnvironment}`, 0.7);
+  if (s.terrainType) push(`Terrain: ${s.terrainType}`, `Dhulka: ${s.terrainType}`, 0.7);
+  if (s.geologicalEnvironment) push(`Field-recorded geological environment: ${s.geologicalEnvironment}`, `Deegaanka juqraafi ee la duubay: ${s.geologicalEnvironment}`, 0.7);
 
   // Host rock
   if (s.hostRock?.rockClass?.trim()) {
     const bits = [s.hostRock.texture, s.hostRock.weathering].filter(Boolean).join(", ");
-    push(`Host rock recorded in field: ${s.hostRock.rockClass}${bits ? ` (${bits})` : ""}`, 0.9);
+    const suffix = bits ? ` (${bits})` : "";
+    push(`Host rock recorded in field: ${s.hostRock.rockClass}${suffix}`, `Dhagaxa martida loo galay: ${s.hostRock.rockClass}${suffix}`, 0.9);
   }
-  if (s.hostRock?.notes?.trim()) push(`Host-rock note: ${s.hostRock.notes.trim()}`, 0.7);
+  if (s.hostRock?.notes?.trim()) push(`Host-rock note: ${s.hostRock.notes.trim()}`, `Qoraal dhagax-martigelin: ${s.hostRock.notes.trim()}`, 0.7);
 
   // Minerals
   for (const m of s.minerals) {
     if (!m.mineral?.trim()) continue;
-    push(`Mineral observed in field: ${m.mineral}`, 0.85);
+    push(`Mineral observed in field: ${m.mineral}`, `Macdan goobta laga arkay: ${m.mineral}`, 0.85);
   }
 
   // Alteration
   if (s.alteration?.alterationType?.trim()) {
     const grade = s.alteration.intensity ? ` (${s.alteration.intensity})` : "";
-    push(`Alteration observed: ${s.alteration.alterationType}${grade}`, 0.85);
+    push(`Alteration observed: ${s.alteration.alterationType}${grade}`, `Isbeddel la arkay: ${s.alteration.alterationType}${grade}`, 0.85);
   }
 
   // Structure
   for (const st of s.structural) {
     if (!st.structureType?.trim()) continue;
     const orient = st.strikeDeg != null && st.dipDeg != null ? ` ${Math.round(st.strikeDeg)}/${Math.round(st.dipDeg)}` : "";
-    push(`Structure measured: ${st.structureType}${orient}`, 0.85);
+    push(`Structure measured: ${st.structureType}${orient}`, `Qaab-dhismeed la cabiray: ${st.structureType}${orient}`, 0.85);
   }
 
   // Free-text field note (observation, but lower quality as evidence)
-  if (s.fieldObservations?.trim()) push(`Field note: ${s.fieldObservations.trim()}`, 0.6);
+  if (s.fieldObservations?.trim()) push(`Field note: ${s.fieldObservations.trim()}`, `Qoraal goobeed: ${s.fieldObservations.trim()}`, 0.6);
 
   return out;
 }

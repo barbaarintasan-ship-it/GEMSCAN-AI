@@ -63,8 +63,9 @@ export type SampleListRow = {
   created_at: string;
 };
 
-export type AssessmentConclusion = { id: string; kind: string; statement: string; is_interpretation: boolean; confidence: number | null };
-export type AssessmentEvidence = { id: string; source: string; ev_type: string; statement: string; is_observation: boolean; tier: string | null; quality: number | null };
+export type Bilingual = { en: string; so: string };
+export type AssessmentConclusion = { id: string; kind: string; statement: string; statement_so: string | null; is_interpretation: boolean; confidence: number | null };
+export type AssessmentEvidence = { id: string; source: string; ev_type: string; statement: string; statement_so: string | null; is_observation: boolean; tier: string | null; quality: number | null };
 export type AssessmentEdge = { conclusion_id: string; evidence_id: string; polarity: string; contribution: number | null; effective_weight: number | null };
 export type GeoAssessment = {
   id: string;
@@ -72,9 +73,9 @@ export type GeoAssessment = {
   status: string;
   created_at: string;
   report: {
-    uncertainties?: string[];
-    missingInformation?: string[];
-    recommendations?: Array<{ action: string; scaleM?: number; flagged?: boolean }>;
+    uncertainties?: Bilingual[];
+    missingInformation?: Bilingual[];
+    recommendations?: Array<{ action: string; actionSo?: string; scaleM?: number; flagged?: boolean }>;
   } | null;
   assessment_conclusion: AssessmentConclusion[];
   assessment_evidence: AssessmentEvidence[];
