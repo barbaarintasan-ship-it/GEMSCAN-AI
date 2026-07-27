@@ -59,7 +59,15 @@ export const defaultDeps: Deps = {
   },
   getSample: async (req, actor, id) => {
     const { data } = await userClient(req).from("sample").select(DETAIL).eq("id", id).maybeSingle();
-    return data ?? null;
+    if (!data) return null;
+    // Latest geological assessment (RLS: can_read_assessment) + its evidence graph.
+    const { data: assessment } = await userClient(req, "geo").from("geological_assessment")
+      .select("id,overall_confidence,status,report,created_at," +
+        "assessment_conclusion(id,kind,statement,is_interpretation,confidence)," +
+        "assessment_evidence(id,source,ev_type,statement,is_observation,tier,quality)," +
+        "assessment_edge(conclusion_id,evidence_id,polarity,contribution,effective_weight)")
+      .eq("sample_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    return { ...(data as object), assessment: assessment ?? null };
   },
 };
 

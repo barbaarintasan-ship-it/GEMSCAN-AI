@@ -63,6 +63,24 @@ export type SampleListRow = {
   created_at: string;
 };
 
+export type AssessmentConclusion = { id: string; kind: string; statement: string; is_interpretation: boolean; confidence: number | null };
+export type AssessmentEvidence = { id: string; source: string; ev_type: string; statement: string; is_observation: boolean; tier: string | null; quality: number | null };
+export type AssessmentEdge = { conclusion_id: string; evidence_id: string; polarity: string; contribution: number | null; effective_weight: number | null };
+export type GeoAssessment = {
+  id: string;
+  overall_confidence: number | null;
+  status: string;
+  created_at: string;
+  report: {
+    uncertainties?: string[];
+    missingInformation?: string[];
+    recommendations?: Array<{ action: string; scaleM?: number; flagged?: boolean }>;
+  } | null;
+  assessment_conclusion: AssessmentConclusion[];
+  assessment_evidence: AssessmentEvidence[];
+  assessment_edge: AssessmentEdge[];
+};
+
 export type SampleDetail = SampleListRow & {
   field_observations: string | null;
   sample_location: Array<{ altitude_m: number | null; gps_accuracy_m: number | null; h3_cell: string; provenance: string }>;
@@ -71,6 +89,7 @@ export type SampleDetail = SampleListRow & {
   mineral_observation: Array<{ mineral: string; confidence: number | null }>;
   alteration_observation: Array<{ alteration_type: string | null; intensity: string | null; notes: string | null }>;
   structural_measurement: Array<unknown>;
+  assessment?: GeoAssessment | null;
 };
 
 async function authHeader(): Promise<Record<string, string>> {

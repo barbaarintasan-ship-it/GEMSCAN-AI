@@ -10,7 +10,7 @@ import { supabase } from "../../../../lib/supabase";
 import { colors, spacing, radius, type as t } from "../../../../lib/theme";
 import { Card } from "../../../../components/ui/Card";
 import { SectionLabel } from "../../../../components/ui/SectionLabel";
-import { getSample, type SampleDetail } from "../../../../lib/enterpriseSamples";
+import { getSample, type SampleDetail, type AssessmentEvidence } from "../../../../lib/enterpriseSamples";
 
 export default function SampleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -122,6 +122,10 @@ export default function SampleDetailScreen() {
           <Card><Text style={styles.bodyText}>{sample.field_observations}</Text></Card>
         </>
       )}
+
+      {/* AI Geological Assessment (§6/§7/§10/§11) */}
+      <SectionLabel>AI Geological Analysis</SectionLabel>
+      <AiAnalysis sample={sample} />
     </ScrollView>
   );
 }
@@ -150,6 +154,104 @@ function Row({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: strin
   );
 }
 
+const KIND_LABELS: Record<string, string> = {
+  rock_type: "Rock type", mineralization: "Mineralization", ore_mineral: "Ore minerals",
+  gangue_mineral: "Gangue minerals", environment: "Geological environment",
+  deposit_model: "Deposit model", exploration_significance: "Exploration significance",
+};
+
+// AI Geological Assessment — conclusions each shown with the evidence that
+// produced them (the traceable graph), plus recommendations and uncertainties.
+function AiAnalysis({ sample }: { sample: SampleDetail }) {
+  const a = sample.assessment;
+  if (!a) {
+    return (
+      <Card>
+        <Text style={styles.pendingText}>
+          {sample.status === "ai_processing"
+            ? "AI analysis in progress…"
+            : "AI analysis runs automatically after submission. Pull to refresh."}
+        </Text>
+      </Card>
+    );
+  }
+  const evById = new Map(a.assessment_evidence.map((e) => [e.id, e]));
+  const edgeEv = (cid: string, pol: string): AssessmentEvidence[] =>
+    a.assessment_edge
+      .filter((e) => e.conclusion_id === cid && e.polarity === pol)
+      .map((e) => evById.get(e.evidence_id))
+      .filter((e): e is AssessmentEvidence => !!e);
+  const recs = a.report?.recommendations ?? [];
+  const unc = a.report?.uncertainties ?? [];
+  const missing = a.report?.missingInformation ?? [];
+
+  return (
+    <>
+      {a.overall_confidence != null && (
+        <Card>
+          <View style={styles.detailRow}>
+            <Ionicons name="sparkles-outline" size={16} color={colors.gold} />
+            <Text style={styles.bodyText}>Overall AI confidence: {Math.round(a.overall_confidence)}%</Text>
+          </View>
+        </Card>
+      )}
+      {a.assessment_conclusion.map((c) => {
+        const support = edgeEv(c.id, "supporting");
+        const contra = edgeEv(c.id, "contradicting");
+        return (
+          <Card key={c.id} style={{ marginTop: 8 }}>
+            <View style={styles.conclHeader}>
+              <Text style={styles.conclKind}>{KIND_LABELS[c.kind] ?? c.kind}</Text>
+              {c.confidence != null && (
+                <View style={styles.confPill}><Text style={styles.confPillText}>{Math.round(c.confidence)}%</Text></View>
+              )}
+            </View>
+            <Text style={styles.bodyText}>{c.statement}</Text>
+            <Text style={styles.tag}>{c.is_interpretation ? "interpretation" : "observation"}</Text>
+            {support.length > 0 && (
+              <View style={styles.evBlock}>
+                <Text style={styles.evLabel}>Supporting evidence</Text>
+                {support.map((e) => (
+                  <Text key={e.id} style={styles.evItem}>• {e.statement} <Text style={styles.evSrc}>({e.ev_type})</Text></Text>
+                ))}
+              </View>
+            )}
+            {contra.length > 0 && (
+              <View style={styles.evBlock}>
+                <Text style={[styles.evLabel, { color: colors.danger }]}>Contradicting</Text>
+                {contra.map((e) => <Text key={e.id} style={styles.evItem}>• {e.statement}</Text>)}
+              </View>
+            )}
+          </Card>
+        );
+      })}
+      {recs.length > 0 && (
+        <>
+          <SectionLabel>Recommendations</SectionLabel>
+          <Card>
+            {recs.map((r, i) => (
+              <View key={i} style={styles.detailRow}>
+                <Ionicons name={r.flagged ? "alert-circle-outline" : "arrow-forward-circle-outline"} size={16} color={r.flagged ? colors.danger : colors.gold} />
+                <Text style={styles.bodyText}>{r.action}{r.scaleM ? ` (${r.scaleM} m)` : ""}</Text>
+              </View>
+            ))}
+          </Card>
+        </>
+      )}
+      {(unc.length > 0 || missing.length > 0) && (
+        <>
+          <SectionLabel>Uncertainties & missing data</SectionLabel>
+          <Card>
+            {unc.map((u, i) => <Text key={`u${i}`} style={styles.evItem}>• {u}</Text>)}
+            {missing.map((m, i) => <Text key={`m${i}`} style={[styles.evItem, { color: colors.textFaint }]}>• missing: {m}</Text>)}
+          </Card>
+        </>
+      )}
+      <Text style={styles.traceNote}>Every conclusion is linked to the evidence that produced it.</Text>
+    </>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.lg, paddingBottom: spacing.xxxl },
@@ -168,4 +270,15 @@ const styles = StyleSheet.create({
   chips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   chip: { backgroundColor: colors.goldSoft, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: colors.goldBorder },
   chipText: { ...t.bodySmall, color: colors.text },
+  pendingText: { ...t.body, color: colors.textMuted, fontStyle: "italic" },
+  conclHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
+  conclKind: { ...t.label, color: colors.gold },
+  confPill: { backgroundColor: colors.goldSoft, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1, borderColor: colors.goldBorder },
+  confPillText: { ...t.caption, color: colors.gold, fontWeight: "700" },
+  tag: { ...t.caption, color: colors.textFaint, marginTop: 4, textTransform: "uppercase", letterSpacing: 0.5 },
+  evBlock: { marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
+  evLabel: { ...t.caption, color: colors.success, fontWeight: "700", marginBottom: 3 },
+  evItem: { ...t.bodySmall, color: colors.textMuted, marginBottom: 2 },
+  evSrc: { color: colors.textFaint },
+  traceNote: { ...t.caption, color: colors.textFaint, fontStyle: "italic", marginTop: spacing.md, textAlign: "center" },
 });
