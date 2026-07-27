@@ -136,7 +136,7 @@ export async function submitSample(input: NewSampleInput): Promise<{ sample_id: 
     body: JSON.stringify(input),
   });
   const body = await readBody(res);
-  if (!res.ok) throw new Error(body?.message || body?.error || `Submit failed (${res.status})`);
+  if (!res.ok) throw new Error(body?.detail || body?.message || body?.error || `Submit failed (${res.status})`);
   return body;
 }
 

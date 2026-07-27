@@ -122,16 +122,9 @@ export function buildPayload(body: Record<string, unknown>): Record<string, unkn
   if (contextPhotos === 0) throw new BadRequestError("a field-context photo is required");
   if (closeupPhotos === 0) throw new BadRequestError("a specimen close-up photo is required");
 
-  // Geology (§4): host rock + at least one mineral observation
+  // Geology is OPTIONAL — the AI determines host rock / minerals. The collector may
+  // add them if known, but they never block a submission.
   const obs = (body.observations ?? {}) as Record<string, unknown>;
-  const rock = obs.rock as Record<string, unknown> | null | undefined;
-  if (!rock || typeof rock.rock_class !== "string" || !rock.rock_class.trim()) {
-    throw new BadRequestError("host rock is required");
-  }
-  const minerals = Array.isArray(obs.minerals) ? obs.minerals : [];
-  const namedMinerals = (minerals as Array<Record<string, unknown>>)
-    .filter((m) => typeof m?.mineral === "string" && m.mineral.trim());
-  if (namedMinerals.length === 0) throw new BadRequestError("at least one mineral observation is required");
 
   return {
     name,

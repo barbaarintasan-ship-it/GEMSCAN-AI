@@ -47,8 +47,11 @@ Deno.test("buildPayload enforces every required field (§4/§15)", () => {
   rejects({ ...GOOD, media: [{ role: "surface_closeup", storage_path: "x" }] }); // no context photo
   rejects({ ...GOOD, media: [{ role: "context", storage_path: "x" }] });          // no close-up
   rejects({ ...GOOD, media: [{ role: "bogus", storage_path: "x" }] });            // bad role
-  rejects({ ...GOOD, observations: { minerals: [{ mineral: "quartz" }] } });      // no host rock
-  rejects({ ...GOOD, observations: { rock: { rock_class: "granite" } } });        // no mineral
+});
+Deno.test("buildPayload accepts a sample with NO geology (AI-first)", () => {
+  const p = buildPayload({ ...GOOD, observations: {} });
+  assertEquals(p.name, "Milxa Quartz Vein 01");
+  // geology omitted is fine — required set is just name + GPS + date + photos
 });
 
 Deno.test("POST valid -> 201 and calls createSample", async () => {

@@ -8,6 +8,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, TextInput, ScrollView, StyleSheet, Pressable, Image, Alert, ActivityIndicator } from "react-native";
 import { router, useNavigation } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -53,6 +54,11 @@ export default function NewSampleScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [restored, setRestored] = useState(false);
   const submittedRef = useRef(false);
+  const insets = useSafeAreaInsets();
+  const [gpsSource, setGpsSource] = useState<"gps" | "manual">("gps");
+  const [showManual, setShowManual] = useState(false);
+  const [manualLat, setManualLat] = useState("");
+  const [manualLng, setManualLng] = useState("");
 
   // ── Draft persistence: restore once on mount, then autosave on every change ──
   useEffect(() => {
@@ -81,12 +87,25 @@ export default function NewSampleScreen() {
     setLocating(true);
     try {
       const l = await captureSampleLocation();
-      if (!l) Alert.alert("Location unavailable", "Grant location permission to capture a GPS fix.");
-      if (l) setLoc(l);
+      if (!l) Alert.alert("Location unavailable", "No GPS fix — grant location permission, move to open sky, or enter coordinates manually.");
+      if (l) { setLoc(l); setGpsSource("gps"); }
     } finally {
       setLocating(false);
     }
   }, []);
+
+  // Manual coordinate entry (§2). Accepts "lat, lng" pasted into either field.
+  const applyManual = useCallback(() => {
+    const nums = `${manualLat} ${manualLng}`.match(/-?\d+(\.\d+)?/g)?.map(Number) ?? [];
+    const [la, ln] = nums;
+    if (la == null || ln == null || la < -90 || la > 90 || ln < -180 || ln > 180) {
+      Alert.alert("Invalid coordinates", "Enter a valid latitude (-90 to 90) and longitude (-180 to 180).");
+      return;
+    }
+    setLoc({ lat: la, lng: ln });
+    setGpsSource("manual");
+    setShowManual(false);
+  }, [manualLat, manualLng]);
 
   // Capture a fix on first entry only if we didn't restore one.
   useEffect(() => { if (restored && !loc) grabLocation(); }, [restored]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -138,14 +157,14 @@ export default function NewSampleScreen() {
   }, [mineralDraft]);
 
   // ── Validation (§4): mirrors the server checks; Submit disabled until all pass ─
+  // AI-first: the collector only has to provide name + GPS + photos. Host rock and
+  // minerals are optional — the Geological Intelligence Engine determines them.
   const checks = useMemo(() => [
     { key: "name", label: "Sample name", ok: !!name.trim() },
-    { key: "gps", label: "GPS fix", ok: !!loc },
+    { key: "gps", label: "GPS location", ok: !!loc },
     { key: "context", label: "Field-context photo", ok: photos.length >= 1 },
     { key: "closeup", label: "Specimen close-up photo", ok: photos.length >= 2 },
-    { key: "rock", label: "Host rock", ok: !!rockClass.trim() },
-    { key: "mineral", label: "At least one mineral", ok: minerals.length >= 1 },
-  ], [name, loc, photos.length, rockClass, minerals.length]);
+  ], [name, loc, photos.length]);
   const canSubmit = checks.every((c) => c.ok) && !submitting;
 
   const onSubmit = useCallback(async () => {
@@ -157,10 +176,10 @@ export default function NewSampleScreen() {
 
       const { sample_id } = await submitSample({
         name: name.trim(),
-        lat: loc.lat, lng: loc.lng, gps_accuracy_m: loc.gps_accuracy_m, gps_source: "gps",
+        lat: loc.lat, lng: loc.lng, gps_accuracy_m: loc.gps_accuracy_m, gps_source: gpsSource,
         collected_at: new Date().toISOString(),
         field_observations: notes.trim() || undefined,
-        observations: { rock: { rock_class: rockClass.trim() }, minerals },
+        observations: { rock: rockClass.trim() ? { rock_class: rockClass.trim() } : null, minerals },
         media,
       });
       submittedRef.current = true;
@@ -171,13 +190,17 @@ export default function NewSampleScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [loc, canSubmit, photos, name, notes, rockClass, minerals, clearDraft]);
+  }, [loc, canSubmit, photos, name, notes, rockClass, minerals, gpsSource, clearDraft]);
 
   const collectorName = (session?.user?.user_metadata?.display_name as string | undefined)?.trim()
     || session?.user?.email?.split("@")[0] || "—";
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingBottom: spacing.xxxl + insets.bottom + 24 }]}
+      keyboardShouldPersistTaps="handled"
+    >
       {/* Sample Name (§1) */}
       <SectionLabel>Sample name *</SectionLabel>
       <TextInput
@@ -212,15 +235,44 @@ export default function NewSampleScreen() {
             <Ionicons name="location" size={20} color={colors.gold} />
             <View style={{ flex: 1 }}>
               <Text style={styles.locCoords}>{loc.lat.toFixed(5)}, {loc.lng.toFixed(5)}</Text>
-              <Text style={styles.locAcc}>{loc.gps_accuracy_m != null ? `±${loc.gps_accuracy_m} m accuracy` : "accuracy unknown"}</Text>
+              <Text style={styles.locAcc}>
+                {gpsSource === "manual" ? "entered manually" : loc.gps_accuracy_m != null ? `±${loc.gps_accuracy_m} m accuracy` : "accuracy unknown"}
+              </Text>
             </View>
             <Pressable onPress={grabLocation} hitSlop={8}><Ionicons name="refresh" size={20} color={colors.textMuted} /></Pressable>
           </View>
         ) : (
-          <Pressable style={styles.locRow} onPress={grabLocation}>
+          <View style={styles.locRow}>
             <Ionicons name="location-outline" size={20} color={colors.danger} />
-            <Text style={[styles.locText, { color: colors.danger }]}>No fix — tap to retry</Text>
-          </Pressable>
+            <Text style={[styles.locText, { color: colors.danger, flex: 1 }]}>No GPS fix yet</Text>
+            <Pressable onPress={grabLocation} hitSlop={8}><Ionicons name="refresh" size={20} color={colors.gold} /></Pressable>
+          </View>
+        )}
+
+        <Pressable style={styles.manualToggle} onPress={() => setShowManual((v) => !v)} hitSlop={6}>
+          <Ionicons name={showManual ? "chevron-up" : "create-outline"} size={15} color={colors.textMuted} />
+          <Text style={styles.manualToggleText}>{showManual ? "Hide manual entry" : "Enter coordinates manually"}</Text>
+        </Pressable>
+        {showManual && (
+          <View style={styles.manualBox}>
+            <TextInput
+              style={[styles.input, { marginBottom: spacing.sm }]}
+              value={manualLat}
+              onChangeText={setManualLat}
+              placeholder="latitude  (or paste “lat, lng”)"
+              placeholderTextColor={colors.textFaint}
+            />
+            <View style={styles.inlineRow}>
+              <TextInput
+                style={styles.input}
+                value={manualLng}
+                onChangeText={setManualLng}
+                placeholder="longitude"
+                placeholderTextColor={colors.textFaint}
+              />
+              <Button title="Apply" variant="outline" size="sm" onPress={applyManual} />
+            </View>
+          </View>
         )}
       </Card>
 
@@ -243,8 +295,14 @@ export default function NewSampleScreen() {
         </Pressable>
       </View>
 
-      {/* Host rock (§4 required) */}
-      <SectionLabel>Host rock *</SectionLabel>
+      {/* Optional geology — the AI determines these (§6). */}
+      <View style={styles.aiNote}>
+        <Ionicons name="sparkles-outline" size={15} color={colors.gold} />
+        <Text style={styles.aiNoteText}>Host rock and minerals are optional — the AI identifies them. Add what you know.</Text>
+      </View>
+
+      {/* Host rock (optional) */}
+      <SectionLabel>Host rock (optional)</SectionLabel>
       <TextInput
         style={styles.inputBlock}
         value={rockClass}
@@ -253,8 +311,8 @@ export default function NewSampleScreen() {
         placeholderTextColor={colors.textFaint}
       />
 
-      {/* Minerals */}
-      <SectionLabel>Minerals observed *</SectionLabel>
+      {/* Minerals (optional) */}
+      <SectionLabel>Minerals (optional)</SectionLabel>
       <Card>
         <View style={styles.inlineRow}>
           <TextInput
@@ -322,6 +380,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.lg, paddingBottom: spacing.xxxl },
   hint: { ...t.caption, marginBottom: spacing.sm },
+  manualToggle: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
+  manualToggleText: { ...t.bodySmall, color: colors.textMuted },
+  manualBox: { marginTop: spacing.sm },
+  aiNote: { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: colors.goldSoft, borderRadius: radius.md, borderWidth: 1, borderColor: colors.goldBorder, padding: spacing.md, marginTop: spacing.md },
+  aiNoteText: { ...t.bodySmall, color: colors.text, flex: 1 },
   locRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   locText: { ...t.body },
   locCoords: { ...t.subheading },

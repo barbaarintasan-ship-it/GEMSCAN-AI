@@ -37,11 +37,9 @@ export function errorResponse(err: unknown): Response {
   if (err instanceof EnterpriseError) {
     return json({ error: err.message, code: err.code }, err.status);
   }
-  // Unknown/unexpected: log server-side, return an opaque 500.
-  console.error(JSON.stringify({
-    level: "error",
-    scope: "enterprise",
-    message: (err as Error)?.message ?? String(err),
-  }));
-  return json({ error: "internal error", code: "internal" }, 500);
+  // Unknown/unexpected: log server-side, and (owner beta) surface the message as
+  // `detail` so the field tester can report the real cause instead of "internal error".
+  const detail = (err as Error)?.message ?? String(err);
+  console.error(JSON.stringify({ level: "error", scope: "enterprise", message: detail }));
+  return json({ error: "internal error", code: "internal", detail }, 500);
 }
