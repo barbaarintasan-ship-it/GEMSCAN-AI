@@ -261,12 +261,51 @@
       "checksum": "beaafe46539e29eeb55af3c12a66b00b30e516abfac44eb1097b6269a8d0e83d",
       "source_confidence": "primary",
       "scientific_weight": 5,
-      "fileSize": 656209,
+      "fileSize": 4680381,
       "snapshotVersion": "v1",
       "storageLocation": "raw/beaafe46539e29eeb55af3c12a66b00b30e516abfac44eb1097b6269a8d0e83d.pdf",
       "collectionTimestamp": "2026-07-27T05:17:47.587482+00:00",
       "availability": "available",
-      "validationNote": "text layer present"
+      "validationNote": "OFR 82-788: report + 4 map plates (plates image-only -> georeference/OCR)",
+      "files": [
+        {
+          "label": "OFR 82-788 report",
+          "sha256": "beaafe46539e29eeb55af3c12a66b00b30e516abfac44eb1097b6269a8d0e83d",
+          "bytes": 656209,
+          "storageLocation": "raw/beaafe46539e29eeb55af3c12a66b00b30e516abfac44eb1097b6269a8d0e83d.pdf",
+          "extractionReady": true
+        },
+        {
+          "label": "OFR 82-788 plate-1 (map plate, image-only)",
+          "sha256": "62d9a9ffe7ca3d69b9e15367ba6786ed33adcce8b1a748468c638f1926e69ea1",
+          "bytes": 2419516,
+          "storageLocation": "raw/62d9a9ffe7ca3d69b9e15367ba6786ed33adcce8b1a748468c638f1926e69ea1.pdf",
+          "extractionReady": true
+        },
+        {
+          "label": "OFR 82-788 plate-2 (map plate, image-only)",
+          "sha256": "106024385c60b9b9e19205dbaa5504c3d2543681242bed505a70e30e108591a7",
+          "bytes": 810702,
+          "storageLocation": "raw/106024385c60b9b9e19205dbaa5504c3d2543681242bed505a70e30e108591a7.pdf",
+          "extractionReady": true
+        },
+        {
+          "label": "OFR 82-788 plate-3 (map plate, image-only)",
+          "sha256": "84e8bf5849587954dface183d39ad7efea5dbd2c6a060ad2aa8bf12ee5ae96ee",
+          "bytes": 425530,
+          "storageLocation": "raw/84e8bf5849587954dface183d39ad7efea5dbd2c6a060ad2aa8bf12ee5ae96ee.pdf",
+          "extractionReady": true
+        },
+        {
+          "label": "OFR 82-788 plate-4 (map plate, image-only)",
+          "sha256": "ad91724f4f40280f2d302fd3600dd06e30005e80c344c1ba280bc566ade65b38",
+          "bytes": 368424,
+          "storageLocation": "raw/ad91724f4f40280f2d302fd3600dd06e30005e80c344c1ba280bc566ade65b38.pdf",
+          "extractionReady": true
+        }
+      ],
+      "fileCount": 5,
+      "collectionMethod": "mixed"
     },
     {
       "id": "LSC-0003",
@@ -968,21 +1007,24 @@
       ],
       "collectionPriority": "P1",
       "qualityTier": "T1",
-      "extractionReady": false,
+      "extractionReady": true,
       "relations": [
         {
           "rel": "subset-of",
           "target": "LSC-0018"
         }
       ],
-      "status": "derived",
-      "checksum": null,
+      "status": "collected",
+      "checksum": "c5f8f5aadcd50193d7ef917acb15c4136cc21a8101c5a81ffaeec7c9be5052dc",
       "source_confidence": "primary",
       "scientific_weight": 5,
-      "collectionTimestamp": "2026-07-27T05:39:30.512184+00:00",
-      "availability": "derive-at-processing-time",
-      "validationNote": "Africa subset derived by filtering MRDS (LSC-0018); not a separate download",
-      "derivedFrom": "LSC-0018"
+      "collectionTimestamp": "2026-07-27T09:30:10.367259+00:00",
+      "availability": "available",
+      "validationNote": "Somalia MRDS shapefile extract (derived-from LSC-0018): shp/shx/dbf/prj present",
+      "fileSize": 19447,
+      "storageLocation": "raw/c5f8f5aadcd50193d7ef917acb15c4136cc21a8101c5a81ffaeec7c9be5052dc.zip",
+      "snapshotVersion": "v1",
+      "collectionMethod": "manual"
     },
     {
       "id": "LSC-0020",
@@ -1064,10 +1106,16 @@
           "target": "LSC-0020"
         }
       ],
-      "status": "available-not-downloaded",
-      "availability": "available-not-downloaded",
+      "status": "collected-but-invalid",
+      "availability": "collected-invalid",
       "fileSize": 489908250,
-      "checksum": null
+      "checksum": "f4bf2e50691b7fdc373292072e7f4539e87cfeff42e68c28e98a58ddc3d4fd78",
+      "storageLocation": "C:/Users/awmus/OneDrive/Documents/GEMSCAN AI/Africa_GIS Supporting Data.zip",
+      "inPlace": true,
+      "snapshotVersion": "v1",
+      "collectionTimestamp": "2026-07-27T09:30:10.354780+00:00",
+      "collectionMethod": "manual",
+      "validationNote": "INVALID: zip End-of-Central-Directory missing (truncated/corrupt download) — re-download from ScienceBase"
     },
     {
       "id": "LSC-0021",
