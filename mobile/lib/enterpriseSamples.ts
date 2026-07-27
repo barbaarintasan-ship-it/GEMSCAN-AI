@@ -91,7 +91,10 @@ export async function uploadSampleMedia(uri: string, role: MediaRole): Promise<S
   } = await supabase.auth.getUser();
   if (!user) throw new Error("You must be signed in.");
   const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-  const path = `enterprise/${user.id}/${Date.now()}-${role}.jpg`;
+  // scan-images Storage RLS requires the FIRST path segment to equal the user's
+  // uid (scan_images_storage_insert_own / _select_own). Keep {userId} first, then
+  // namespace enterprise media under it so both upload and signed-URL read pass.
+  const path = `${user.id}/enterprise/${Date.now()}-${role}.jpg`;
   const { error } = await supabase.storage
     .from("scan-images")
     .upload(path, decode(base64), { contentType: "image/jpeg", upsert: true });
