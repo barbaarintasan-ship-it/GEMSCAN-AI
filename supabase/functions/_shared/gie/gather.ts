@@ -6,7 +6,7 @@
 // testable with no DB; runProviders is the thin, failure-isolated orchestration.
 // Missing datasets simply contribute nothing and lower confidence downstream —
 // no special-casing needed (Principle #5).
-import type { EvidenceType, EvidenceNode, EvidenceSet, SampleInput } from "./types.ts";
+import type { EvidenceType, EvidenceNode, EvidenceInput, EvidenceSet, SampleInput } from "./types.ts";
 import type { GeoContextProvider, ProviderContribution, GeoQuery } from "../geocontext/types.ts";
 
 // Provider name → evidence type.
@@ -18,7 +18,7 @@ const PROVIDER_EV_TYPE: Record<string, EvidenceType> = {
   community: "prior_sample",
 };
 
-type RawNode = Omit<EvidenceNode, "id">;
+type RawNode = EvidenceInput;
 
 // ── Field evidence (the sample itself) — direct observations ─────────────────
 export function fieldEvidence(s: SampleInput): RawNode[] {

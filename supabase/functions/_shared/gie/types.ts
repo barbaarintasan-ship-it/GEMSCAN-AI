@@ -45,6 +45,9 @@ export interface SampleInput {
   structural: Array<{ structureType?: string | null; strikeDeg?: number | null; dipDeg?: number | null; dipDirection?: number | null }>;
 }
 
+// An evidence item before it gets its stable id (produced by each gatherer stage).
+export type EvidenceInput = Omit<EvidenceNode, "id">;
+
 export interface EvidenceSet {
   nodes: EvidenceNode[];
   providersRun: string[];
