@@ -1,0 +1,28 @@
+{
+  "track": "Institutional Outreach",
+  "purpose": "Worklist for sources with no lawful automated download (T-INST). Entries are actioned by outreach (ILL / document-delivery / reading-room / direct institutional request) — NOT automated collection. No messages are sent by the pipeline; this only records status.",
+  "updated": "2026-07-27",
+  "statusVocab": ["pending-outreach", "request-drafted", "request-sent", "in-progress", "obtained", "unavailable"],
+  "entries": [
+    {
+      "id": "LSC-0045",
+      "title": "Геология и полезные ископаемые докембрия Сомали (Kononov 1976)",
+      "priority": "P0-Critical",
+      "language": "ru",
+      "physicalHolding": "Russian National Library (РНБ), St. Petersburg",
+      "digitalRecord": "https://rusneb.ru/catalog/000200_000018_rc_3162770/ (НЭБ — catalog-only, reading-room gated)",
+      "issuingInstitution": "Institute of Geochemistry & Physics of Minerals, AN USSR, Kyiv (1976 preprint)",
+      "acquisitionPaths": [
+        "Authorized НЭБ / РНБ reading-room digitization request",
+        "РНБ or РГБ official document-delivery / interlibrary loan (ILL)",
+        "Direct request to the issuing institute (IGFM, Kyiv) or its successor"
+      ],
+      "evidenceRef": "docs/corpus/LSC-0045_ACQUISITION_EVIDENCE.md",
+      "status": "pending-outreach",
+      "loggedAt": "2026-07-27",
+      "nextAction": "Owner to initiate an ILL / document-delivery request via РНБ/РГБ, or a reading-room digitization request (draft available on request).",
+      "notes": "Exhaustive lawful search found no downloadable copy. On obtaining a lawful copy, run the standard Physical Collection workflow and write collection-state back to the registry."
+    }
+  ],
+  "backlog_note": "The other 21 T-INST registry items (GEOSOM/Somali Geol. Survey series, UNRFNRE, Rosgeolfond/VSEGEI, GEOSOM-87 Florence proceedings, Merla/Abbate map, ISPRA/CNR, BGR, NGAC, OAGS/PanAfGeo/AMGI/GIRAF, ProQuest) also belong to this track and can be enrolled here on request."
+}

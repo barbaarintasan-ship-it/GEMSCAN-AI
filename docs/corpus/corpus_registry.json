@@ -1828,9 +1828,10 @@
       "scientific_weight": 5,
       "pageCount": 41,
       "acquisitionTrack": "institutional-request",
-      "acquisitionStatus": "no-lawful-digital-copy-found",
+      "acquisitionStatus": "pending-institutional-outreach",
       "availability": "restricted-physical",
-      "acquisitionEvidence": "docs/corpus/LSC-0045_ACQUISITION_EVIDENCE.md"
+      "acquisitionEvidence": "docs/corpus/LSC-0045_ACQUISITION_EVIDENCE.md",
+      "outreachRef": "docs/corpus/institutional_outreach.json"
     },
     {
       "id": "LSC-0046",
