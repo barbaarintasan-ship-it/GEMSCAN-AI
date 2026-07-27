@@ -18,24 +18,44 @@ function base(over: Partial<Deps> = {}): Deps {
 function req(method: string, body?: unknown, path = "https://x/enterprise-samples") {
   return new Request(path, { method, body: body ? JSON.stringify(body) : undefined, headers: { "content-type": "application/json" } });
 }
-const GOOD = { lat: 2.05, lng: 45.32, media: [{ role: "context", storage_path: "s/c.jpg" }], observations: { minerals: [{ mineral: "quartz" }] } };
+const GOOD = {
+  name: "Milxa Quartz Vein 01",
+  lat: 2.05, lng: 45.32, collected_at: "2026-07-27T10:00:00Z",
+  media: [
+    { role: "context", storage_path: "u/e/ctx.jpg" },
+    { role: "surface_closeup", storage_path: "u/e/close.jpg" },
+  ],
+  observations: { rock: { rock_class: "granite" }, minerals: [{ mineral: "quartz" }] },
+};
+const rejects = (body: unknown) => {
+  let threw = false;
+  try { buildPayload(body as Record<string, unknown>); } catch { threw = true; }
+  assert(threw);
+};
 
 Deno.test("buildPayload validates + computes h3", () => {
   const p = buildPayload(GOOD);
   assertEquals(p.lat, 2.05);
+  assertEquals(p.name, "Milxa Quartz Vein 01");
   assert(typeof p.h3_cell === "string" && (p.h3_cell as string).length > 0);
 });
-Deno.test("buildPayload rejects missing/out-of-range lat/lng and bad media", () => {
-  let threw = false; try { buildPayload({ lng: 45 }); } catch { threw = true; } assert(threw);
-  threw = false; try { buildPayload({ lat: 999, lng: 45 }); } catch { threw = true; } assert(threw);
-  threw = false; try { buildPayload({ lat: 2, lng: 45, media: [{ role: "bogus", storage_path: "x" }] }); } catch { threw = true; } assert(threw);
+Deno.test("buildPayload enforces every required field (§4/§15)", () => {
+  rejects({ ...GOOD, name: "   " });                                   // no name
+  rejects({ ...GOOD, lat: undefined });                               // no gps
+  rejects({ ...GOOD, lat: 999 });                                     // gps out of range
+  rejects({ ...GOOD, collected_at: undefined });                      // no date
+  rejects({ ...GOOD, media: [{ role: "surface_closeup", storage_path: "x" }] }); // no context photo
+  rejects({ ...GOOD, media: [{ role: "context", storage_path: "x" }] });          // no close-up
+  rejects({ ...GOOD, media: [{ role: "bogus", storage_path: "x" }] });            // bad role
+  rejects({ ...GOOD, observations: { minerals: [{ mineral: "quartz" }] } });      // no host rock
+  rejects({ ...GOOD, observations: { rock: { rock_class: "granite" } } });        // no mineral
 });
 
 Deno.test("POST valid -> 201 and calls createSample", async () => {
   let called = false;
   const r = await handleSamples(req("POST", GOOD), base({ createSample: async (_a, p) => { called = true; return { sample_id: "s1", media_count: (p.media as unknown[]).length }; } }));
   assertEquals(r.status, 201); assert(called);
-  const b = await r.json(); assertEquals(b.sample_id, "s1"); assertEquals(b.media_count, 1);
+  const b = await r.json(); assertEquals(b.sample_id, "s1"); assertEquals(b.media_count, 2);
 });
 Deno.test("POST missing lat/lng -> 400", async () => {
   const r = await handleSamples(req("POST", { media: [] }), base());

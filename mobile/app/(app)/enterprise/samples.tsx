@@ -63,7 +63,7 @@ export default function MySamplesScreen() {
             <Pressable style={styles.row} onPress={() => router.push(`/(app)/enterprise/sample/${item.id}`)}>
               <View style={styles.rowIcon}><Ionicons name="cube-outline" size={20} color={colors.gold} /></View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.rowTitle}>Sample {item.id.slice(0, 8)}</Text>
+                <Text style={styles.rowTitle} numberOfLines={1}>{item.name || `Sample ${item.id.slice(0, 8)}`}</Text>
                 <Text style={styles.rowMeta}>{new Date(item.collected_at).toLocaleString()}</Text>
               </View>
               <View style={styles.statusPill}>

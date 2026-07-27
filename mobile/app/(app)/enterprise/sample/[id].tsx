@@ -56,13 +56,14 @@ export default function SampleDetailScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Sample {sample.id.slice(0, 8)}</Text>
+      <Text style={styles.title}>{sample.name || `Sample ${sample.id.slice(0, 8)}`}</Text>
       <Text style={styles.subtitle}>Collected {new Date(sample.collected_at).toLocaleString()}</Text>
 
       <View style={styles.badges}>
-        <Badge label={sample.status} />
-        {sample.completeness_status && <Badge label={sample.completeness_status} />}
-        {sample.confidence_score != null && <Badge label={`confidence ${Math.round(sample.confidence_score * 100)}%`} />}
+        <Badge label={statusLabel(sample.status)} />
+        {sample.ai_confidence != null && <Badge label={`AI ${Math.round(sample.ai_confidence)}%`} />}
+        {sample.geologist_confidence != null && <Badge label={`Geologist ${Math.round(sample.geologist_confidence)}%`} />}
+        {sample.completeness_score != null && <Badge label={`${Math.round(sample.completeness_score)}/100 complete`} />}
       </View>
 
       {loc && (
@@ -123,6 +124,18 @@ export default function SampleDetailScreen() {
       )}
     </ScrollView>
   );
+}
+
+// Human-friendly status labels for the production lifecycle (§13).
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Draft", ready: "Ready", uploading: "Uploading", ai_processing: "AI Processing",
+  ai_completed: "AI Completed", awaiting_review: "Waiting for Geologist", verified: "Verified",
+  needs_more_data: "Needs More Data", rejected: "Rejected", submitted: "Submitted",
+  community_confirmed: "Community Confirmed", expert_verified: "Expert Verified",
+  lab_verified: "Lab Verified", held: "Held",
+};
+function statusLabel(s: string): string {
+  return STATUS_LABELS[s] ?? s.replace(/_/g, " ");
 }
 
 function Badge({ label }: { label: string }) {

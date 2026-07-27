@@ -33,11 +33,13 @@ export type SampleMediaInput = { role: MediaRole; storage_path: string; thumb_pa
 export type MineralObservationInput = { mineral: string; confidence?: number };
 
 export type NewSampleInput = {
+  name: string;
   lat: number;
   lng: number;
   gps_accuracy_m?: number;
   altitude_m?: number;
   gps_source?: "gps" | "fused" | "network" | "manual";
+  collected_at?: string;
   field_observations?: string;
   observations?: {
     rock?: { rock_class?: string; texture?: string; notes?: string } | null;
@@ -49,9 +51,13 @@ export type NewSampleInput = {
 // Shapes returned by the API (a subset — enough for the beta screens).
 export type SampleListRow = {
   id: string;
+  name: string | null;
   collected_at: string;
   status: string;
   completeness_status: string | null;
+  completeness_score: number | null;
+  ai_confidence: number | null;
+  geologist_confidence: number | null;
   confidence_score: number | null;
   area_id: string;
   created_at: string;
