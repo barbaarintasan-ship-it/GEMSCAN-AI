@@ -49,3 +49,24 @@ export function requireRole(actor: Actor, ...roles: string[]): void {
 export function requireAdmin(actor: Actor): void {
   if (!isAdmin(actor)) throw new ForbiddenError("requires admin");
 }
+
+// ── Review Console RBAC (S2) ────────────────────────────────────────────────
+// Reviewer roles may review/correct AI conclusions; only senior/chief (+admin)
+// give the binding VERIFY. reviewer_role is otherwise free text (future disciplines:
+// gis_analyst, metallurgist, environmental_specialist, external_consultant) — those
+// are added to REVIEW_ROLES when introduced, no schema change.
+export const REVIEW_ROLES = ["geologist", "senior_geologist", "chief_geologist", "admin"];
+export const VERIFY_ROLES = ["senior_geologist", "chief_geologist", "admin"];
+
+export function canReview(actor: Actor): boolean {
+  return isOwner(actor) || REVIEW_ROLES.includes(actor.role ?? "");
+}
+export function canVerify(actor: Actor): boolean {
+  return isOwner(actor) || VERIFY_ROLES.includes(actor.role ?? "");
+}
+export function requireReviewer(actor: Actor): void {
+  if (!canReview(actor)) throw new ForbiddenError("requires a reviewer role (geologist+)");
+}
+export function requireVerifier(actor: Actor): void {
+  if (!canVerify(actor)) throw new ForbiddenError("only a senior/chief geologist can verify");
+}
