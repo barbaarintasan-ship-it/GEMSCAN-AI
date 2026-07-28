@@ -59,9 +59,13 @@ export async function handleAnalyze(req: Request, deps: AnalyzeDeps = defaultDep
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const sampleId = typeof body.sample_id === "string" ? body.sample_id : "";
     if (!sampleId) throw new BadRequestError("sample_id is required");
+    // force = an explicit re-analysis (owner or geologist). It re-gathers evidence
+    // fresh (picking up any newly loaded data), bypasses the per-day auto-run cap,
+    // and writes a NEW assessment instead of reusing the idempotent one.
+    const force = body.force === true;
 
-    // Cost guard: auto-run is bounded per day.
-    if ((await deps.countToday()) >= deps.dailyCap) {
+    // Cost guard: only the automatic post-submit run is bounded per day.
+    if (!force && (await deps.countToday()) >= deps.dailyCap) {
       return json({ skipped: "daily_cap", cap: deps.dailyCap }, 200);
     }
 
@@ -83,8 +87,11 @@ export async function handleAnalyze(req: Request, deps: AnalyzeDeps = defaultDep
     const assessment = assembleAssessment(set, reasoning);
 
     // PERSIST
+    // A forced re-run gets a unique hash so it writes a fresh assessment (history
+    // preserved) instead of returning the idempotent one.
+    const inputHash = force ? `${loaded.inputHash}-${Date.now()}` : loaded.inputHash;
     const result = await deps.saveAssessment(sampleId, loaded.actorId, {
-      ...assessment, engineVersion: ENGINE_VERSION, model: MODEL, inputHash: loaded.inputHash,
+      ...assessment, engineVersion: ENGINE_VERSION, model: MODEL, inputHash,
     });
 
     return json({

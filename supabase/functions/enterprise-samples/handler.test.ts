@@ -12,6 +12,7 @@ function base(over: Partial<Deps> = {}): Deps {
     createSample: async (_a, p) => ({ sample_id: "s1", area_id: "a1", media_count: (p.media as unknown[]).length, sample: { id: "s1" } }),
     listSamples: async () => [{ id: "s1" }, { id: "s2" }],
     getSample: async (_r, _a, id) => (id === "s1" ? { id: "s1", sample_media: [] } : null),
+    reanalyze: async () => {},
     ...over,
   };
 }
@@ -83,6 +84,19 @@ Deno.test("GET :id found -> 200", async () => {
 Deno.test("GET :id not found -> 404", async () => {
   const r = await handleSamples(req("GET", undefined, "https://x/enterprise-samples/zzz"), base());
   assertEquals(r.status, 404);
+});
+Deno.test("POST :id -> 202 re-analyzes a visible sample", async () => {
+  let reran = "";
+  const r = await handleSamples(req("POST", undefined, "https://x/enterprise-samples/s1"), base({ reanalyze: async (_a, id) => { reran = id; } }));
+  assertEquals(r.status, 202);
+  assertEquals(reran, "s1");
+  assertEquals((await r.json()).status, "reanalyzing");
+});
+Deno.test("POST :id on an invisible sample -> 404 (no re-analysis)", async () => {
+  let reran = false;
+  const r = await handleSamples(req("POST", undefined, "https://x/enterprise-samples/zzz"), base({ reanalyze: async () => { reran = true; } }));
+  assertEquals(r.status, 404);
+  assert(!reran);
 });
 Deno.test("OPTIONS -> 200", async () => {
   assertEquals((await handleSamples(req("OPTIONS"), base())).status, 200);

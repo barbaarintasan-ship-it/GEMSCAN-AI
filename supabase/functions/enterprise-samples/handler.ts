@@ -32,6 +32,7 @@ export interface Deps {
   createSample: (actor: Actor, payload: Record<string, unknown>) => Promise<unknown>;
   listSamples: (req: Request, actor: Actor) => Promise<unknown>;
   getSample: (req: Request, actor: Actor, id: string) => Promise<unknown | null>;
+  reanalyze: (actor: Actor, id: string) => Promise<void>;
 }
 
 export const defaultDeps: Deps = {
@@ -57,6 +58,7 @@ export const defaultDeps: Deps = {
     if (error) throw new Error(`list: ${error.message}`);
     return data ?? [];
   },
+  reanalyze: (_actor, id) => { triggerAnalysis(id, true); return Promise.resolve(); },
   getSample: async (req, actor, id) => {
     const { data } = await userClient(req).from("sample").select(DETAIL).eq("id", id).maybeSingle();
     if (!data) return null;
@@ -79,14 +81,14 @@ function num(v: unknown): number | null {
 // Fire-and-forget: kick off analyze-sample right after a submit. Non-blocking so
 // the submit response stays fast; EdgeRuntime.waitUntil keeps it alive past the
 // response. analyze-sample is idempotent + daily-capped, so this is safe to retry.
-function triggerAnalysis(sampleId: string): void {
+function triggerAnalysis(sampleId: string, force = false): void {
   const url = Deno.env.get("SUPABASE_URL");
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !key) return;
   const p = fetch(`${url}/functions/v1/analyze-sample`, {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "content-type": "application/json" },
-    body: JSON.stringify({ sample_id: sampleId }),
+    body: JSON.stringify({ sample_id: sampleId, force }),
   }).then(() => {}).catch(() => {});
   // deno-lint-ignore no-explicit-any
   const er = (globalThis as any).EdgeRuntime;
@@ -150,6 +152,14 @@ export async function handleSamples(req: Request, deps: Deps = defaultDeps): Pro
     const idx = parts.indexOf("enterprise-samples");
     const id = idx >= 0 && parts[idx + 1] ? parts[idx + 1] : (parts.length && parts[parts.length - 1] !== "enterprise-samples" ? parts[parts.length - 1] : null);
 
+    // POST /enterprise-samples/:id → force a re-analysis of that sample (owner or,
+    // later, a geologist). Only samples the caller can read (RLS) can be re-run.
+    if (req.method === "POST" && id) {
+      const s = await deps.getSample(req, actor, id);
+      if (!s) throw new NotFoundError("sample not found");
+      await deps.reanalyze(actor, id);
+      return json({ status: "reanalyzing", sample_id: id }, 202);
+    }
     if (req.method === "POST") {
       const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
       const created = await deps.createSample(actor, buildPayload(body));

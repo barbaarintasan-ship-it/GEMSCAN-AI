@@ -148,6 +148,14 @@ export async function listSamples(): Promise<SampleListRow[]> {
   return body.samples ?? [];
 }
 
+/** POST /enterprise-samples/:id — force a fresh AI re-analysis (picks up newly
+ *  loaded data). Runs in the background; refresh the sample shortly after. */
+export async function reanalyzeSample(id: string): Promise<void> {
+  const res = await fetch(`${FUNCTIONS_URL}/enterprise-samples/${id}`, { method: "POST", headers: await authHeader() });
+  const body = await readBody(res);
+  if (!res.ok) throw new Error(body?.detail || body?.message || body?.error || `Re-analyze failed (${res.status})`);
+}
+
 /** GET /enterprise-samples/:id — one sample with nested detail (RLS-scoped). */
 export async function getSample(id: string): Promise<SampleDetail> {
   const res = await fetch(`${FUNCTIONS_URL}/enterprise-samples/${id}`, { headers: await authHeader() });

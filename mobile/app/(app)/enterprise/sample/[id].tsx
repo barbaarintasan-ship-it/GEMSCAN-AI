@@ -3,7 +3,7 @@
 // RLS-scoped). Shows GPS, photos, minerals and rock/field notes — enough to
 // confirm the submission round-tripped. No edit/verify/community actions.
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Image } from "react-native";
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Image, RefreshControl, Pressable, Alert } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { Ionicons } from "@expo/vector-icons";
@@ -11,7 +11,7 @@ import { supabase } from "../../../../lib/supabase";
 import { colors, spacing, radius, type as t } from "../../../../lib/theme";
 import { Card } from "../../../../components/ui/Card";
 import { SectionLabel } from "../../../../components/ui/SectionLabel";
-import { getSample, type SampleDetail, type AssessmentEvidence } from "../../../../lib/enterpriseSamples";
+import { getSample, reanalyzeSample, type SampleDetail, type AssessmentEvidence } from "../../../../lib/enterpriseSamples";
 
 export default function SampleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -20,10 +20,12 @@ export default function SampleDetailScreen() {
   const [sample, setSample] = useState<SampleDetail | null>(null);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [reanalyzing, setReanalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (isRefresh = false) => {
+    isRefresh ? setRefreshing(true) : setLoading(true);
     setError(null);
     try {
       const s = await getSample(String(id));
@@ -38,11 +40,27 @@ export default function SampleDetailScreen() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load sample.");
     } finally {
-      setLoading(false);
+      isRefresh ? setRefreshing(false) : setLoading(false);
     }
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Force a fresh AI re-analysis (picks up newly loaded data, e.g. MRDS).
+  const onReanalyze = useCallback(async () => {
+    setReanalyzing(true);
+    try {
+      await reanalyzeSample(String(id));
+      Alert.alert(
+        so ? "Dib-u-falanqayn bilaabatay" : "Re-analysis started",
+        so ? "AI-gu wuu dib u xisaabinayaa. Daqiiqad ka dib hoos u jiid si aad u aragto natiijada cusub." : "The AI is re-analyzing. Pull to refresh in a moment to see the updated result.",
+      );
+    } catch (e) {
+      Alert.alert("Re-analyze failed", e instanceof Error ? e.message : "Unknown error");
+    } finally {
+      setReanalyzing(false);
+    }
+  }, [id, so]);
 
   if (loading) return <View style={styles.center}><ActivityIndicator color={colors.gold} /></View>;
   if (error || !sample) {
@@ -58,7 +76,11 @@ export default function SampleDetailScreen() {
   const rock = sample.rock_observation?.[0];
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.gold} />}
+    >
       <Text style={styles.title}>{sample.name || `Sample ${sample.id.slice(0, 8)}`}</Text>
       <Text style={styles.subtitle}>Collected {new Date(sample.collected_at).toLocaleString()}</Text>
 
@@ -127,7 +149,15 @@ export default function SampleDetailScreen() {
       )}
 
       {/* AI Geological Assessment (§6/§7/§10/§11) */}
-      <SectionLabel>{so ? "Falanqaynta Juqraafi ee AI" : "AI Geological Analysis"}</SectionLabel>
+      <View style={styles.aiHeader}>
+        <SectionLabel>{so ? "Falanqaynta Juqraafi ee AI" : "AI Geological Analysis"}</SectionLabel>
+        <Pressable style={styles.reBtn} onPress={onReanalyze} disabled={reanalyzing} hitSlop={6}>
+          {reanalyzing
+            ? <ActivityIndicator color={colors.gold} size="small" />
+            : <Ionicons name="refresh" size={15} color={colors.gold} />}
+          <Text style={styles.reBtnText}>{so ? "Dib u falanqee" : "Re-analyze"}</Text>
+        </Pressable>
+      </View>
       <AiAnalysis sample={sample} so={so} />
     </ScrollView>
   );
@@ -280,6 +310,9 @@ const styles = StyleSheet.create({
   chips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   chip: { backgroundColor: colors.goldSoft, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: colors.goldBorder },
   chipText: { ...t.bodySmall, color: colors.text },
+  aiHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  reBtn: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: colors.goldSoft, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: colors.goldBorder },
+  reBtnText: { ...t.caption, color: colors.gold, fontWeight: "700" },
   pendingText: { ...t.body, color: colors.textMuted, fontStyle: "italic" },
   conclHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
   conclKind: { ...t.label, color: colors.gold },
