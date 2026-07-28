@@ -196,9 +196,10 @@ export default function NewSampleScreen() {
     || session?.user?.email?.split("@")[0] || "—";
 
   return (
+    <View style={styles.screen}>
     <ScrollView
       style={styles.container}
-      contentContainerStyle={[styles.content, { paddingBottom: spacing.xxxl + insets.bottom + 24 }]}
+      contentContainerStyle={[styles.content, { paddingBottom: spacing.xl }]}
       keyboardShouldPersistTaps="handled"
     >
       {/* Sample Name (§1) */}
@@ -364,21 +365,36 @@ export default function NewSampleScreen() {
         ))}
       </Card>
 
+    </ScrollView>
+
+    {/* Sticky action bar — Submit is always visible, above the nav bar (§16). */}
+    <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
+      {!canSubmit && (
+        <Text style={styles.footerHint}>
+          {checks.filter((c) => !c.ok).length} of {checks.length} required left
+        </Text>
+      )}
       <Button
         title={submitting ? "Submitting…" : "Submit Sample"}
         variant="primary"
         loading={submitting}
         disabled={!canSubmit}
         onPress={onSubmit}
-        style={{ marginTop: spacing.xl }}
       />
-    </ScrollView>
+    </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.bg },
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.lg, paddingBottom: spacing.xxxl },
+  footer: {
+    paddingHorizontal: spacing.lg, paddingTop: spacing.md,
+    backgroundColor: colors.bg, borderTopWidth: 1, borderTopColor: colors.border,
+  },
+  footerHint: { ...t.caption, color: colors.textFaint, textAlign: "center", marginBottom: spacing.sm },
   hint: { ...t.caption, marginBottom: spacing.sm },
   manualToggle: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
   manualToggleText: { ...t.bodySmall, color: colors.textMuted },
