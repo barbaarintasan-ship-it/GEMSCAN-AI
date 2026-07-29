@@ -3,9 +3,11 @@
 // recent stage log so scanner failures are inspectable on any device without a
 // wired debugger.
 import React, { useEffect, useState } from "react";
-import { View, Text, Pressable, ScrollView, StyleSheet } from "react-native";
+import { View, Text, Pressable, ScrollView, StyleSheet, Share, Platform } from "react-native";
 import { Stack } from "expo-router";
 import { diag, type GpuState } from "../../lib/diagnostics";
+import { FieldSessionProvider, useFieldSession } from "../../lib/field/provider";
+import { WALKING_PROFILE, HEADING_MIN_DELTA_DEG, HEADING_MIN_INTERVAL_MS } from "../../lib/field/types";
 
 const GPU_COLOR: Record<GpuState, string> = {
   unknown: "#C9A227",
@@ -78,11 +80,132 @@ export default function DebugScreen() {
         )}
       </View>
 
+      {/* Field Exploration Engine — Phase 1 dev diagnostics (spec Part 11).
+          Dev-only, twice-gated: hidden screen AND compiled out of release. */}
+      {__DEV__ && (
+        <FieldSessionProvider>
+          <FieldEngineSection />
+        </FieldSessionProvider>
+      )}
+
       <Text style={styles.note}>
         This screen is diagnostic only. GPU/OpenGL failures automatically switch the
         scanner to CPU-only; they never block scanning.
       </Text>
     </ScrollView>
+  );
+}
+
+// ── Field Engine (P1) dev section — reads controller + recorder snapshots ────
+function FieldEngineSection() {
+  const { snapshot: s, controller, actions } = useFieldSession();
+  const rec = controller.recorder;
+  const m = s.machine;
+  const subs = controller.subscriptionCounts();
+  const counters = rec.getCounters();
+  const timings = rec.getTimings();
+  const acc = rec.getAccuracyStats();
+  const audit = rec.getLastAudit();
+  const trip = rec.tripwireStatus();
+  const hCounts = controller.heading.counts();
+
+  const fixAge = s.lastFix ? Math.round((Date.now() - s.lastFix.timestamp) / 1000) : null;
+  const stateLabel = `${m.state}${m.pausedBy ? ` (${m.pausedBy})` : ""}${m.errorCode ? ` [${m.errorCode}]` : ""}`;
+
+  const onExport = () => {
+    void Share.share({
+      message: rec.export({
+        device: { os: Platform.OS, version: String(Platform.Version) },
+        configEcho: {
+          profile: WALKING_PROFILE,
+          headingGate: { minDeltaDeg: HEADING_MIN_DELTA_DEG, minIntervalMs: HEADING_MIN_INTERVAL_MS },
+        },
+        session: {
+          id: s.sessionId, state: stateLabel, fixCount: s.fixCount,
+          headingSupported: s.headingSupported, degradedAccuracy: s.degradedAccuracy,
+        },
+      }),
+    });
+  };
+
+  const fieldRows: [string, string][] = [
+    ["Session state", stateLabel],
+    ["Session id", s.sessionId ?? "—"],
+    ["Permission", s.permission ? `${s.permission.granted ? "granted" : "denied"}${s.permission.granted && !s.permission.preciseGranted ? " (approximate)" : ""}` : "—"],
+    ["GPS status", controller.location.getStatus()],
+    ["Last fix", s.lastFix ? `${s.lastFix.lat.toFixed(5)}, ${s.lastFix.lng.toFixed(5)} ±${s.lastFix.accuracy ?? "?"}m · ${fixAge}s${s.lastFix.provisional ? " · ≈provisional" : ""}` : "—"],
+    ["Fix accuracy (min/med/max)", acc ? `${acc.min} / ${acc.median} / ${acc.max} m` : "—"],
+    ["Heading status", controller.heading.getStatus()],
+    ["Heading", s.lastHeading ? `${Math.round(s.lastHeading.trueHeading)}°${s.lastHeading.needsCalibration ? " · calibrate!" : ""}` : "—"],
+    ["Subscriptions (pos/head/app)", `${subs.position}/${subs.heading}/${subs.appState}`],
+    ["Profile", `${WALKING_PROFILE.name} · balanced · ${WALKING_PROFILE.distanceIntervalM}m/${WALKING_PROFILE.timeIntervalMs}ms · hdg ${HEADING_MIN_DELTA_DEG}°/${HEADING_MIN_INTERVAL_MS}ms`],
+    ["Fixes (total/prov/lowAcc)", `${counters.fixesTotal}/${counters.fixesProvisional}/${counters.fixesLowAccuracy}`],
+    ["Heading raw→emitted", `${hCounts.raw}→${hCounts.emitted}`],
+    ["Dispatches", String(counters.dispatches)],
+    ["Errors / retries / cycles", `${counters.errors}/${counters.watchRetries}/${counters.startStopCycles}`],
+    ["Pauses u/s · resumes", `${counters.pausesUser}/${counters.pausesSystem} · ${counters.resumes}`],
+    ["First fix (prov/fresh)", `${timings.provisionalFixMs ?? "—"} / ${timings.freshFixMs ?? "—"} ms`],
+    ["Permission dialog", timings.permissionMs != null ? `${timings.permissionMs} ms` : "—"],
+    ["Avg fix interval", timings.avgFixIntervalMs != null ? `${Math.round(timings.avgFixIntervalMs / 100) / 10}s` : "—"],
+    ["Resume→fix", timings.resumeToFixMs != null ? `${timings.resumeToFixMs} ms` : "—"],
+  ];
+
+  const transitions = rec.getTransitions().slice(-6).reverse();
+
+  return (
+    <>
+      <Text style={styles.section}>Field Engine (P1)</Text>
+      <View style={styles.card}>
+        {fieldRows.map(([k, v]) => (
+          <View style={styles.row} key={k}>
+            <Text style={styles.k}>{k}</Text>
+            <Text style={styles.v}>{v}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* Cleanup badges (spec Part 11.5) */}
+      <View style={styles.feChipRow}>
+        <View style={[styles.feChip, { backgroundColor: trip.violated ? "#E4685D" : "#2E7D32" }]}>
+          <Text style={styles.badgeText}>{trip.violated ? "POST-STOP EVENT" : "TRIPWIRE OK"}</Text>
+        </View>
+        {audit && (
+          <View style={[styles.feChip, { backgroundColor: audit.pass ? "#2E7D32" : "#E4685D" }]}>
+            <Text style={styles.badgeText}>CLEANUP {audit.pass ? "PASS" : "FAIL"}</Text>
+          </View>
+        )}
+      </View>
+      {audit && !audit.pass && (
+        <View style={styles.card}>
+          {audit.checks.filter((c) => !c.pass).map((c) => (
+            <Text key={c.name} style={styles.logError}>✗ {c.name}</Text>
+          ))}
+        </View>
+      )}
+
+      <View style={styles.feChipRow}>
+        {[
+          ["Start", actions.start], ["Pause", actions.pause], ["Resume", actions.resume],
+          ["Stop", actions.stop], ["Retry", actions.retry], ["Export", onExport],
+        ].map(([label, fn]) => (
+          <Pressable key={label as string} style={styles.feBtn} onPress={fn as () => void}>
+            <Text style={styles.feBtnText}>{label as string}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      <View style={styles.card}>
+        {transitions.length === 0 ? (
+          <Text style={styles.empty}>No transitions yet. Tap Start.</Text>
+        ) : (
+          transitions.map((t, i) => (
+            <Text key={`${t.t}-${i}`} style={styles.log}>
+              {new Date(t.t).toLocaleTimeString()} · {t.from} —{t.event}→ {t.to} ({t.dwellMs}ms)
+            </Text>
+          ))
+        )}
+      </View>
+    </>
   );
 }
 
@@ -102,4 +225,12 @@ const styles = StyleSheet.create({
   logError: { color: "#E4685D" },
   empty: { color: "#8A8A8E", fontSize: 13 },
   note: { color: "#8A8A8E", fontSize: 11, lineHeight: 16, marginTop: 4 },
+  // Field Engine (P1) dev section
+  feChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  feChip: { borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12 },
+  feBtn: {
+    backgroundColor: "#161618", borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14,
+    borderWidth: 1, borderColor: "#2A2A2C",
+  },
+  feBtnText: { color: "#C9A227", fontSize: 13, fontWeight: "700" },
 });
