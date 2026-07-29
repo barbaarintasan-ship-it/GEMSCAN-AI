@@ -3,7 +3,7 @@
 // recent stage log so scanner failures are inspectable on any device without a
 // wired debugger.
 import React, { useEffect, useState } from "react";
-import { View, Text, Pressable, ScrollView, StyleSheet, Share, Platform } from "react-native";
+import { View, Text, Pressable, ScrollView, StyleSheet, Share, Platform, Switch } from "react-native";
 import { Stack } from "expo-router";
 import { diag, type GpuState } from "../../lib/diagnostics";
 import { FieldSessionProvider, useFieldSession } from "../../lib/field/provider";
@@ -152,8 +152,85 @@ function FieldEngineSection() {
 
   const transitions = rec.getTransitions().slice(-6).reverse();
 
+  // ── Phase 1.1 Battery Test Mode ───────────────────────────────────────────
+  // Independent GPS / heading switches for real-device battery comparison.
+  // ON/OFF is derived from the ACTUAL subscription count (not a local boolean),
+  // so the display can never disagree with reality. Uses only interfaces P1
+  // already exposes (controller.location / controller.heading) — Phase 1
+  // behaviour is untouched.
+  const gpsOn = subs.position > 0;
+  const headingOn = subs.heading > 0;
+  // Toggles apply while a session owns the listeners; outside a session a raw
+  // watch would have no consumer, so they stay disabled.
+  const sensorsToggleable = m.state === "active" || m.state === "paused";
+
+  const toggleGps = (v: boolean) => {
+    if (v) void controller.location.start(WALKING_PROFILE);
+    else controller.location.stop();
+  };
+  const toggleHeading = (v: boolean) => {
+    if (v) void controller.heading.start();
+    else controller.heading.stop();
+  };
+
   return (
     <>
+      <Text style={styles.section}>Battery test mode (P1.1)</Text>
+      <View style={styles.card}>
+        <View style={styles.feToggleRow}>
+          <View>
+            <Text style={styles.v}>GPS</Text>
+            <Text style={styles.feToggleHint}>{controller.location.getStatus()}</Text>
+          </View>
+          <View style={styles.feToggleRight}>
+            <View style={[styles.feStateChip, { backgroundColor: gpsOn ? "#2E7D32" : "#2A2A2C" }]}>
+              <Text style={styles.badgeText}>{gpsOn ? "ON" : "OFF"}</Text>
+            </View>
+            <Switch
+              value={gpsOn}
+              disabled={!sensorsToggleable}
+              onValueChange={toggleGps}
+              trackColor={{ false: "#2A2A2C", true: "rgba(46,125,50,0.5)" }}
+              thumbColor={gpsOn ? "#2E7D32" : "#8A8A8E"}
+            />
+          </View>
+        </View>
+        <View style={styles.feDivider} />
+        <View style={styles.feToggleRow}>
+          <View>
+            <Text style={styles.v}>Heading</Text>
+            <Text style={styles.feToggleHint}>{controller.heading.getStatus()}</Text>
+          </View>
+          <View style={styles.feToggleRight}>
+            <View style={[styles.feStateChip, { backgroundColor: headingOn ? "#2E7D32" : "#2A2A2C" }]}>
+              <Text style={styles.badgeText}>{headingOn ? "ON" : "OFF"}</Text>
+            </View>
+            <Switch
+              value={headingOn}
+              disabled={!sensorsToggleable}
+              onValueChange={toggleHeading}
+              trackColor={{ false: "#2A2A2C", true: "rgba(46,125,50,0.5)" }}
+              thumbColor={headingOn ? "#2E7D32" : "#8A8A8E"}
+            />
+          </View>
+        </View>
+        <View style={styles.feDivider} />
+        {([
+          ["Session state", stateLabel],
+          ["Active subscriptions", `pos ${subs.position} · hdg ${subs.heading} · app ${subs.appState}`],
+          ["GPS fixes this session", `${counters.fixesTotal} (${s.fixCount} counted)`],
+          ["Heading raw→emitted", `${hCounts.raw}→${hCounts.emitted}`],
+        ] as [string, string][]).map(([k, v]) => (
+          <View style={styles.row} key={k}>
+            <Text style={styles.k}>{k}</Text>
+            <Text style={styles.v}>{v}</Text>
+          </View>
+        ))}
+      </View>
+      {!sensorsToggleable && (
+        <Text style={styles.feToggleHint}>Start a session to enable the sensor switches.</Text>
+      )}
+
       <Text style={styles.section}>Field Engine (P1)</Text>
       <View style={styles.card}>
         {fieldRows.map(([k, v]) => (
@@ -233,4 +310,10 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "#2A2A2C",
   },
   feBtnText: { color: "#C9A227", fontSize: 13, fontWeight: "700" },
+  // Battery test mode (P1.1)
+  feToggleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 4 },
+  feToggleRight: { flexDirection: "row", alignItems: "center", gap: 10 },
+  feToggleHint: { color: "#8A8A8E", fontSize: 11, marginTop: 2 },
+  feStateChip: { borderRadius: 999, paddingVertical: 3, paddingHorizontal: 10, minWidth: 44, alignItems: "center" },
+  feDivider: { height: 1, backgroundColor: "#2A2A2C" },
 });
