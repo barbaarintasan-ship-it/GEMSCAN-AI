@@ -6,10 +6,12 @@
       "@/*": [
         "./*"
       ]
-    }
+    },
+    "allowImportingTsExtensions": true
   },
   "include": [
     "**/*.ts",
-    "**/*.tsx"
+    "**/*.tsx",
+    "../shared/geo-core/**/*.ts"
   ]
 }
