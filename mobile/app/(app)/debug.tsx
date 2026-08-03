@@ -8,6 +8,7 @@ import { Stack } from "expo-router";
 import { diag, type GpuState } from "../../lib/diagnostics";
 import { FieldSessionProvider, useFieldSession } from "../../lib/field/provider";
 import { WALKING_PROFILE } from "../../lib/field/types";
+import { runPackSelfCheck, type PackSelfCheck } from "../../lib/geo/packSelfCheck";
 
 const GPU_COLOR: Record<GpuState, string> = {
   unknown: "#C9A227",
@@ -17,6 +18,11 @@ const GPU_COLOR: Record<GpuState, string> = {
 
 export default function DebugScreen() {
   const [, force] = useState(0);
+  // The pack answers for itself, on this device. Everything else that verifies
+  // it runs on a development machine, and the one failure that mattered only
+  // ever appeared on a phone.
+  const [pack, setPack] = useState<PackSelfCheck | null>(null);
+  useEffect(() => { void runPackSelfCheck().then(setPack); }, []);
   // Refresh periodically so the log/metrics stay live while a scan runs.
   useEffect(() => {
     const id = setInterval(() => force((n) => n + 1), 1000);
@@ -49,6 +55,48 @@ export default function DebugScreen() {
           GPU: {gpu.toUpperCase()}
           {gpu === "disabled" ? " · running CPU-only" : ""}
         </Text>
+      </View>
+
+      <View style={[styles.badge, { backgroundColor: pack ? (pack.ok ? "#2E7D32" : "#E4685D") : "#C9A227" }]}>
+        <Text style={styles.badgeText}>
+          {pack ? (pack.ok ? "KNOWLEDGE PACK: OK" : "KNOWLEDGE PACK: FAILED") : "KNOWLEDGE PACK: checking…"}
+        </Text>
+      </View>
+
+      <Text style={styles.section}>Knowledge pack</Text>
+      <View style={styles.card}>
+        {pack ? (
+          <>
+            <View style={styles.row}>
+              <Text style={styles.k}>Result</Text>
+              <Text style={styles.v}>{pack.summary}</Text>
+            </View>
+            {([
+              ["Manifest found", pack.manifestFound ? "yes" : "no"],
+              ["Files shipped", `${pack.filesShipped} of ${pack.filesDeclared} declared`],
+              ["Load state", pack.loadState],
+              ["Pack version", pack.packVersion ?? "—"],
+              ["Geological units", String(pack.counts.geology)],
+              ["MRDS occurrences", String(pack.counts.occurrences)],
+              ["Mapped faults", String(pack.counts.faults)],
+              ["Terrain cells", String(pack.counts.terrain)],
+              ["Geology at Mogadishu", pack.probeUnit ?? "NONE — pack cannot answer"],
+            ] as [string, string][]).map(([k, v]) => (
+              <View style={styles.row} key={k}>
+                <Text style={styles.k}>{k}</Text>
+                <Text style={styles.v}>{v}</Text>
+              </View>
+            ))}
+            {pack.problem ? (
+              <View style={styles.row}>
+                <Text style={styles.k}>Problem</Text>
+                <Text style={[styles.v, { color: "#E4685D" }]}>{pack.problem}</Text>
+              </View>
+            ) : null}
+          </>
+        ) : (
+          <Text style={styles.v}>Running self-check…</Text>
+        )}
       </View>
 
       <Text style={styles.section}>Device / pipeline</Text>
