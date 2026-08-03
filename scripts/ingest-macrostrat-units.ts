@@ -258,7 +258,16 @@ console.log(`  units carrying a legend colour: ${withColour}/${kept.size}`);
 // ── Emit ────────────────────────────────────────────────────────────────────
 
 function nameOf(p: UnitProps): string {
-  return (p.name || p.strat_name || p.lith || `unit ${p.map_id}`).trim();
+  // Macrostrat source 190 leaves `name` empty for most African units, so the
+  // raw field yields "sedimentary" — true, and useless to read on a screen.
+  // The map's own legend names the unit by age and lithology, so that is what
+  // is composed here. Nothing is invented: both parts come from the feature.
+  const explicit = (p.name || p.strat_name || "").trim();
+  if (explicit) return explicit;
+  const lith = (p.lith || "").trim();
+  const interval = (p.best_int_name || p.t_int_name || "").trim();
+  if (interval && lith) return `${interval} ${lith}`;
+  return lith || interval || `unit ${p.map_id}`;
 }
 
 function featureOf(u: Unit) {

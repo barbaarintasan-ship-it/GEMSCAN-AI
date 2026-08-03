@@ -12,7 +12,8 @@ import { supabase } from "../../../../lib/supabase";
 import { colors, spacing, radius, type as t } from "../../../../lib/theme";
 import { Card } from "../../../../components/ui/Card";
 import { SectionLabel } from "../../../../components/ui/SectionLabel";
-import { getSample, reanalyzeSample, sampleIsEditable, type SampleDetail, type AssessmentEvidence } from "../../../../lib/enterpriseSamples";
+import { getSample, reanalyzeSample, sampleIsEditable, type SampleDetail, type AssessmentEvidence, type MediaRole } from "../../../../lib/enterpriseSamples";
+import { shotNeedsFor } from "../../../../lib/shotNeeds";
 
 export default function SampleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -231,6 +232,7 @@ function SatelliteMap({ h3, geology, so }: { h3: string; geology: AssessmentEvid
   const bbox = `${lng - lngD},${lat - latD},${lng + lngD},${lat + latD}`;
   const img = `https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/export?bbox=${bbox}&bboxSR=4326&imageSR=4326&size=680,420&format=jpg&f=image`;
   const maps = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+
   return (
     <>
       <SectionLabel>{so ? "Goobta — satellite" : "Location — satellite"}</SectionLabel>
@@ -324,6 +326,18 @@ function titleCaseRN(s: string): string { return s.replace(/\b\w/g, (c) => c.toU
 
 // Geological analysis — a 12-year-old-friendly SIMPLE report (7 visual sections) and
 // an EXPERT view (the full traceable evidence graph). Bilingual throughout.
+// This file speaks both languages inline rather than through i18n keys, as the
+// rest of the enterprise screens do; the shot names follow that convention.
+const NEED_LABEL: Record<string, { en: string; so: string }> = {
+  closer: { en: "A closer photo", so: "Sawir dhow" },
+  angle: { en: "A different angle", so: "Jiho kale" },
+  fresh_surface: { en: "A fresh broken surface", so: "Dhinac cusub oo la jebiyay" },
+  wider_context: { en: "A wider context photo", so: "Sawir ballaadhan oo goobta muujinaya" },
+  vein_closeup: { en: "A quartz vein close-up", so: "Xididka quartz-ka oo dhow" },
+  weathered: { en: "The weathered surface", so: "Dusha duugoobay" },
+  mineral_closeup: { en: "A mineral close-up", so: "Macdanta oo dhow" },
+};
+
 function AiAnalysis({ sample, so }: { sample: SampleDetail; so: boolean }) {
   const a = sample.assessment;
   const [mode, setMode] = useState<"simple" | "expert">("simple");
@@ -396,8 +410,51 @@ function AiAnalysis({ sample, so }: { sample: SampleDetail; so: boolean }) {
   const supports = a.assessment_evidence.filter((e) => e.is_observation).slice(0, 4).map((e) => evStatement(e));
   const limits = [...unc.map((u) => (so ? u.so : u.en)), ...missing.map((m) => (so ? m.so : m.en))].filter(Boolean).slice(0, 3);
 
+  // What, if anything, is worth going back for. Empty on a confident result —
+  // which is the common case, and the reason this is a deduction over the
+  // report rather than a standing "add more photos" prompt.
+  const needs = shotNeedsFor({
+    // The engine reports a percentage; shotNeedsFor works in 0..1.
+    overallConfidence: a.overall_confidence == null ? null : a.overall_confidence / 100,
+    roles: (sample.sample_media ?? []).map((m) => m.role as MediaRole),
+    missingInformation: missing.map((m) => `${m.en} ${m.so ?? ""}`),
+  });
+
+  const NeedsBlock = needs.length === 0 ? null : (
+    <Card>
+      <SectionLabel>{so ? "SAWIRO KALE OO LOO BAAHAN YAHAY" : "PHOTOS THAT WOULD HELP"}</SectionLabel>
+      <Text style={styles.needIntro}>
+        {so
+          ? "Falanqayntu way hubi kartaa haddii aad sawirradan qaadato. Waxa kaliya ee la weydiisanayo waa kuwan."
+          : "The analysis could be more certain with these. Only these are being asked for."}
+      </Text>
+      {needs.map((n) => (
+        <Text key={n} style={styles.needItem}>{"•"} {NEED_LABEL[n][so ? "so" : "en"]}</Text>
+      ))}
+      <Pressable
+        style={styles.needBtn}
+        onPress={() =>
+          router.push({
+            pathname: "/(app)/enterprise/new-sample",
+            params: { edit: sample.id, need: needs.join(",") },
+          })
+        }
+      >
+        <Ionicons name="camera" size={18} color="#0B0B0C" />
+        <Text style={styles.needBtnText}>
+          {so ? "Qaad sawirradan" : "Take these photos"}
+        </Text>
+      </Pressable>
+    </Card>
+  );
+
   return (
     <>
+      {/* What is worth going back for, when anything is. Above the report on
+          purpose: acting on it is time-critical while the geologist is still
+          near the outcrop. */}
+      {NeedsBlock}
+
       {/* Simple / Expert toggle */}
       <View style={styles.modeToggle}>
         {(["simple", "expert"] as const).map((m) => (
@@ -635,6 +692,14 @@ function GeologistReview({ sample, so }: { sample: SampleDetail; so: boolean }) 
 }
 
 const styles = StyleSheet.create({
+  needIntro: { ...t.bodySmall, marginBottom: spacing.sm },
+  needItem: { ...t.body, color: colors.text, lineHeight: 21 },
+  needBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm,
+    backgroundColor: colors.gold, borderRadius: radius.lg,
+    paddingVertical: spacing.md, marginTop: spacing.md,
+  },
+  needBtnText: { color: "#0B0B0C", fontWeight: "700", fontSize: 15 },
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.lg, paddingBottom: spacing.xxxl },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md, backgroundColor: colors.bg, padding: spacing.xl },

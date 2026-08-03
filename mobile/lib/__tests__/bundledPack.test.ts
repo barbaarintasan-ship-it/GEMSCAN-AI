@@ -34,13 +34,32 @@ describe("bundled Somalia knowledge pack", () => {
 
   itPack("carries the production datasets", () => {
     const d = pack!.data;
-    expect(d.geology.length).toBeGreaterThan(300);      // Macrostrat
+    expect(d.geology.length).toBeGreaterThan(20);       // Macrostrat units
     expect(d.occurrences.length).toBeGreaterThan(100);  // MRDS
     expect(d.rules.length).toBeGreaterThan(20);         // EMIE rock→commodity
     expect(d.commodities.length).toBeGreaterThan(20);   // EMIE profiles
     expect(d.assemblages.length).toBeGreaterThan(5);    // EMIE assemblages
     expect(pack!.manifest.h3Resolution).toBe(7);
     expect(pack!.manifest.region).toBe("SO");
+  });
+
+  // The pack once shipped 344 "units" that were a 0.5-degree sampling grid,
+  // each stored as its own five-vertex rectangle. It passed every check that
+  // existed: the rows were present, the hashes matched, the count was high.
+  // Counting rows is what let it through, so the check is now on the geometry.
+  itPack("carries real mapped polygons, not a sampling grid", () => {
+    const g = pack!.data.geology;
+    const boxes = g.filter((u) => u.rings.every((r) => r.length <= 5));
+    expect(boxes).toHaveLength(0);
+
+    const vertices = g.reduce((a, u) => a + u.rings.reduce((b, r) => b + r.length, 0), 0);
+    expect(vertices).toBeGreaterThan(5_000);
+
+    // Boundaries that fall on round latitudes are grid lines, not geology.
+    const gridLike = g.filter((u) =>
+      u.rings.every((r) => r.every(([, lat]) => Math.abs(lat * 4 - Math.round(lat * 4)) < 1e-9)),
+    );
+    expect(gridLike).toHaveLength(0);
   });
 
   itPack("answers 'what is here?' offline on real Somali ground", async () => {
