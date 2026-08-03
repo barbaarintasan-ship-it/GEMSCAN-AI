@@ -51,7 +51,7 @@ export const claudeVisionProvider: VisionProvider = {
           // Explanation Modes payload (Simple + the ~20-field Expert report),
           // which silently truncated the JSON and failed parsing.
           max_tokens: 1800,
-          temperature: 0.2,
+          temperature: 0,
           messages: [
             {
               role: "user",
@@ -71,7 +71,7 @@ export const claudeVisionProvider: VisionProvider = {
 
       return {
         provider: "claude_vision",
-        candidate: { label: parsed.label, confidence: parsed.confidence },
+        candidate: { label: parsed.label },
         alternatives: parsed.alternatives,
         reasoning: parsed.reasoning,
         latencyMs: Date.now() - start,

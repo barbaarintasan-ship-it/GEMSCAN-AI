@@ -12,8 +12,8 @@
 // transitively imports provider adapters that read optional model-name env
 // vars at module load time, e.g. GEMINI_MODEL — no env values are read by
 // the test logic itself.)
-import { assertEquals, assertRejects } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { processScan } from "./index.ts";
+import { assert, assertEquals, assertRejects } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { processScan, meanImageQuality, imageQualitySuggestions } from "./index.ts";
 import { INSUFFICIENT_CONFIDENCE_MESSAGE } from "./ensemble.ts";
 import type { ProviderInput, ProviderResult, VisionProvider } from "./providers/types.ts";
 // deno-lint-ignore no-explicit-any
@@ -106,7 +106,14 @@ function baseParams(
     scanId: "scan-1",
     scan: { id: "scan-1", specimen_category: null, capture_location: null },
     images: [
-      { angle: "front", original_storage_path: "scan-1/front.jpg", processed_storage_path: null },
+      {
+        angle: "front",
+        original_storage_path: "scan-1/front.jpg",
+        processed_storage_path: null,
+        // Stage-1 quality: good enough to pass the image-quality gate.
+        quality_score: 0.9,
+        quality_flags: null,
+      },
     ],
     onDeviceHint: null,
     ensembleScansEnabled: true,
@@ -472,6 +479,19 @@ Deno.test("processScan: finalResult surfaces the winning provider's Simple/Exper
         },
       }),
     }),
+    // A second, independent provider that agrees — required for the decision
+    // engine to clear the acceptance threshold that unlocks the write-up. A
+    // single opinion is capped below it by design.
+    mockProvider({
+      name: "openai_vision",
+      identify: async () => ({
+        provider: "openai_vision",
+        candidate: { label: "Amethyst" },
+        alternatives: [],
+        reasoning: "purple quartz",
+        latencyMs: 400,
+      }),
+    }),
   ];
 
   const response = await processScan(baseParams({ serviceClient: client, providers }));
@@ -510,4 +530,28 @@ Deno.test("processScan: is re-entrant — clears prior AI rows before re-persist
 
   assertEquals(deletes["scan_ai_responses"], 1);
   assertEquals(deletes["scan_candidates"], 1);
+});
+
+// ── Reliability fix: image-quality gate (Stage 1 enforcement) ───────────────
+Deno.test("meanImageQuality: averages recorded scores, neutral when unscored", () => {
+  assertEquals(meanImageQuality([{ quality_score: 0.8 }, { quality_score: 0.4 }]), 0.6000000000000001);
+  // Older clients never sent a score — never penalise them.
+  assertEquals(meanImageQuality([{ quality_score: null }]), 1);
+  assertEquals(meanImageQuality([]), 1);
+  // A single unscored image among scored ones is ignored, not counted as zero.
+  assertEquals(meanImageQuality([{ quality_score: 0.9 }, { quality_score: null }]), 0.9);
+});
+
+Deno.test("imageQualitySuggestions: guidance is specific to the recorded flags", () => {
+  const blurry = imageQualitySuggestions([{ quality_flags: { blurry: true } }]);
+  assert(blurry.some((s) => s.includes("focus")));
+
+  const dark = imageQualitySuggestions([{ quality_flags: { lowLight: true } }]);
+  assert(dark.some((s) => s.includes("brighter")));
+
+  const glare = imageQualitySuggestions([{ quality_flags: { overexposed: true } }]);
+  assert(glare.some((s) => s.includes("glare")));
+
+  // No flags recorded: still actionable, never empty.
+  assert(imageQualitySuggestions([{ quality_flags: null }]).length > 0);
 });

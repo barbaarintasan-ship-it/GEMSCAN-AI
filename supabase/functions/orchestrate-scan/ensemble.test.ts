@@ -1,7 +1,11 @@
 // Unit tests for the Stage 5/6 weighted-confidence ensemble in ensemble.ts.
 // Run with: deno test --allow-none supabase/functions/orchestrate-scan/ensemble.test.ts
-import { assertEquals, assertAlmostEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { runEnsemble, INSUFFICIENT_CONFIDENCE_MESSAGE } from "./ensemble.ts";
+import { assert, assertEquals, assertAlmostEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  runEnsemble,
+  INSUFFICIENT_CONFIDENCE_MESSAGE,
+  COMPETING_CANDIDATES_MESSAGE,
+} from "./ensemble.ts";
 import type { ProviderResult } from "./providers/types.ts";
 
 function result(overrides: Partial<ProviderResult>): ProviderResult {
@@ -15,12 +19,9 @@ function result(overrides: Partial<ProviderResult>): ProviderResult {
   };
 }
 
-Deno.test("runEnsemble: single confident provider produces one high-confidence candidate", () => {
+Deno.test("runEnsemble: a lone provider is capped — one opinion is never proof", () => {
   const results: ProviderResult[] = [
-    result({
-      provider: "gemini_vision",
-      candidate: { label: "Amethyst", confidence: 0.9 },
-    }),
+    result({ provider: "gemini_vision", candidate: { label: "Amethyst" } }),
   ];
   const weights = new Map([["gemini_vision", 1]]);
 
@@ -29,10 +30,85 @@ Deno.test("runEnsemble: single confident provider produces one high-confidence c
   assertEquals(ensemble.candidates.length, 1);
   assertEquals(ensemble.candidates[0].label, "Amethyst");
   assertEquals(ensemble.candidates[0].rank, 1);
-  assertEquals(ensemble.candidates[0].confidenceBand, "high");
+  // Single-source cap (0.6): usable, but never "high", and never unlocks the
+  // geological interpretation.
+  assertAlmostEquals(ensemble.candidates[0].weightedConfidence, 0.6, 1e-9);
+  assertEquals(ensemble.candidates[0].confidenceBand, "medium");
   assertEquals(ensemble.insufficientConfidence, false);
-  assertEquals(ensemble.message, null);
-  assertAlmostEquals(ensemble.candidates[0].weightedConfidence, 0.9, 1e-9);
+  assertEquals(ensemble.interpretationUnlocked, false);
+});
+
+Deno.test("runEnsemble: model-reported confidence is IGNORED — the regression test", () => {
+  // The reported bug: the same specimen came back "Diamond 88%" once and
+  // "Celestite 50%" later. Those numbers came from the model. They are now
+  // discarded, so two runs whose models felt wildly different about the SAME
+  // evidence must produce byte-identical decisions.
+  const weights = new Map([["gemini_vision", 1], ["openai_vision", 1]]);
+  const confidentRun: ProviderResult[] = [
+    result({ provider: "gemini_vision", candidate: { label: "Celestite", confidence: 0.88 } }),
+    result({ provider: "openai_vision", candidate: { label: "Celestite", confidence: 0.92 } }),
+  ];
+  const doubtfulRun: ProviderResult[] = [
+    result({ provider: "gemini_vision", candidate: { label: "Celestite", confidence: 0.5 } }),
+    result({ provider: "openai_vision", candidate: { label: "Celestite", confidence: 0.05 } }),
+  ];
+
+  const a = runEnsemble(confidentRun, weights);
+  const b = runEnsemble(doubtfulRun, weights);
+
+  assertEquals(a.candidates[0].weightedConfidence, b.candidates[0].weightedConfidence);
+  assertEquals(a.candidates[0].confidenceBand, b.candidates[0].confidenceBand);
+  assertEquals(a.insufficientConfidence, b.insufficientConfidence);
+});
+
+Deno.test("runEnsemble: independent agreement raises confidence above the single-source cap", () => {
+  const weights = new Map([["gemini_vision", 1], ["openai_vision", 1]]);
+  const one = runEnsemble(
+    [result({ provider: "gemini_vision", candidate: { label: "Quartz" } })],
+    weights,
+  );
+  const two = runEnsemble(
+    [
+      result({ provider: "gemini_vision", candidate: { label: "Quartz" } }),
+      result({ provider: "openai_vision", candidate: { label: "Quartz" } }),
+    ],
+    weights,
+  );
+
+  assert(two.candidates[0].weightedConfidence > one.candidates[0].weightedConfidence);
+  assertEquals(two.candidates[0].confidenceBand, "high");
+  assertEquals(two.interpretationUnlocked, true);
+});
+
+Deno.test("runEnsemble: two equally-supported candidates are inconclusive, not a coin flip", () => {
+  const results: ProviderResult[] = [
+    result({ provider: "gemini_vision", candidate: { label: "Celestite" } }),
+    result({ provider: "openai_vision", candidate: { label: "Blue Quartz" } }),
+  ];
+  const weights = new Map([["gemini_vision", 1], ["openai_vision", 1]]);
+
+  const ensemble = runEnsemble(results, weights);
+
+  assertEquals(ensemble.insufficientConfidence, true);
+  assertEquals(ensemble.message, COMPETING_CANDIDATES_MESSAGE);
+  assertEquals(ensemble.interpretationUnlocked, false);
+  // Both remain visible as ranked possibilities.
+  assertEquals(ensemble.candidates.length, 2);
+});
+
+Deno.test("runEnsemble: poor image quality lowers confidence", () => {
+  const results: ProviderResult[] = [
+    result({ provider: "gemini_vision", candidate: { label: "Pyrite" } }),
+    result({ provider: "openai_vision", candidate: { label: "Pyrite" } }),
+  ];
+  const weights = new Map([["gemini_vision", 1], ["openai_vision", 1]]);
+
+  const sharp = runEnsemble(results, weights, 1);
+  const poor = runEnsemble(results, weights, 0.5);
+
+  assert(poor.candidates[0].weightedConfidence < sharp.candidates[0].weightedConfidence);
+  assertEquals(sharp.interpretationUnlocked, true);
+  assertEquals(poor.interpretationUnlocked, false);
 });
 
 Deno.test("runEnsemble: agreement across providers outranks a single lone dissenter", () => {
@@ -106,9 +182,10 @@ Deno.test("runEnsemble: providers with error or null candidate contribute nothin
 
   const ensemble = runEnsemble(results, weights);
 
-  // Only openai's weight (1) should participate, not gemini's — so Pyrite's
-  // normalized score should be 0.8, not 0.4.
-  assertAlmostEquals(ensemble.candidates[0].weightedConfidence, 0.8, 1e-9);
+  // Only openai participated, so Pyrite rests on a single source and is capped
+  // at 0.6 — the errored provider neither helps nor dilutes.
+  assertEquals(ensemble.candidates.length, 1);
+  assertAlmostEquals(ensemble.candidates[0].weightedConfidence, 0.6, 1e-9);
 });
 
 Deno.test("runEnsemble: a provider with zero registered weight is excluded even if it returned a candidate", () => {
@@ -137,13 +214,13 @@ Deno.test("runEnsemble: no participating providers yields insufficientConfidence
   assertEquals(ensemble.suggestions.length > 0, true);
 });
 
-Deno.test("runEnsemble: low agreement across all providers is flagged insufficientConfidence", () => {
-  // Three providers, all disagreeing with modest confidence -> best label's
-  // normalized score should fall below the 0.35 insufficient-confidence floor.
+Deno.test("runEnsemble: three providers naming three different minerals is inconclusive", () => {
+  // Nobody agrees: every label rests on one source and they are all level, so
+  // the honest answer is "we cannot tell", not the alphabetically luckiest one.
   const results: ProviderResult[] = [
-    result({ provider: "a", candidate: { label: "Opal", confidence: 0.3 } }),
-    result({ provider: "b", candidate: { label: "Jade", confidence: 0.3 } }),
-    result({ provider: "c", candidate: { label: "Jasper", confidence: 0.3 } }),
+    result({ provider: "a", candidate: { label: "Opal" } }),
+    result({ provider: "b", candidate: { label: "Jade" } }),
+    result({ provider: "c", candidate: { label: "Jasper" } }),
   ];
   const weights = new Map([
     ["a", 1],
@@ -154,7 +231,7 @@ Deno.test("runEnsemble: low agreement across all providers is flagged insufficie
   const ensemble = runEnsemble(results, weights);
 
   assertEquals(ensemble.insufficientConfidence, true);
-  assertEquals(ensemble.message, INSUFFICIENT_CONFIDENCE_MESSAGE);
+  assertEquals(ensemble.message, COMPETING_CANDIDATES_MESSAGE);
 });
 
 Deno.test("runEnsemble: geological context boosts a matching label without adding a separate candidate", () => {

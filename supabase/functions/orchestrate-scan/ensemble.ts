@@ -1,33 +1,55 @@
-// Stage 5: weighted-confidence ensemble voting engine.
-// Stage 6: final result shaping (best match, top 5 alternatives, confidence
-// band, why-chosen/why-rejected, and the mandatory low-confidence fallback).
+// Stage 5/6: the DECISION ENGINE — deterministic identification + confidence.
 //
-// This is deliberately NOT simple majority voting. Every provider result
-// contributes weight_i * confidence_i to the labels it names (its top
-// candidate at full weight, its listed alternatives at a discount), so
-// providers that (a) carry more base trust and (b) are more confident this
-// time both count for more — and providers that abstain or error contribute
-// nothing rather than being counted as a "no" vote.
+// RELIABILITY FIX. Previously each model was asked for its own `confidence` and
+// this file computed `weight_i * confidence_i`. An LLM's self-reported number is
+// not a calibrated probability, so the same specimen could come back "Diamond
+// 88%" once and "Celestite 50%" later purely from model mood. That number is
+// now gone: providers report WHAT they see (a label + ranked alternatives) and
+// this engine decides, from evidence that is the same every run:
+//
+//   support   — noisy-OR over the INDEPENDENT providers that named the label,
+//               weighted by each provider's registered reliability (baseWeight)
+//   agreement — one lone provider is capped (a single opinion is never proof)
+//   separation— a photo-finish between two candidates is not an identification
+//   quality   — poor images cannot yield a confident answer
+//
+// Same evidence in ⇒ same number out, always. Nothing here calls an AI.
 import type { ProviderResult } from "./providers/types.ts";
 
-// An alternative a provider lists still counts as evidence for that label
-// (useful when providers disagree on #1 but two of them both had it in their
-// top few), just discounted relative to a provider's actual top pick.
+// An alternative a provider lists still counts as evidence for that label,
+// discounted relative to its actual top pick.
 const ALTERNATIVE_WEIGHT_DISCOUNT = 0.5;
 
-// Geological context re-ranks (rather than just votes) — matching labels get
-// multiplied by a modest boost, clamped so it can never overturn strong
-// vision-model disagreement on its own.
+// Strength of ONE provider's top pick as evidence. Deliberately < 1 so that a
+// single model, however sure it sounds, can never on its own produce certainty.
+const SINGLE_EVIDENCE_STRENGTH = 0.62;
+
+// The reference weight of a first-class vision model (see providerRegistry).
+// Provider reliability is expressed relative to this.
+const REFERENCE_PROVIDER_WEIGHT = 0.28;
+
+// A label supported by only ONE provider is capped here — mirrors the
+// single-dataset-group cap already used by the enterprise engine (gie/scoring).
+const SINGLE_SOURCE_CAP = 0.6;
+
+// Geological context re-ranks (rather than just votes) — matching labels get a
+// modest boost, clamped so it can never overturn vision-model disagreement.
 const GEOLOGICAL_BOOST_MULTIPLIER = 1.15;
 
 const HIGH_CONFIDENCE_THRESHOLD = 0.72;
 const MEDIUM_CONFIDENCE_THRESHOLD = 0.45;
-// Below this, Stage 6 requires the app to refuse to claim an identification
-// at all, rather than present a low-confidence guess as if it were one.
+// Below this, Stage 6 refuses to claim an identification at all.
 const INSUFFICIENT_CONFIDENCE_THRESHOLD = 0.35;
+
+// Two candidates this close are competing, not ranked — the honest answer is
+// "inconclusive", not a coin flip presented as a result.
+const MIN_SEPARATION = 0.1;
 
 export const INSUFFICIENT_CONFIDENCE_MESSAGE =
   "We cannot identify this specimen with sufficient confidence from the available images.";
+
+export const COMPETING_CANDIDATES_MESSAGE =
+  "Two or more minerals match this specimen equally well. A physical test is needed to tell them apart.";
 
 export type EnsembleCandidate = {
   rank: number;
@@ -41,8 +63,11 @@ export type EnsembleCandidate = {
 export type EnsembleResult = {
   candidates: EnsembleCandidate[]; // rank 1 = best match, 2-6 = alternatives
   insufficientConfidence: boolean;
-  message: string | null; // set to INSUFFICIENT_CONFIDENCE_MESSAGE when insufficient
+  message: string | null;
   suggestions: string[]; // only populated when insufficientConfidence is true
+  // Whether confidence cleared the acceptance threshold that unlocks geological
+  // interpretation / exploration advice (index.ts gates the write-up on this).
+  interpretationUnlocked: boolean;
 };
 
 function confidenceBand(score: number): "low" | "medium" | "high" {
@@ -61,96 +86,130 @@ export function normalizeLabel(label: string): string {
   return label.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+// Independent evidence combines: 1 - Π(1 - w). Agreement raises confidence,
+// a single source cannot reach certainty.
+function noisyOr(weights: number[]): number {
+  if (weights.length === 0) return 0;
+  let complement = 1;
+  for (const w of weights) complement *= 1 - w;
+  return 1 - complement;
+}
+
+/**
+ * Decide the identification.
+ *
+ * @param results        one entry per provider that ran (abstentions included)
+ * @param weightByProvider registered baseWeight per provider name
+ * @param imageQuality   mean Stage-1 image quality 0..1 (1 = unknown/neutral).
+ *                       Poor images cannot produce a confident identification.
+ */
 export function runEnsemble(
   results: ProviderResult[],
   weightByProvider: Map<string, number>,
+  imageQuality = 1,
 ): EnsembleResult {
-  const scoreByLabel = new Map<string, number>(); // normalized -> aggregate score
-  const displayLabel = new Map<string, string>(); // normalized -> original casing
-  const supportingProviders = new Map<string, string[]>(); // normalized -> provider names
-  let totalParticipatingWeight = 0;
+  // Evidence per label: the effective weight contributed by each DISTINCT
+  // provider (a provider that names a label twice still counts once).
+  const evidenceByLabel = new Map<string, Map<string, number>>();
+  const displayLabel = new Map<string, string>();
 
   for (const result of results) {
     if (result.error || !result.candidate) continue;
     const weight = weightByProvider.get(result.provider) ?? 0;
     if (weight <= 0) continue;
 
-    totalParticipatingWeight += weight;
+    // Provider reliability relative to a first-class vision model, then scaled
+    // so one provider alone is strong evidence but never proof.
+    const reliability = Math.min(1, weight / REFERENCE_PROVIDER_WEIGHT);
 
-    const addVote = (label: string, confidence: number, discount: number) => {
+    const addEvidence = (label: string, discount: number) => {
       const key = normalizeLabel(label);
       if (!key) return;
-      const score = weight * confidence * discount;
-      scoreByLabel.set(key, (scoreByLabel.get(key) ?? 0) + score);
+      const w = clamp01(reliability * SINGLE_EVIDENCE_STRENGTH * discount);
+      if (w <= 0) return;
+      const perProvider = evidenceByLabel.get(key) ?? new Map<string, number>();
+      // Keep the STRONGEST claim this provider made for the label (its top
+      // pick outranks the same label appearing in its own alternatives).
+      perProvider.set(result.provider, Math.max(perProvider.get(result.provider) ?? 0, w));
+      evidenceByLabel.set(key, perProvider);
       if (!displayLabel.has(key)) displayLabel.set(key, label.trim());
-      const providers = supportingProviders.get(key) ?? [];
-      if (!providers.includes(result.provider)) providers.push(result.provider);
-      supportingProviders.set(key, providers);
     };
 
-    addVote(result.candidate.label, result.candidate.confidence, 1);
+    addEvidence(result.candidate.label, 1);
     for (const alt of result.alternatives) {
-      addVote(alt.label, alt.confidence, ALTERNATIVE_WEIGHT_DISCOUNT);
+      addEvidence(alt.label, ALTERNATIVE_WEIGHT_DISCOUNT);
     }
   }
 
-  // Apply the Geological Context Engine as a re-ranking boost on top of the
-  // vote it already cast above, rather than only as one more voter — this is
-  // what makes it "locality-aware re-ranking" rather than just another vote.
-  const geoResult = results.find((r) => r.provider === "geological_context" && r.candidate);
-  if (geoResult?.candidate) {
-    const boostLabels = [geoResult.candidate.label, ...geoResult.alternatives.map((a) => a.label)];
-    for (const label of boostLabels) {
-      const key = normalizeLabel(label);
-      if (scoreByLabel.has(key)) {
-        scoreByLabel.set(key, scoreByLabel.get(key)! * GEOLOGICAL_BOOST_MULTIPLIER);
-      }
-    }
+  if (evidenceByLabel.size === 0) {
+    return inconclusive(INSUFFICIENT_CONFIDENCE_MESSAGE);
   }
 
-  if (scoreByLabel.size === 0 || totalParticipatingWeight === 0) {
+  const q = clamp01(imageQuality);
+
+  // Score each label from its evidence alone.
+  let scored = [...evidenceByLabel.entries()].map(([key, perProvider]) => {
+    const weights = [...perProvider.values()];
+    let score = noisyOr(weights);
+    // A single opinion is never proof, regardless of which provider it is.
+    if (perProvider.size <= 1) score = Math.min(score, SINGLE_SOURCE_CAP);
+    // Poor images cannot produce a confident identification.
+    score *= q;
     return {
-      candidates: [],
-      insufficientConfidence: true,
-      message: INSUFFICIENT_CONFIDENCE_MESSAGE,
-      suggestions: defaultSuggestions(),
-    };
-  }
-
-  // Normalize by total participating weight so a scan where, say, one vendor
-  // API failed doesn't automatically depress every score.
-  const ranked = [...scoreByLabel.entries()]
-    .map(([key, score]) => ({
       key,
       label: displayLabel.get(key)!,
-      normalizedScore: Math.min(1, score / totalParticipatingWeight),
-      providers: supportingProviders.get(key) ?? [],
-    }))
-    .sort((a, b) => b.normalizedScore - a.normalizedScore)
-    .slice(0, 6); // best match + top 5 alternatives
+      score,
+      providers: [...perProvider.keys()],
+    };
+  });
 
+  // Geological context re-ranks a label vision already proposed — it never
+  // introduces one, and the clamp keeps it from overturning disagreement.
+  const geoResult = results.find((r) => r.provider === "geological_context" && r.candidate);
+  if (geoResult?.candidate) {
+    const boosted = new Set(
+      [geoResult.candidate.label, ...geoResult.alternatives.map((a) => a.label)].map(normalizeLabel),
+    );
+    scored = scored.map((s) =>
+      boosted.has(s.key) ? { ...s, score: clamp01(s.score * GEOLOGICAL_BOOST_MULTIPLIER) } : s,
+    );
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+  const ranked = scored.slice(0, 6); // best match + top 5 alternatives
   const best = ranked[0];
-  const insufficientConfidence = best.normalizedScore < INSUFFICIENT_CONFIDENCE_THRESHOLD;
+  const runnerUp = ranked[1];
+
+  // Separation: a photo finish is not an identification.
+  const margin = runnerUp && best.score > 0 ? (best.score - runnerUp.score) / best.score : 1;
+  const competing = !!runnerUp && margin < MIN_SEPARATION;
+  // Scale confidence down as the field tightens (full credit from a 30% margin).
+  const separationFactor = 0.7 + 0.3 * Math.min(1, Math.max(0, margin) / 0.3);
+
+  const finalScore = clamp01(best.score * separationFactor);
+  const insufficient = competing || finalScore < INSUFFICIENT_CONFIDENCE_THRESHOLD;
 
   const candidates: EnsembleCandidate[] = ranked.map((entry, index) => {
     const rank = index + 1;
-    const band = confidenceBand(entry.normalizedScore);
+    const score = clamp01(entry.score * (rank === 1 ? separationFactor : 1));
     // Customer-facing wording — the identification method is a trade secret, so
     // no provider names or internal technique are exposed here.
     const rationale =
       rank === 1
-        ? `Identified as the best match with ${(entry.normalizedScore * 100).toFixed(0)}% confidence from our expert gemstone analysis.`
+        ? insufficient
+          ? `Considered, but the available evidence does not confirm it.`
+          : `Identified as the best match with ${(score * 100).toFixed(0)}% confidence from our expert gemstone analysis.`
         : `Considered as a possible alternative.`;
     const rejectedReason =
       rank === 1
         ? null
-        : `Ranked below the top match — ${(entry.normalizedScore * 100).toFixed(0)}% confidence vs ${(best.normalizedScore * 100).toFixed(0)}% for "${best.label}".`;
+        : `Ranked below the top match — ${(score * 100).toFixed(0)}% confidence vs ${(finalScore * 100).toFixed(0)}% for "${best.label}".`;
 
     return {
       rank,
       label: entry.label,
-      weightedConfidence: entry.normalizedScore,
-      confidenceBand: band,
+      weightedConfidence: score,
+      confidenceBand: confidenceBand(score),
       rationale,
       rejectedReason,
     };
@@ -158,10 +217,32 @@ export function runEnsemble(
 
   return {
     candidates,
-    insufficientConfidence,
-    message: insufficientConfidence ? INSUFFICIENT_CONFIDENCE_MESSAGE : null,
-    suggestions: insufficientConfidence ? defaultSuggestions() : [],
+    insufficientConfidence: insufficient,
+    message: competing
+      ? COMPETING_CANDIDATES_MESSAGE
+      : insufficient
+      ? INSUFFICIENT_CONFIDENCE_MESSAGE
+      : null,
+    suggestions: insufficient ? defaultSuggestions() : [],
+    // Geological interpretation / exploration advice stays locked until the
+    // identification itself clears the acceptance threshold.
+    interpretationUnlocked: !insufficient && finalScore >= HIGH_CONFIDENCE_THRESHOLD,
   };
+}
+
+function inconclusive(message: string): EnsembleResult {
+  return {
+    candidates: [],
+    insufficientConfidence: true,
+    message,
+    suggestions: defaultSuggestions(),
+    interpretationUnlocked: false,
+  };
+}
+
+function clamp01(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
 }
 
 function defaultSuggestions(): string[] {

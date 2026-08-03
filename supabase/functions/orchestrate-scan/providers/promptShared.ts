@@ -71,10 +71,18 @@ ${categoryHint}
 ${onDeviceHint}
 ${locationHint}
 
-Identify the specimen. If you are not reasonably confident, DO NOT GUESS — return a low \
-confidence and say so in your reasoning. Do not claim certified appraisal-grade certainty; \
-you are not a substitute for GIA/AGL certification, XRF analysis, or treatment/synthetic \
-detection, and you must not attempt to determine natural-vs-synthetic origin.
+Identify the specimen. If you are not reasonably confident, DO NOT GUESS — say so in your \
+reasoning and list the genuine possibilities in "alternatives" instead. Do not claim certified \
+appraisal-grade certainty; you are not a substitute for GIA/AGL certification, XRF analysis, or \
+treatment/synthetic detection, and you must not attempt to determine natural-vs-synthetic origin.
+
+DO NOT output any confidence, probability, certainty or percentage value anywhere in your \
+response — not as a field, not inside your prose. Our system computes confidence itself from the \
+agreement between independent analyses, image quality and evidence; a self-reported number is \
+not measurable and is therefore ignored. Your job is to report WHAT YOU SEE and WHICH minerals \
+are consistent with it. List "alternatives" in order, most likely first, whenever more than one \
+mineral genuinely fits — an honest alternatives list is far more useful to us than a single \
+forced answer.
 
 ${languageInstruction}
 
@@ -95,8 +103,8 @@ alone, say so briefly (e.g. "requires XRF" or "not determinable from photographs
 inventing a number.
 
 Respond with ONLY minified JSON, no markdown, matching exactly this shape:
-{"label": string, "confidence": number between 0 and 1, "reasoning": string (1-3 sentences), \
-"alternatives": [{"label": string, "confidence": number}, ... up to 4 items], \
+{"label": string, "reasoning": string (1-3 sentences), \
+"alternatives": [{"label": string}, ... up to 4 items, ordered most likely first], \
 "simpleExplanation": string, \
 "expertExplanation": {"mineralSpecies": string, "variety": string, "crystalSystem": string, \
 "chemicalComposition": string, "mohsHardness": string, "specificGravity": string, \
@@ -112,26 +120,26 @@ Respond with ONLY minified JSON, no markdown, matching exactly this shape:
 
 export function parseJsonCandidateResponse(text: string): {
   label: string;
-  confidence: number;
   reasoning: string;
-  alternatives: { label: string; confidence: number }[];
+  alternatives: { label: string }[];
   analysis: FullAnalysis;
 } {
   // Models occasionally wrap JSON in a code fence despite instructions;
   // strip that defensively before parsing.
   const cleaned = text.trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
   const parsed = JSON.parse(cleaned);
+  // NOTE: any `confidence` a model emits anyway is deliberately DISCARDED here.
+  // Confidence is computed from evidence in ensemble.ts (the decision engine),
+  // never taken from the model — a self-reported number is not measurable and
+  // was the source of the same specimen scoring 88% once and 50% later.
   return {
     label: String(parsed.label ?? "unknown"),
-    confidence: clamp01(Number(parsed.confidence ?? 0)),
     reasoning: String(parsed.reasoning ?? ""),
     alternatives: Array.isArray(parsed.alternatives)
       ? parsed.alternatives
           .slice(0, 4)
-          .map((a: { label?: unknown; confidence?: unknown }) => ({
-            label: String(a?.label ?? "unknown"),
-            confidence: clamp01(Number(a?.confidence ?? 0)),
-          }))
+          .map((a: { label?: unknown }) => ({ label: String(a?.label ?? "unknown") }))
+          .filter((a: { label: string }) => a.label && a.label !== "unknown")
       : [],
     analysis: parseFullAnalysis(parsed),
   };
@@ -139,8 +147,7 @@ export function parseJsonCandidateResponse(text: string): {
 
 // Defensive by field: a model omitting/mistyping any single field (or the
 // whole expertExplanation object) must never fail parsing of the rest of the
-// response — it just falls back to an empty string for that field, same
-// spirit as clamp01() below for confidence.
+// response — it just falls back to an empty string for that field.
 function str(v: unknown): string {
   return typeof v === "string" ? v : v == null ? "" : String(v);
 }
@@ -181,11 +188,6 @@ function parseFullAnalysis(parsed: Record<string, unknown>): FullAnalysis {
     warnings: str(parsed.warnings),
     recommendations: str(parsed.recommendations),
   };
-}
-
-function clamp01(n: number): number {
-  if (Number.isNaN(n)) return 0;
-  return Math.max(0, Math.min(1, n));
 }
 
 // Every cloud vision provider needs to return the same "abstain with error"

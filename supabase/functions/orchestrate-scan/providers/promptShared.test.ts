@@ -5,8 +5,8 @@
 // form (so keyword matching, valuation lookups, and hallmark matching
 // elsewhere in the app keep working unchanged).
 // Run with: deno test --allow-none supabase/functions/orchestrate-scan/providers/promptShared.test.ts
-import { assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { buildIdentificationPrompt } from "./promptShared.ts";
+import { assert, assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { buildIdentificationPrompt, parseJsonCandidateResponse } from "./promptShared.ts";
 import type { ProviderInput } from "./types.ts";
 
 function baseInput(overrides: Partial<ProviderInput> = {}): ProviderInput {
@@ -68,4 +68,39 @@ Deno.test("buildIdentificationPrompt: English mode contains no Somali-language i
   if (hasSomaliInstruction) {
     throw new Error("English-language prompt unexpectedly included the Somali instruction block");
   }
+});
+
+// ── Reliability fix: the model must not produce confidence values ───────────
+Deno.test("buildIdentificationPrompt: forbids the model from emitting any confidence value", () => {
+  const prompt = buildIdentificationPrompt(baseInput());
+  assertStringIncludes(prompt, "DO NOT output any confidence, probability, certainty or percentage");
+  // The response schema must no longer ask for a confidence number.
+  assert(!prompt.includes('"confidence": number'));
+  assert(!prompt.includes('{"label": string, "confidence"'));
+});
+
+Deno.test("parseJsonCandidateResponse: discards a confidence the model emits anyway", () => {
+  // Models sometimes ignore instructions. Any number they volunteer must never
+  // reach the decision engine — confidence is computed from evidence.
+  const parsed = parseJsonCandidateResponse(
+    JSON.stringify({
+      label: "Celestite",
+      confidence: 0.88,
+      reasoning: "pale blue tabular crystals",
+      alternatives: [{ label: "Blue Quartz", confidence: 0.4 }, { label: "Fluorite" }],
+    }),
+  );
+  assertEquals(parsed.label, "Celestite");
+  assertEquals((parsed as Record<string, unknown>).confidence, undefined);
+  assertEquals(parsed.alternatives.length, 2);
+  assertEquals((parsed.alternatives[0] as Record<string, unknown>).confidence, undefined);
+  assertEquals(parsed.alternatives[0].label, "Blue Quartz");
+});
+
+Deno.test("parseJsonCandidateResponse: drops unusable alternative entries", () => {
+  const parsed = parseJsonCandidateResponse(
+    JSON.stringify({ label: "Quartz", alternatives: [{ label: "" }, {}, { label: "Calcite" }] }),
+  );
+  assertEquals(parsed.alternatives.length, 1);
+  assertEquals(parsed.alternatives[0].label, "Calcite");
 });

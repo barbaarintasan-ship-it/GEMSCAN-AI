@@ -52,10 +52,59 @@ export interface AssociationRow {
   weight: number | null;
 }
 
+// ── EMIE knowledge rows (0086–0090) ─────────────────────────────────────────
+export interface KnowledgeRuleRow {
+  id: string;
+  antecedent_type: string;
+  antecedent_key: string;
+  commodity_code: string | null;
+  expected_minerals: string[] | null;
+  relationship: string;
+  likelihood: string;        // diagnostic | common | possible | rare
+  requires_setting: string[] | null;
+  weight: number | null;
+}
+export interface CommodityProfileRow {
+  code: string;
+  name: string;
+  category: string;
+  typical_host_rocks: string[] | null;
+  associated_minerals: string[] | null;
+  alteration_styles: string[] | null;
+  deposit_models: string[] | null;
+  tectonic_settings: string[] | null;
+  exploration_indicators: string[] | null;
+  industrial_uses: string[] | null;
+  is_critical_mineral: boolean | null;
+  strategic_importance: string | null;
+  confidence_limitations: string;
+}
+export interface AssemblageRuleRow {
+  id: string;
+  minerals: string[];
+  interpretation: string;
+  commodity_code: string | null;
+  likelihood: string;        // diagnostic | common | possible | indicative
+  relationship: string;
+  weight: number | null;
+}
+export interface StructuralFeatureRow {
+  id: string;
+  feature_type: string;
+  name: string | null;
+  distance_m: number;
+  attributes: Record<string, unknown> | null;
+}
+
 export interface GeoDataGateway {
   geologyAt(lat: number, lng: number): Promise<GeologyRow[]>;
   occurrencesNear(lat: number, lng: number, radiusM: number): Promise<OccurrenceRow[]>;
   knowledgeNear(lat: number, lng: number, radiusM: number): Promise<KnowledgeRow[]>;
   communityNear(lat: number, lng: number, radiusM: number): Promise<CommunityRow>;
   associationsForHostRocks(codes: string[]): Promise<AssociationRow[]>;
+  // EMIE knowledge gateway
+  knowledgeRulesFor(keys: { hostRocks: string[]; lithology: string[]; depositTypes: string[] }): Promise<KnowledgeRuleRow[]>;
+  commodityProfiles(codes: string[]): Promise<CommodityProfileRow[]>;
+  assemblageRulesFor(minerals: string[]): Promise<AssemblageRuleRow[]>;
+  structuralFeaturesNear(lat: number, lng: number, radiusM: number): Promise<StructuralFeatureRow[]>;
 }

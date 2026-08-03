@@ -109,6 +109,28 @@ Deno.serve(async (req) => {
   };
 
   try {
+    // Idempotency: a real gateway retries a webhook delivery on any timeout,
+    // and referenceId identifies one real transaction — if we've already
+    // recorded this exact reference, don't re-activate (a subscription
+    // upsert is naturally idempotent for the SAME plan, but a replay could
+    // otherwise still be used to silently downgrade/upgrade a plan by
+    // resending an old signed payload with different claimed values).
+    if (status === "success") {
+      const { data: already } = await supabaseAdmin
+        .from("payment_events")
+        .select("id")
+        .eq("source", provider)
+        .eq("external_reference_id", referenceId)
+        .eq("event_type", "success")
+        .maybeSingle();
+      if (already) {
+        return new Response(JSON.stringify({ received: true, alreadyProcessed: true }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     if (status === "success") {
       const now = new Date();
       const oneYearOut = new Date(now);

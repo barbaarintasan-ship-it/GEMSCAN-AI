@@ -75,7 +75,53 @@ type ImageRow = {
   angle: string;
   original_storage_path: string;
   processed_storage_path: string | null;
+  // Stage-1 client-side quality validation, already recorded at upload time
+  // (see mobile/lib/scanUpload.ts). Used by the image-quality gate below.
+  quality_score: number | null;
+  quality_flags: { blurry?: boolean; lowLight?: boolean; overexposed?: boolean } | null;
 };
+
+// ── Image quality gate (Stage 1 enforcement) ────────────────────────────────
+// An unusable photograph is the single largest source of inconsistent
+// identifications: blur destroys texture, colour casts shift hue, and a
+// specimen can then be read as one mineral today and another tomorrow. Below
+// this score we STOP before spending any AI call (or Deep Scan credit) and ask
+// for better photographs instead of guessing.
+const MIN_IMAGE_QUALITY = 0.45;
+
+export const POOR_IMAGE_QUALITY_MESSAGE =
+  "These photos are not clear enough to identify the specimen reliably.";
+
+/** Mean Stage-1 quality across images. Returns 1 (neutral) when unscored, so
+ *  older clients that never sent a score are never penalised. */
+export function meanImageQuality(images: Pick<ImageRow, "quality_score">[]): number {
+  const scores = images
+    .map((i) => i.quality_score)
+    .filter((s): s is number => typeof s === "number" && Number.isFinite(s));
+  if (scores.length === 0) return 1;
+  const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+  return Math.max(0, Math.min(1, mean));
+}
+
+/** Actionable, specific guidance derived from the recorded quality flags. */
+export function imageQualitySuggestions(images: Pick<ImageRow, "quality_flags">[]): string[] {
+  const flags = images.map((i) => i.quality_flags ?? {});
+  const out: string[] = [];
+  if (flags.some((f) => f.blurry)) {
+    out.push("Hold the camera steady and tap to focus — the specimen is blurred.");
+  }
+  if (flags.some((f) => f.lowLight)) {
+    out.push("Move into brighter, even light (daylight works best) — the photo is too dark.");
+  }
+  if (flags.some((f) => f.overexposed)) {
+    out.push("Avoid direct flash and glare — highlights are washing out the surface.");
+  }
+  if (out.length === 0) {
+    out.push("Retake the photos closer, in focus, filling more of the frame.");
+  }
+  out.push("A sharp macro close-up of a fresh, unweathered surface helps the most.");
+  return out;
+}
 
 export async function handleRequest(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") {
@@ -148,7 +194,7 @@ export async function handleRequest(req: Request): Promise<Response> {
 
     const { data: images, error: imagesError } = await callerClient
       .from("scan_images")
-      .select("angle, original_storage_path, processed_storage_path")
+      .select("angle, original_storage_path, processed_storage_path, quality_score, quality_flags")
       .eq("scan_id", scanId);
     if (imagesError || !images || images.length === 0) {
       return jsonResponse({ error: "No images found for this scan" }, 400);
@@ -174,6 +220,47 @@ export async function handleRequest(req: Request): Promise<Response> {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    // ── Image quality gate (Stage 1 enforcement) ───────────────────────────
+    // Runs BEFORE any credit spend and before any AI call: a scan that cannot
+    // produce a trustworthy answer must not cost the user a Deep Scan credit,
+    // and must never be guessed at. Returns the insufficient-confidence shape
+    // the app already renders, plus specific guidance on what to fix.
+    const gateQuality = meanImageQuality(images as ImageRow[]);
+    if (gateQuality < MIN_IMAGE_QUALITY) {
+      log("info", "orchestrate-scan", "image quality gate stopped scan", {
+        scanId,
+        stage: "image_quality_gate",
+        quality: gateQuality,
+      });
+      const finalResult = {
+        bestMatch: null,
+        confidenceScore: 0,
+        confidenceBand: "low" as const,
+        reasoning: null,
+        alternatives: [],
+        insufficientConfidence: true,
+        message: POOR_IMAGE_QUALITY_MESSAGE,
+        suggestions: imageQualitySuggestions(images as ImageRow[]),
+        explanationStyle,
+        simpleExplanation: null,
+        expertExplanation: null,
+        imageObservations: null,
+        warnings: null,
+        recommendations: null,
+      };
+      await serviceClient
+        .from("scans")
+        .update({ status: "completed", final_result: finalResult, confidence_band: "low" })
+        .eq("id", scanId);
+      return jsonResponse({
+        scanId,
+        status: "completed",
+        finalResult,
+        candidates: [],
+        autoLockThreshold: autoLockThreshold(),
+      });
+    }
 
     // Entitlement + cost gate, enforced HERE (server-side), before any AI call.
     let ensembleScansEnabled = false;
@@ -424,7 +511,9 @@ export async function processScan(params: {
   );
 
   const weightByProvider = new Map(applicableProviders.map((p) => [p.name, p.baseWeight]));
-  const ensemble = runEnsemble(results, weightByProvider);
+  // Confidence is computed here, from evidence — provider agreement, candidate
+  // separation and Stage-1 image quality — never taken from a model.
+  const ensemble = runEnsemble(results, weightByProvider, meanImageQuality(images));
 
   if (ensemble.candidates.length > 0) {
     await serviceClient.from("scan_candidates").insert(
@@ -452,18 +541,29 @@ export async function processScan(params: {
     weightByProvider,
   );
 
+  // An unconfirmed identification must not be dressed up as one: when the
+  // decision engine did not clear the acceptance threshold we withhold the
+  // geological/gemological interpretation (origin, market, investment) and the
+  // narrative that asserts the identity. The observations, the honest warnings
+  // and the "what to do next" guidance are kept — those are exactly what the
+  // user needs while the answer is still open.
+  const unlocked = ensemble.interpretationUnlocked;
   const finalResult = {
-    bestMatch: ensemble.candidates[0]?.label ?? null,
+    bestMatch: ensemble.insufficientConfidence ? null : ensemble.candidates[0]?.label ?? null,
     confidenceScore: ensemble.candidates[0]?.weightedConfidence ?? 0,
     confidenceBand: ensemble.candidates[0]?.confidenceBand ?? "low",
     reasoning: ensemble.candidates[0]?.rationale ?? null,
-    alternatives: ensemble.candidates.slice(1),
+    // With no confirmed match, every candidate is presented as a possibility.
+    alternatives: ensemble.insufficientConfidence
+      ? ensemble.candidates
+      : ensemble.candidates.slice(1),
     insufficientConfidence: ensemble.insufficientConfidence,
     message: ensemble.message,
     suggestions: ensemble.suggestions,
     explanationStyle,
-    simpleExplanation: explanations?.simpleExplanation ?? null,
-    expertExplanation: explanations?.expertExplanation ?? null,
+    interpretationUnlocked: unlocked,
+    simpleExplanation: unlocked ? explanations?.simpleExplanation ?? null : null,
+    expertExplanation: unlocked ? explanations?.expertExplanation ?? null : null,
     imageObservations: explanations?.imageObservations ?? null,
     warnings: explanations?.warnings ?? null,
     recommendations: explanations?.recommendations ?? null,

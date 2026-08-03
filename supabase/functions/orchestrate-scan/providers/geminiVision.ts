@@ -46,7 +46,7 @@ export const geminiVisionProvider: VisionProvider = {
             parts: [{ text: buildIdentificationPrompt(input) }, ...imageParts],
           },
         ],
-        generationConfig: { temperature: 0.2, responseMimeType: "application/json" },
+        generationConfig: { temperature: 0, responseMimeType: "application/json" },
       };
 
       const res = await fetchWithRetry(
@@ -64,7 +64,7 @@ export const geminiVisionProvider: VisionProvider = {
 
       return {
         provider: "gemini_vision",
-        candidate: { label: parsed.label, confidence: parsed.confidence },
+        candidate: { label: parsed.label },
         alternatives: parsed.alternatives,
         reasoning: parsed.reasoning,
         latencyMs: Date.now() - start,

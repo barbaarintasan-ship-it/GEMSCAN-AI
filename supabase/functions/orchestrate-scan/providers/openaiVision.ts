@@ -43,7 +43,7 @@ export const openaiVisionProvider: VisionProvider = {
         },
         body: JSON.stringify({
           model: OPENAI_MODEL,
-          temperature: 0.2,
+          temperature: 0,
           response_format: { type: "json_object" },
           messages: [{ role: "user", content }],
         }),
@@ -59,7 +59,7 @@ export const openaiVisionProvider: VisionProvider = {
 
       return {
         provider: "openai_vision",
-        candidate: { label: parsed.label, confidence: parsed.confidence },
+        candidate: { label: parsed.label },
         alternatives: parsed.alternatives,
         reasoning: parsed.reasoning,
         latencyMs: Date.now() - start,

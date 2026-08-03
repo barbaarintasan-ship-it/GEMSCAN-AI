@@ -38,6 +38,10 @@ export interface AnalyzeDeps {
   runVision: (imageUrls: string[]) => Promise<VisualObservation[]>;
   runReasoning: (nodes: Parameters<typeof runReasoning>[0], summary: string) => Promise<ReasoningOutput>;
   saveAssessment: (sampleId: string, actorId: string, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  /** Records that a run has begun, so a died run is distinguishable from one never triggered. */
+  markStarted: (sampleId: string) => Promise<void>;
+  /** Records why a run failed, so the collector is told instead of left waiting. */
+  markFailed: (sampleId: string, reason: string) => Promise<void>;
   countToday: () => Promise<number>;
   dailyCap: number;
 }
@@ -66,12 +70,24 @@ export async function handleAnalyze(req: Request, deps: AnalyzeDeps = defaultDep
 
     // Cost guard: only the automatic post-submit run is bounded per day.
     if (!force && (await deps.countToday()) >= deps.dailyCap) {
+      // Recorded, not just returned. This branch used to answer 200 and leave
+      // the sample at "submitted" forever with the reason known only to a log
+      // nobody reads.
+      await deps.markFailed(
+        sampleId,
+        `Daily analysis limit reached (${deps.dailyCap}). Try again tomorrow, or ask for a re-analysis.`,
+      ).catch(() => {});
       return json({ skipped: "daily_cap", cap: deps.dailyCap }, 200);
     }
 
     const loaded = await deps.loadSample(sampleId);
     if (!loaded) throw new NotFoundError("sample not found");
     const { sample } = loaded;
+
+    // From here on the sample is IN a run, and every exit path below records
+    // its outcome. Before this line a failure means the sample was never really
+    // started; after it, the reason is written to the row.
+    await deps.markStarted(sampleId);
 
     // GATHER (geo) + VISION → unified Evidence Set (visual folded in before ids)
     const query: GeoQuery = {
@@ -104,16 +120,38 @@ export async function handleAnalyze(req: Request, deps: AnalyzeDeps = defaultDep
     );
 
     // REASON → SCORE/ASSEMBLE
-    const reasoning = await deps.runReasoning(set.nodes, sampleSummary(sample));
+    // Unlike vision, reasoning cannot be skipped — it IS the assessment, and a
+    // report assembled without it would be an empty one presented as a result.
+    // So a failure here is RECORDED against the sample and re-thrown, rather
+    // than propagating as a bare 500 that leaves the row at "submitted". This
+    // was the gap: the earlier fix made vision resilient and left reasoning
+    // able to strand a sample on any Gemini hiccup.
+    let reasoning: ReasoningOutput;
+    try {
+      reasoning = await deps.runReasoning(set.nodes, sampleSummary(sample));
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      console.error(`analyze-sample ${sampleId}: reasoning failed —`, reason);
+      await deps.markFailed(sampleId, `Geological reasoning failed: ${reason}`).catch(() => {});
+      throw e;
+    }
     const assessment = assembleAssessment(set, reasoning);
 
     // PERSIST
     // A forced re-run gets a unique hash so it writes a fresh assessment (history
     // preserved) instead of returning the idempotent one.
     const inputHash = force ? `${loaded.inputHash}-${Date.now()}` : loaded.inputHash;
-    const result = await deps.saveAssessment(sampleId, loaded.actorId, {
-      ...assessment, engineVersion: ENGINE_VERSION, model: MODEL, inputHash,
-    });
+    let result: Record<string, unknown>;
+    try {
+      result = await deps.saveAssessment(sampleId, loaded.actorId, {
+        ...assessment, engineVersion: ENGINE_VERSION, model: MODEL, inputHash,
+      });
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      console.error(`analyze-sample ${sampleId}: persist failed —`, reason);
+      await deps.markFailed(sampleId, `Could not save the assessment: ${reason}`).catch(() => {});
+      throw e;
+    }
 
     return json({
       assessment_id: result.assessment_id ?? null,
@@ -208,6 +246,16 @@ export const defaultDeps: AnalyzeDeps = {
   runProviders: (q) => runProviders(buildProviders(makeSupabaseGateway(serviceClient())), q),
   runVision: (urls) => runVision(urls, defaultVisionDeps),
   runReasoning: (nodes, summary) => runReasoning(nodes, summary, defaultReasoningDeps),
+  markStarted: async (sampleId) => {
+    const { error } = await serviceClient("geo").rpc("mark_analysis_started", { p_sample: sampleId });
+    // Never fatal: failing to record progress must not prevent the analysis the
+    // recording is about.
+    if (error) console.error(`mark_analysis_started ${sampleId}: ${error.message}`);
+  },
+  markFailed: async (sampleId, reason) => {
+    const { error } = await serviceClient("geo").rpc("mark_analysis_failed", { p_sample: sampleId, p_reason: reason });
+    if (error) console.error(`mark_analysis_failed ${sampleId}: ${error.message}`);
+  },
   saveAssessment: async (sampleId, actorId, payload) => {
     const { data, error } = await serviceClient("geo").rpc("save_assessment", { p_sample: sampleId, p_actor: actorId, p_payload: payload });
     if (error) throw new Error(`save_assessment: ${error.message}`);

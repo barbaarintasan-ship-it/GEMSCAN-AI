@@ -102,22 +102,14 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { data: purchase, error: purchaseError } = await supabaseAdmin
-      .from("high_value_report_purchases")
-      .select("id, verification_id, status")
-      .eq("id", purchaseId)
-      .maybeSingle();
-    if (purchaseError || !purchase) {
-      return jsonResponse({ error: "Purchase not found" }, 404);
-    }
-
-    // Idempotent: a retried webhook delivery for an already-paid purchase is
-    // a no-op, not a second AI call.
-    if (purchase.status === "paid") {
-      return jsonResponse({ received: true, alreadyPaid: true });
-    }
-
-    await supabaseAdmin
+    // Atomic claim: the read-then-write this used to be (SELECT status, THEN
+    // UPDATE) let two concurrent deliveries of the same webhook both read
+    // "not yet paid" before either write landed, both proceeding to trigger
+    // processVerification (an extra AI call, and a second verdict row).
+    // A single UPDATE ... WHERE status != 'paid' can only ever succeed once
+    // for a given row — Postgres serializes concurrent updates to the same
+    // row — so exactly one concurrent caller gets a non-empty result back.
+    const { data: updated, error: updateError } = await supabaseAdmin
       .from("high_value_report_purchases")
       .update({
         status: "paid",
@@ -125,12 +117,32 @@ Deno.serve(async (req) => {
         payment_method: paymentMethod ?? null,
         external_reference_id: referenceId ?? null,
       })
-      .eq("id", purchaseId);
+      .eq("id", purchaseId)
+      .neq("status", "paid")
+      .select("id, verification_id")
+      .maybeSingle();
+    if (updateError) {
+      return jsonResponse({ error: updateError.message }, 500);
+    }
+
+    if (!updated) {
+      // Either the purchase doesn't exist, or it was already paid (this
+      // exact webhook delivered twice) — either way, no second AI call.
+      const { data: existing } = await supabaseAdmin
+        .from("high_value_report_purchases")
+        .select("id")
+        .eq("id", purchaseId)
+        .maybeSingle();
+      if (!existing) {
+        return jsonResponse({ error: "Purchase not found" }, 404);
+      }
+      return jsonResponse({ received: true, alreadyPaid: true });
+    }
 
     const { data: verification, error: verificationError } = await supabaseAdmin
       .from("diamond_verifications")
       .select("id, scan_id, answers, image_paths, status")
-      .eq("id", purchase.verification_id)
+      .eq("id", updated.verification_id)
       .maybeSingle();
     if (verificationError || !verification) {
       logError("high-value-report-webhook", new Error("Verification not found after payment"), { purchaseId });

@@ -57,6 +57,8 @@ export type SampleListRow = {
   completeness_status: string | null;
   completeness_score: number | null;
   ai_confidence: number | null;
+  /** Why the last analysis attempt failed. Null when it succeeded or none has run. */
+  ai_error: string | null;
   geologist_confidence: number | null;
   confidence_score: number | null;
   area_id: string;

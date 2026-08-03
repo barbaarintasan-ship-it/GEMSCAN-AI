@@ -82,7 +82,13 @@ export type FullAnalysis = {
 
 export type ProviderCandidate = {
   label: string;
-  confidence: number; // 0-1, this provider's own confidence
+  // A provider's OWN confidence, when it has a measurable one (the on-device
+  // classifier's softmax score, the hallmark OCR's match score). Cloud vision
+  // models deliberately do NOT set this: an LLM's self-reported certainty is
+  // not calibrated and is ignored by the decision engine. Confidence is
+  // computed from provider agreement, separation and image quality in
+  // ensemble.ts — never taken from a model.
+  confidence?: number;
 };
 
 export type ProviderResult = {

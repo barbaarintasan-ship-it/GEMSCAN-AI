@@ -29,6 +29,12 @@ function pgGateway(c: Client): GeoDataGateway {
     },
     associationsForHostRocks: (codes) =>
       rows<AssociationRow>("select * from geo.associations_for_host_rocks($1)", [codes]),
+    knowledgeRulesFor: (k) =>
+      rows("select * from geo.knowledge_rules_for($1,$2,$3)", [k.hostRocks, k.lithology, k.depositTypes]) as never,
+    commodityProfiles: (codes) => rows("select * from geo.commodity_profiles($1)", [codes]) as never,
+    assemblageRulesFor: (minerals) => rows("select * from geo.assemblage_rules_for($1)", [minerals]) as never,
+    structuralFeaturesNear: (lat, lng, r) =>
+      rows("select * from geo.structural_features_near($1,$2,$3)", [lat, lng, r]) as never,
   };
 }
 

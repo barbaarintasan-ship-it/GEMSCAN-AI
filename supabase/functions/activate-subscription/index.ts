@@ -30,6 +30,21 @@ function json(obj: unknown, status = 200): Response {
   });
 }
 
+// Constant-time string compare (avoids leaking the shared secret via timing),
+// matching the pattern already used by the HMAC-verified webhook functions.
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+// Sanity cap: no single grant should ever exceed this many credits — a
+// legitimate credit pack tops out at 100 (migration 0005's credit_packages).
+// Guards against a leaked ACTIVATION_SECRET being used to self-grant an
+// effectively unlimited balance in one call.
+const MAX_CREDITS_PER_GRANT = 1000;
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -37,7 +52,7 @@ Deno.serve(async (req) => {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
     // Shared-secret auth — reject anything that doesn't present it.
-    if (!secret || String(body.secret ?? "") !== secret) {
+    if (!secret || !timingSafeEqual(String(body.secret ?? ""), secret)) {
       return json({ error: "unauthorized" }, 401);
     }
 
@@ -70,18 +85,28 @@ Deno.serve(async (req) => {
     }
 
     // Grant purchased Deep Scan credits (website credit-pack purchase). These
-    // are separate from the subscription allowance and roll over; the atomic,
-    // server-only add_deep_scan_credits() RPC (migration 0005) does the upsert.
+    // are separate from the subscription allowance and roll over. Uses the
+    // idempotent, server-only add_deep_scan_credits_idempotent() RPC
+    // (migration 0014): given a reference id (the Stripe session id, or any
+    // other stable per-purchase identifier the caller supplies), a retried or
+    // replayed identical request is a no-op rather than granting credits
+    // again — a plain retry-on-timeout from the caller (which WordPress/Stripe
+    // both do) must never double-grant.
     if (action === "add_credits") {
       const credits = Math.floor(Number(body.credits ?? 0));
       if (!credits || credits <= 0) {
         return json({ error: "credits must be a positive integer" }, 400);
       }
+      if (credits > MAX_CREDITS_PER_GRANT) {
+        return json({ error: `credits must not exceed ${MAX_CREDITS_PER_GRANT} per grant` }, 400);
+      }
+      const reference = body.reference ? String(body.reference) : null;
       const { data: p } = await admin.from("profiles").select("id").eq("email", email).maybeSingle();
       if (!p) return json({ error: "no account found with that email" }, 404);
-      const { data: newBalance, error: creditErr } = await admin.rpc("add_deep_scan_credits", {
+      const { data: newBalance, error: creditErr } = await admin.rpc("add_deep_scan_credits_idempotent", {
         p_user_id: p.id,
         p_credits: credits,
+        p_reference: reference,
       });
       if (creditErr) return json({ error: creditErr.message }, 500);
       return json({ success: true, email, creditsAdded: credits, purchasedBalance: newBalance });

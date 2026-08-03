@@ -3,7 +3,7 @@ project_id = "gemscan-ai"
 [api]
 enabled = true
 port = 54321
-schemas = ["public", "graphql_public"]
+schemas = ["public", "graphql_public", "enterprise", "geo"]
 
 [db]
 port = 54322
@@ -73,4 +73,40 @@ verify_jwt = false
 # above: the caller is a payment gateway, verified via its own HMAC signature
 # (X-Gateway-Signature), not a Supabase JWT.
 [functions.high-value-report-webhook]
+verify_jwt = false
+
+# $5 Gold Report payment webhook — same HMAC-signed, gateway-called convention.
+[functions.gold-report-webhook]
+verify_jwt = false
+
+# $10 Artifact Report payment webhook — same HMAC-signed, gateway-called convention.
+[functions.artifact-report-webhook]
+verify_jwt = false
+
+# Enterprise context/status — user-facing, requires a valid app JWT.
+[functions.enterprise-context]
+verify_jwt = true
+
+# GeoContext runtime — user-facing, requires a valid app JWT (+ enterprise gate).
+[functions.geocontext]
+verify_jwt = true
+
+# Sample Submission API (Sprint 4.2) — user-facing, requires a valid app JWT (+ enterprise gate).
+[functions.enterprise-samples]
+verify_jwt = true
+
+# Geological Intelligence Engine (Sprint 4.3) — called server-to-server with the
+# service role (auto-triggered by enterprise-samples), not a user JWT. Its handler
+# checks the service-role bearer itself, so JWT verification is off like the webhooks.
+[functions.analyze-sample]
+verify_jwt = false
+
+# Geologist review endpoint (Review Console S2) — user-facing, requires a valid app
+# JWT (+ enterprise gate + reviewer RBAC in the handler).
+[functions.review-sample]
+verify_jwt = true
+
+# Serves the Review Console SPA shell as text/html (Storage forces text/plain on
+# HTML). Public page — no JWT; the app's own login + RLS gate all data.
+[functions.console]
 verify_jwt = false

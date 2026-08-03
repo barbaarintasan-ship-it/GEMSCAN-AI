@@ -25,6 +25,9 @@ export class BadRequestError extends EnterpriseError {
 export class NotFoundError extends EnterpriseError {
   constructor(message = "not found") { super(404, message, "not_found"); }
 }
+export class ConflictError extends EnterpriseError {
+  constructor(message = "conflict") { super(409, message, "conflict"); }
+}
 
 export function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

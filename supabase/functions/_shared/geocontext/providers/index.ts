@@ -6,13 +6,17 @@ import { makeOccurrenceProvider } from "./occurrence.ts";
 import { makeKnowledgeProvider } from "./knowledge.ts";
 import { makeCommunityProvider } from "./community.ts";
 import { makeMineralAssociationProvider } from "./mineralAssociation.ts";
+import { makeGeologicalKnowledgeProvider } from "./geologicalKnowledge.ts";
+import { makeStructuralGeologyProvider } from "./structuralGeology.ts";
 
 export function buildProviders(gw: GeoDataGateway): GeoContextProvider[] {
   return [
     makeGeologyProvider(gw),
+    makeStructuralGeologyProvider(gw),   // EMIE — dormant until structural data is loaded
     makeOccurrenceProvider(gw),
     makeKnowledgeProvider(gw),
-    makeMineralAssociationProvider(gw),
+    makeGeologicalKnowledgeProvider(gw), // EMIE — rock/environment → commodity knowledge
+    makeMineralAssociationProvider(gw),  // EMIE — mineral assemblage → interpreted system
     makeCommunityProvider(gw),
   ];
 }

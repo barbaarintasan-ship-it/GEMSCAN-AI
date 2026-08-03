@@ -35,8 +35,14 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
+  // Fail closed: a caller with no Origin header at all (curl, a script, or —
+  // per this file's own header comment — the mobile app, which must never
+  // reach this endpoint) used to sail straight past this check, since it
+  // only rejected a PRESENT-but-wrong Origin. Reject a missing Origin too.
+  // The bearer-JWT check below is still the real authorization boundary;
+  // this is defense in depth for the stated "website-only" intent.
   const origin = req.headers.get("Origin");
-  if (origin && origin !== ALLOWED_ORIGIN) {
+  if (origin !== ALLOWED_ORIGIN) {
     return new Response(JSON.stringify({ error: "Origin not allowed" }), {
       status: 403,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

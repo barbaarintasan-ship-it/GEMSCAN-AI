@@ -107,6 +107,38 @@ export default function SampleDetailScreen() {
         {sample.completeness_score != null && <Badge label={`${Math.round(sample.completeness_score)}/100 complete`} />}
       </View>
 
+      {/* The whole point of 0092/0093: a run that died says so, says why, and
+          offers the way out. Before this, the sample sat at "Submitted"
+          indefinitely and the collector had no signal at all. */}
+      {sample.status === "ai_failed" || sample.ai_error ? (
+        <Card>
+          <View style={styles.failHead}>
+            <Ionicons name="alert-circle" size={20} color="#E4685D" />
+            <Text style={styles.failTitle}>
+              {so ? "Falanqayntu way fashilantay" : "Analysis failed"}
+            </Text>
+          </View>
+          <Text style={styles.failReason}>
+            {sample.ai_error ?? (so ? "Sabab lama duubin." : "No reason was recorded.")}
+          </Text>
+          <Text style={styles.failHint}>
+            {so
+              ? "Muunaddaadu way badbaaday — sawiradii iyo xogtii wey wada jiraan. Isku day mar kale."
+              : "Your sample is safe — the photos and data are all stored. Try the analysis again."}
+          </Text>
+          <Pressable style={styles.failBtn} onPress={onReanalyze} disabled={reanalyzing}>
+            {reanalyzing
+              ? <ActivityIndicator color="#0B0B0C" />
+              : <>
+                  <Ionicons name="refresh" size={18} color="#0B0B0C" />
+                  <Text style={styles.failBtnText}>
+                    {so ? "Mar kale isku day" : "Run the analysis again"}
+                  </Text>
+                </>}
+          </Pressable>
+        </Card>
+      ) : null}
+
       <GeologistReview sample={sample} so={so} />
 
       {loc && (
@@ -190,6 +222,9 @@ const STATUS_LABELS: Record<string, string> = {
   draft: "Draft", ready: "Ready", uploading: "Uploading", ai_processing: "Processing",
   ai_completed: "Analysis ready", awaiting_review: "Waiting for Geologist", verified: "Verified",
   needs_more_data: "Needs More Data", rejected: "Rejected", submitted: "Submitted",
+  // A failed analysis has to LOOK failed. Left unlabelled it fell through to
+  // "ai failed" via the underscore replacement, which reads as a shrug.
+  ai_failed: "Analysis Failed",
   community_confirmed: "Community Confirmed", expert_verified: "Expert Verified",
   lab_verified: "Lab Verified", held: "Held",
 };
@@ -692,6 +727,16 @@ function GeologistReview({ sample, so }: { sample: SampleDetail; so: boolean }) 
 }
 
 const styles = StyleSheet.create({
+  failHead: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  failTitle: { ...t.subheading, color: "#E4685D" },
+  failReason: { ...t.body, color: colors.text, marginTop: spacing.sm },
+  failHint: { ...t.bodySmall, marginTop: spacing.xs },
+  failBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm,
+    backgroundColor: colors.gold, borderRadius: radius.lg,
+    paddingVertical: spacing.md, marginTop: spacing.md,
+  },
+  failBtnText: { color: "#0B0B0C", fontWeight: "700", fontSize: 15 },
   needIntro: { ...t.bodySmall, marginBottom: spacing.sm },
   needItem: { ...t.body, color: colors.text, lineHeight: 21 },
   needBtn: {

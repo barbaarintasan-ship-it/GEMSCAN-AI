@@ -20,6 +20,9 @@ const LIST_COLS = "id,name,collected_at,status,completeness_status,completeness_
   "ai_confidence,geologist_confidence,confidence_score,area_id,created_at";
 const DETAIL = "id,name,collected_at,status,completeness_status,completeness_score," +
   "ai_confidence,geologist_confidence,confidence_score,area_id,field_observations,created_at," +
+  // Why the last run failed, so the app can say so instead of showing
+  // "Submitted" over a sample whose analysis died hours ago.
+  "ai_error,ai_attempted_at," +
   "sample_location(altitude_m,gps_accuracy_m,h3_cell,provenance)," +
   "sample_media(id,role,storage_path,thumb_path)," +
   "rock_observation(rock_class,host_type,texture,weathering,vein_presence,notes)," +
