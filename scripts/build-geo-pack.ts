@@ -162,6 +162,20 @@ async function extract(client: Client): Promise<{ data: PackData; datasets: Pack
   } catch {
     console.log("  (no geo.terrain_cell — terrain provider stays dormant)");
   }
+  // The driver hands back double precision as strings. Left uncoerced these
+  // reach the device as JSON strings, where `drainageDistM < 200` becomes a
+  // STRING comparison and slope/elevation stop being orderable. Coerced here,
+  // exactly as the occurrence query already does for lat/lng.
+  terrain = terrain.map((t) => ({
+    ...t,
+    lat: Number(t.lat),
+    lng: Number(t.lng),
+    elevationM: Number(t.elevationM),
+    slopeDeg: Number(t.slopeDeg),
+    aspectDeg: t.aspectDeg == null ? null : Number(t.aspectDeg),
+    reliefM: Number(t.reliefM),
+    drainageDistM: t.drainageDistM == null ? null : Number(t.drainageDistM),
+  }));
 
   // Occurrences — points.
   const occRows = await q<{

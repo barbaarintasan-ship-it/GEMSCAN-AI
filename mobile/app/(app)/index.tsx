@@ -154,6 +154,14 @@ export default function HomeScreen() {
         </Pressable>
       )}
 
+      {/* Exploration Mode — same owner gate as Field Samples (architecture §14.4). */}
+      {isOwnerEmail(session?.user?.email) && (
+        <Pressable style={styles.collectionButton} onPress={() => router.push("/(app)/exploration")} hitSlop={8}>
+          <Ionicons name="compass-outline" size={16} color={colors.gold} />
+          <Text style={styles.collectionButtonText}>{t("field.title")}</Text>
+        </Pressable>
+      )}
+
       {/* Gemstone showcase */}
       <View style={styles.showcase}>
         <Text style={styles.showcaseTitle}>{so ? "Waxaan aqoonsan karnaa" : "We can identify"}</Text>

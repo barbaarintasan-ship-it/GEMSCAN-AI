@@ -100,7 +100,18 @@ describe("bundled Somalia knowledge pack", () => {
     const d = pack!.data;
     // These are legitimately empty in production today. The test records the
     // fact so a future pack that gains them fails here and gets noticed.
-    expect(d.mapFeatures.length).toBe(0); // no fault/contact line geometry yet
-    expect(d.terrain.length).toBe(0);     // no DEM ingested yet
+    // No fault/contact/lineament line geometry: the Macrostrat load is a
+    // 0.5-degree grid of rectangles, so it cannot yield real contacts.
+    expect(d.mapFeatures.length).toBe(0);
+    // Terrain IS present now — SRTM 30 m sampled around known occurrences.
+    expect(d.terrain.length).toBeGreaterThan(1000);
+    for (const t of d.terrain.slice(0, 50)) {
+      expect(t.elevationM).toBeGreaterThanOrEqual(0);
+      expect(t.slopeDeg).toBeGreaterThanOrEqual(0);
+      expect(t.slopeDeg).toBeLessThanOrEqual(90);
+      expect(["ridge", "slope", "valley", "flat"]).toContain(t.morphology);
+      // Drainage is NOT derivable from point sampling and must stay null.
+      expect(t.drainageDistM).toBeNull();
+    }
   });
 });
