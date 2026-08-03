@@ -3,7 +3,9 @@
 // geological-context caching.
 import { latLngToCell } from "https://esm.sh/h3-js@4.1.0";
 
-export const H3_RESOLUTION = 7;
+// The resolution is shared with the mobile runtime — one constant, two bindings.
+export { H3_RESOLUTION } from "../../../../shared/geo-core/geo/h3.ts";
+import { H3_RESOLUTION } from "../../../../shared/geo-core/geo/h3.ts";
 
 export function cellFor(lat: number, lng: number, res: number = H3_RESOLUTION): string {
   return latLngToCell(lat, lng, res);

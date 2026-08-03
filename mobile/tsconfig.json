@@ -9,6 +9,10 @@
     },
     "allowImportingTsExtensions": true
   },
+  "exclude": [
+    "../shared/**/*.test.ts",
+    "../supabase/**/*.test.ts"
+  ],
   "include": [
     "**/*.ts",
     "**/*.tsx",

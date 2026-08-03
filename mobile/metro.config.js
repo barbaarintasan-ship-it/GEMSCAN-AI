@@ -13,10 +13,16 @@ const path = require("path");
 
 const projectRoot = __dirname;
 const sharedRoot = path.resolve(projectRoot, "..", "shared");
+// The 7 GeoContext providers and the engine are pure and are consumed by BOTH
+// runtimes, so the app runs them in place rather than duplicating them. They
+// still live under supabase/functions/_shared; relocating them into
+// shared/geo-core is a mechanical follow-up, blocked only by unrelated
+// uncommitted work in that directory.
+const serverSharedRoot = path.resolve(projectRoot, "..", "supabase", "functions", "_shared");
 
 const config = getDefaultConfig(projectRoot);
 
-config.watchFolders = [sharedRoot];
+config.watchFolders = [sharedRoot, serverSharedRoot];
 config.resolver.nodeModulesPaths = [path.resolve(projectRoot, "node_modules")];
 
 module.exports = config;
