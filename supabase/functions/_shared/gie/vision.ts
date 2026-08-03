@@ -88,27 +88,85 @@ export function visualEvidence(obs: VisualObservation[], imageQuality = 1): Evid
 
 // ── Impure: run the vision call over image URLs ─────────────────────────────
 /**
- * Hard ceiling on how many photos go into ONE vision call.
+ * How much image the vision call may carry, in BYTES.
  *
- * Every image is downloaded, base64-encoded (~1.33x its bytes) and inlined into
- * a single request, with all of them resident in memory at once. A field sample
- * with 27 photos therefore meant ~27 x 4 MB of raw image becoming well over
- * 100 MB of base64 in an Edge Function capped far below that — and a request
- * far past Gemini's inline-payload limit. Samples with 2-5 photos analysed
- * fine; 9 and 27 died silently and sat at "submitted" forever.
+ * THE COUNT WAS THE WRONG AXIS. An earlier fix capped this at six IMAGES,
+ * reasoning that a sample with 27 photos was the problem. Production says
+ * otherwise:
  *
- * Six is enough for identification: the caller sends the highest-quality images
- * first, and past a handful the model gains almost nothing.
+ *     Qarka Qardhl        11 photos   6.94 MB each    failed
+ *     Aaga Qardho          9 photos   7.16 MB each    failed
+ *     Qardho buur u dhow  27 photos   5.04 MB each    failed
+ *     Guri                 3 photos   4.42 MB each    FAILED
+ *     Sample / Sample2     5 photos   0.10 MB each    fine
+ *     Ma garanayo          2 photos   0.16 MB each    fine
+ *
+ * Three photos failed and five succeeded. What separates them is size, not
+ * number: base64 inflates by a third, so six 7 MB photos is ~56 MB in a single
+ * request — past Gemini's inline-payload limit and past what an Edge Function
+ * can hold. The old app compressed to ~100 KB; the current one uploads the
+ * sensor's full frame, which is why this began recently and why capping the
+ * count did nothing.
+ *
+ * The budget is on the ENCODED total, because that is what actually goes on the
+ * wire. Images are taken highest-quality-first until it is spent.
  */
-export const MAX_VISION_IMAGES = 6;
+export const MAX_VISION_BYTES = 12 * 1024 * 1024;
+
+/**
+ * A single image larger than this is skipped rather than allowed to consume the
+ * whole budget. One enormous frame would otherwise crowd out four usable ones,
+ * and the model gains more from several views than from one huge one.
+ *
+ * Measured on the ENCODED length, which is about a third larger than the file:
+ * 8 MB here admits a photo of roughly 6 MB on disk. Past that a sample simply
+ * gets no visual evidence, and its assessment rests on the geological providers
+ * alone — degraded, which is the correct outcome, and never stranded.
+ */
+export const MAX_SINGLE_IMAGE_BYTES = 8 * 1024 * 1024;
+
+/** A last guard on count, so a thousand thumbnails cannot each cost a round trip. */
+export const MAX_VISION_IMAGES = 8;
 
 export async function runVision(imageUrls: string[], deps: VisionDeps): Promise<VisualObservation[]> {
   if (imageUrls.length === 0) return [];
-  // Sequential, not Promise.all: parallel fetches hold every image in memory
-  // simultaneously, which is the other half of what blew the memory ceiling.
-  const capped = imageUrls.slice(0, MAX_VISION_IMAGES);
+
+  // Sequential, not Promise.all: parallel fetches hold every image in memory at
+  // once, which is the other half of what blew the ceiling. Fetching one at a
+  // time also means an oversized image is discovered and dropped before the
+  // next is pulled, so the peak is one image plus the kept set.
   const images: VisionImage[] = [];
-  for (const u of capped) images.push(await deps.fetchImageBase64(u));
+  let bytes = 0;
+
+  for (const u of imageUrls) {
+    if (images.length >= MAX_VISION_IMAGES) break;
+
+    let img: VisionImage;
+    try {
+      img = await deps.fetchImageBase64(u);
+    } catch {
+      // One dead signed URL must not cost the whole assessment. Vision is
+      // enrichment; the geological providers still stand on their own.
+      continue;
+    }
+
+    const size = img.base64.length;
+    if (size > MAX_SINGLE_IMAGE_BYTES) continue;
+    if (bytes + size > MAX_VISION_BYTES) {
+      // Budget spent. Later images are lower quality anyway — the caller sorts
+      // best-first — so stopping here costs the least.
+      break;
+    }
+
+    images.push(img);
+    bytes += size;
+  }
+
+  // Every photo was too large, or every fetch failed. Returning empty degrades
+  // the assessment; throwing would strand the sample, which is the failure this
+  // whole path exists to prevent.
+  if (images.length === 0) return [];
+
   const text = await deps.generate(buildVisionPrompt(), images);
   return parseVisionResponse(text);
 }

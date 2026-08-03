@@ -7,6 +7,7 @@
 // stays deliberately dumb — validation and authorization are enforced there.
 import { decode } from "base64-arraybuffer";
 import * as FileSystem from "expo-file-system";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as Location from "expo-location";
 import { supabase } from "./supabase";
 
@@ -138,12 +139,46 @@ async function readBody(res: Response): Promise<any> {
 
 /** Upload one captured photo to storage and return its storage_path (owner beta
  *  reuses the existing scan-images bucket, namespaced under enterprise/). */
+/**
+ * Longest edge a field photo is uploaded at.
+ *
+ * The phone shoots 7–8 MB frames. Production showed what that costs: every
+ * sample whose photos averaged over ~4 MB failed analysis, including one with
+ * only three photos, while samples at ~100 KB analysed fine. The bytes were
+ * the problem, not the count.
+ *
+ * 2048 px on the long edge keeps everything a geologist photographs legible —
+ * grain, veining, alteration coatings, a hand lens view — at roughly half a
+ * megabyte. It also matters on the other end of the wire: uploading 8 MB over
+ * a rural Somali cellular link is minutes per photo, and this app is used
+ * where that link is the good day.
+ *
+ * The ORIGINAL is untouched on the device. This resizes the copy that is sent.
+ */
+export const UPLOAD_MAX_EDGE_PX = 2048;
+export const UPLOAD_JPEG_QUALITY = 0.85;
+
 export async function uploadSampleMedia(uri: string, role: MediaRole): Promise<SampleMediaInput> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) throw new Error("You must be signed in.");
-  const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+
+  let sendUri = uri;
+  try {
+    const shrunk = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: UPLOAD_MAX_EDGE_PX } }],
+      { compress: UPLOAD_JPEG_QUALITY, format: ImageManipulator.SaveFormat.JPEG },
+    );
+    if (shrunk?.uri) sendUri = shrunk.uri;
+  } catch {
+    // Resizing failed on this device or this file. Upload the original rather
+    // than lose the observation — a large photo is a slow upload, but a missing
+    // one is a lost outcrop.
+  }
+
+  const base64 = await FileSystem.readAsStringAsync(sendUri, { encoding: FileSystem.EncodingType.Base64 });
   // scan-images Storage RLS requires the FIRST path segment to equal the user's
   // uid (scan_images_storage_insert_own / _select_own). Keep {userId} first, then
   // namespace enterprise media under it so both upload and signed-URL read pass.
