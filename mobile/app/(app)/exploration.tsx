@@ -14,13 +14,18 @@
 //     which arrive STRUCTURED from the engine precisely so they can be rendered
 //     in either language rather than as pre-built English sentences.
 import React from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Stack } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { colors, radius, spacing } from "../../lib/theme";
 import { ExplorationProvider, useExploration } from "../../lib/exploration/provider";
 import type { ExplorationTarget, TargetReason } from "../../lib/geo/targeting.ts";
 import { WAYPOINT_TYPES, waypointTypeLabelKey, type WaypointType } from "../../lib/field/waypointTypes";
+import { GeologyMap } from "../../components/GeologyMap";
+import {
+  buildMapView, elevationAt, nearestFaultM, nearestOccurrence,
+} from "../../lib/geo/mapView";
+import { useWindowDimensions } from "react-native";
 
 type TFunc = (key: string, opts?: Record<string, unknown>) => string;
 
@@ -36,8 +41,27 @@ export default function ExplorationRoute() {
 
 function ExplorationScreen() {
   const { t } = useTranslation();
-  const { snapshot: s, actions } = useExploration();
+  const { snapshot: s, actions, packs } = useExploration();
   const running = s.state !== "idle" && s.state !== "ended";
+  const { width } = useWindowDimensions();
+
+  // The point the readout is about: a looked-up place, else the real fix.
+  const at = s.inspecting ?? (s.position ? { lat: s.position.lat, lng: s.position.lng } : null);
+  const data = packs.getData();
+
+  const mapView = at && packs.isReady()
+    ? buildMapView(data, at, {
+        width: Math.max(240, Math.round(width - 2 * spacing.lg)),
+        height: 260,
+        target: s.activeTarget
+          ? {
+              lat: s.activeTarget.centre.lat, lng: s.activeTarget.centre.lng,
+              bearingDeg: s.activeTarget.bearingDeg,
+              distanceM: s.distanceToTargetM ?? s.activeTarget.distanceM,
+            }
+          : null,
+      })
+    : null;
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -53,11 +77,32 @@ function ExplorationScreen() {
       ) : (
         <>
           <StatusLine state={s.state} suspendedBy={s.suspendedBy} />
-          <HereCard unit={unitOf(s.context)} cell={s.currentCell} bestIsHere={s.bestIsHere} />
+          {mapView ? (
+            <View style={styles.card}>
+              <Text style={styles.label}>{t("field.evidence2.mapTitle")}</Text>
+              <GeologyMap view={mapView} />
+            </View>
+          ) : null}
+
+          <HereCard
+            unit={unitOf(s.context)}
+            cell={s.currentCell}
+            bestIsHere={s.bestIsHere}
+            position={s.position}
+            inspecting={s.inspecting}
+          />
 
           {s.state === "awaitingEvidence" && (
             <EvidenceCard onCapture={(type: WaypointType) => void actions.captureObservation(type)} />
           )}
+
+          {at && packs.isReady() ? (
+            <EvidenceList
+              faultM={nearestFaultM(data, at)}
+              occurrence={nearestOccurrence(data, at)}
+              elevationM={elevationAt(data, at)}
+            />
+          ) : null}
 
           {s.activeTarget ? (
             <TargetCard
@@ -75,6 +120,12 @@ function ExplorationScreen() {
               onSelect={actions.selectTarget}
             />
           )}
+
+          <LookupCard
+            inspecting={s.inspecting}
+            onLookup={actions.inspectAt}
+            onClear={actions.clearInspect}
+          />
 
           <View style={styles.row}>
             <Pressable style={[styles.btn, styles.btnGhost]} onPress={actions.refresh}>
@@ -136,15 +187,156 @@ function StatusLine({ state, suspendedBy }: { state: string; suspendedBy: string
 }
 
 function HereCard({
-  unit, cell, bestIsHere,
-}: { unit: string | null; cell: string | null; bestIsHere: boolean }) {
+  unit, cell, bestIsHere, position, inspecting,
+}: {
+  unit: string | null;
+  cell: string | null;
+  bestIsHere: boolean;
+  position: { lat: number; lng: number; accuracyM: number | null } | null;
+  inspecting: { lat: number; lng: number } | null;
+}) {
   const { t } = useTranslation();
+  const shown = inspecting ?? position;
   return (
     <View style={styles.card}>
+      {/* When looking up elsewhere this must NOT read as the user's location. */}
+      {inspecting ? (
+        <View style={[styles.banner, styles.bannerWarn]}>
+          <Text style={styles.bannerText}>
+            {t("field.location.inspectingBanner", {
+              lat: inspecting.lat.toFixed(5), lng: inspecting.lng.toFixed(5),
+            })}
+          </Text>
+        </View>
+      ) : null}
+
       <Text style={styles.label}>{t("field.here.label")}</Text>
       <Text style={styles.h2}>{unit ?? t("field.here.noGeology")}</Text>
+
+      {shown ? (
+        <Text style={styles.coords}>
+          {t("field.location.coords", {
+            lat: shown.lat.toFixed(5), lng: shown.lng.toFixed(5),
+          })}
+        </Text>
+      ) : (
+        <Text style={styles.faint}>{t("field.location.noFix")}</Text>
+      )}
+      {!inspecting && position?.accuracyM != null ? (
+        <Text style={styles.faint}>
+          {t("field.location.accuracy", { m: Math.round(position.accuracyM) })}
+        </Text>
+      ) : null}
+
       {cell ? <Text style={styles.faint}>{t("field.here.cell", { cell })}</Text> : null}
-      {bestIsHere ? <Text style={styles.goodNews}>{t("field.here.bestHere")}</Text> : null}
+      {bestIsHere && !inspecting ? (
+        <Text style={styles.goodNews}>{t("field.here.bestHere")}</Text>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * What is actually near this point, measured from the pack.
+ *
+ * Each line is a measurement, not an inference: distance to the nearest mapped
+ * fault, to the nearest known occurrence, and the sampled elevation. Anything
+ * the pack does not cover is simply absent rather than estimated.
+ */
+function EvidenceList({
+  faultM, occurrence, elevationM,
+}: {
+  faultM: number | null;
+  occurrence: { distanceM: number; commodity: string | null; name: string | null } | null;
+  elevationM: number | null;
+}) {
+  const { t } = useTranslation();
+  const rows: string[] = [];
+  if (faultM != null && faultM < 25_000) {
+    rows.push(t("field.evidence2.fault", { distance: formatDistance(t, faultM) }));
+  }
+  if (occurrence && occurrence.distanceM < 50_000) {
+    rows.push(t("field.evidence2.occurrence", {
+      commodity: occurrence.commodity ?? occurrence.name ?? "?",
+      distance: formatDistance(t, occurrence.distanceM),
+    }));
+  }
+  if (elevationM != null) {
+    rows.push(t("field.evidence2.elevation", { m: Math.round(elevationM) }));
+  }
+
+  return (
+    <View style={styles.card}>
+      <Text style={styles.label}>{t("field.evidence2.title")}</Text>
+      {rows.length === 0 ? (
+        <Text style={styles.body}>{t("field.evidence2.none")}</Text>
+      ) : (
+        rows.map((r) => (
+          <Text key={r} style={styles.reason}>{"✓"} {r}</Text>
+        ))
+      )}
+    </View>
+  );
+}
+
+/** Read the geology of somewhere the user is not standing (a lookup, not a move). */
+function LookupCard({
+  inspecting, onLookup, onClear,
+}: {
+  inspecting: { lat: number; lng: number } | null;
+  onLookup: (lat: number, lng: number) => void;
+  onClear: () => void;
+}) {
+  const { t } = useTranslation();
+  const [lat, setLat] = React.useState("");
+  const [lng, setLng] = React.useState("");
+
+  // Accept a comma decimal separator too — it is what many keyboards produce.
+  const parse = (v: string) => Number(v.trim().replace(",", "."));
+  const latN = parse(lat);
+  const lngN = parse(lng);
+  const valid =
+    Number.isFinite(latN) && Number.isFinite(lngN) &&
+    latN >= -90 && latN <= 90 && lngN >= -180 && lngN <= 180;
+
+  return (
+    <View style={styles.card}>
+      <Text style={styles.label}>{t("field.location.lookupTitle")}</Text>
+      <Text style={styles.body}>{t("field.location.lookupHint")}</Text>
+      <View style={styles.row}>
+        <TextInput
+          style={styles.input}
+          value={lat}
+          onChangeText={setLat}
+          placeholder={t("field.location.lat")}
+          placeholderTextColor={colors.textFaint}
+          keyboardType="numbers-and-punctuation"
+        />
+        <TextInput
+          style={styles.input}
+          value={lng}
+          onChangeText={setLng}
+          placeholder={t("field.location.lng")}
+          placeholderTextColor={colors.textFaint}
+          keyboardType="numbers-and-punctuation"
+        />
+      </View>
+      <View style={styles.row}>
+        <Pressable
+          style={[styles.btn, valid ? styles.btnPrimary : styles.btnDisabled]}
+          disabled={!valid}
+          onPress={() => onLookup(latN, lngN)}
+        >
+          <Text style={valid ? styles.btnPrimaryText : styles.btnGhostText}>
+            {t("field.location.lookup")}
+          </Text>
+        </Pressable>
+        {inspecting ? (
+          <Pressable style={[styles.btn, styles.btnGhost]} onPress={onClear}>
+            <Text style={styles.btnGhostText}>{t("field.location.backToMe")}</Text>
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -391,6 +583,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   chipText: { color: colors.text, fontSize: 13, fontWeight: "600" },
+
+  coords: { color: colors.text, fontSize: 15, fontWeight: "700", letterSpacing: 0.3 },
+  input: {
+    flex: 1, backgroundColor: colors.surfaceAlt, borderRadius: radius.md,
+    borderWidth: 1, borderColor: colors.border, color: colors.text,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm, fontSize: 15,
+  },
+  btnDisabled: { borderWidth: 1, borderColor: colors.border, opacity: 0.5 },
 
   otherRow: {
     paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle, gap: 2,

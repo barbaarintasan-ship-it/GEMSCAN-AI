@@ -7,19 +7,23 @@
 // GPS richness (§2) and photo categories (§3) arrive in the next slices.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, TextInput, ScrollView, StyleSheet, Pressable, Image, Alert, ActivityIndicator } from "react-native";
-import { router, useNavigation } from "expo-router";
+import { router, useNavigation, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors, spacing, radius, type as t } from "../../../lib/theme";
 import { useAuth } from "../../../lib/auth";
+import { supabase } from "../../../lib/supabase";
 import { Button } from "../../../components/ui/Button";
 import { Card } from "../../../components/ui/Card";
 import { SectionLabel } from "../../../components/ui/SectionLabel";
 import {
   captureSampleLocation,
   submitSample,
+  editSample,
+  getSample,
+  sampleIsEditable,
   uploadSampleMedia,
   type MediaRole,
   type MineralObservationInput,
@@ -42,6 +46,17 @@ function roleForIndex(i: number): MediaRole {
 export default function NewSampleScreen() {
   const navigation = useNavigation();
   const { session } = useAuth();
+  // Edit mode: /enterprise/new-sample?edit=<sampleId>. Prefills from the existing
+  // sample and PUTs instead of POSTing. No AsyncStorage draft in edit mode — the
+  // server copy is the source of truth.
+  const { edit } = useLocalSearchParams<{ edit?: string }>();
+  const isEdit = !!edit;
+  // Maps an already-uploaded photo's display URI → its Storage path, so on save we
+  // reuse kept photos (never re-upload/​re-download them) and only upload new ones.
+  const [uploadedByUri, setUploadedByUri] = useState<Record<string, string>>({});
+  const [loadingSample, setLoadingSample] = useState(isEdit);
+  // Preserved across an edit so re-submitting never rewrites the collection date.
+  const [collectedAt, setCollectedAt] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [loc, setLoc] = useState<GpsFix | null>(null);
@@ -60,8 +75,58 @@ export default function NewSampleScreen() {
   const [manualLat, setManualLat] = useState("");
   const [manualLng, setManualLng] = useState("");
 
-  // ── Draft persistence: restore once on mount, then autosave on every change ──
+  // ── Edit mode: prefill from the existing sample (no draft involved) ──────────
   useEffect(() => {
+    if (!isEdit || !edit) return;
+    (async () => {
+      try {
+        const s = await getSample(String(edit));
+        if (!sampleIsEditable(s.status)) {
+          Alert.alert(
+            "Cannot edit",
+            "A geologist has already reviewed this sample, so it can no longer be edited.",
+            [{ text: "OK", onPress: () => router.back() }],
+          );
+          return;
+        }
+        setName(s.name ?? "");
+        setCollectedAt(s.collected_at ?? null);
+        setNotes(s.field_observations ?? "");
+        setRockClass(s.rock_observation?.[0]?.rock_class ?? "");
+        setMinerals((s.mineral_observation ?? []).map((m) => ({ mineral: m.mineral, confidence: m.confidence ?? undefined })));
+        const l = s.sample_location?.[0];
+        if (l?.gps_accuracy_m != null) setGpsSource(l.provenance === "manual" ? "manual" : "gps");
+        // Coordinates aren't returned by the detail select; keep the stored fix by
+        // reading it back from the map cell is lossy, so we require a fresh/manual
+        // fix only if the user changes location. Prefill a placeholder from h3 center
+        // is avoided — instead we mark loc from the sample's stored accuracy if present.
+        // Resolve signed URLs for existing photos and remember their storage paths.
+        const uris: string[] = [];
+        const map: Record<string, string> = {};
+        for (const m of s.sample_media ?? []) {
+          const { data } = await supabase.storage.from("scan-images").createSignedUrl(m.storage_path, 3600);
+          if (data?.signedUrl) { uris.push(data.signedUrl); map[data.signedUrl] = m.storage_path; }
+        }
+        setPhotos(uris);
+        setUploadedByUri(map);
+        // We don't get lat/lng back in the detail payload, so fetch a fresh GPS fix
+        // in the background as a sensible default; the user can re-fix or enter manually.
+        const fix = await captureSampleLocation();
+        if (fix) setLoc(fix);
+      } catch (e) {
+        Alert.alert("Failed to load sample", e instanceof Error ? e.message : "Unknown error", [
+          { text: "OK", onPress: () => router.back() },
+        ]);
+      } finally {
+        setLoadingSample(false);
+        setRestored(true);
+      }
+    })();
+  }, [isEdit, edit]);
+
+  // ── Draft persistence (NEW samples only): restore once, then autosave ────────
+  useEffect(() => {
+    if (isEdit) return; // edit mode prefills from the server, never the local draft
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(DRAFT_KEY);
@@ -73,13 +138,13 @@ export default function NewSampleScreen() {
       } catch { /* ignore corrupt draft */ }
       setRestored(true);
     })();
-  }, []);
+  }, [isEdit]);
 
   useEffect(() => {
-    if (!restored) return; // don't overwrite the stored draft before it's loaded
+    if (isEdit || !restored) return; // never persist an edit session to the new-sample draft
     const d: DraftShape = { name, photos, minerals, rockClass, notes, loc };
     AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(d)).catch(() => {});
-  }, [restored, name, photos, minerals, rockClass, notes, loc]);
+  }, [isEdit, restored, name, photos, minerals, rockClass, notes, loc]);
 
   const clearDraft = useCallback(() => AsyncStorage.removeItem(DRAFT_KEY).catch(() => {}), []);
 
@@ -112,8 +177,9 @@ export default function NewSampleScreen() {
 
   const dirty = !!(name.trim() || photos.length || minerals.length || rockClass.trim() || notes.trim());
 
-  // ── Unsaved-changes guard (§19) ─────────────────────────────────────────────
+  // ── Unsaved-changes guard (§19) — new samples only (edit has no local draft) ──
   useEffect(() => {
+    if (isEdit) return;
     const sub = navigation.addListener("beforeRemove", (e: any) => {
       if (!dirty || submittedRef.current || submitting) return;
       e.preventDefault();
@@ -124,7 +190,7 @@ export default function NewSampleScreen() {
       ]);
     });
     return sub;
-  }, [navigation, dirty, submitting, clearDraft]);
+  }, [isEdit, navigation, dirty, submitting, clearDraft]);
 
   // Take a new photo OR pick existing ones from the gallery (§3). System pickers:
   // native back arrow + hardware back work and they return automatically.
@@ -171,29 +237,56 @@ export default function NewSampleScreen() {
     if (!loc || !canSubmit) return;
     setSubmitting(true);
     try {
+      // Reuse already-uploaded photos (kept on edit); only upload newly added local URIs.
       const media: SampleMediaInput[] = [];
-      for (let i = 0; i < photos.length; i++) media.push(await uploadSampleMedia(photos[i], roleForIndex(i)));
+      for (let i = 0; i < photos.length; i++) {
+        const kept = uploadedByUri[photos[i]];
+        media.push(kept ? { role: roleForIndex(i), storage_path: kept } : await uploadSampleMedia(photos[i], roleForIndex(i)));
+      }
 
-      const { sample_id } = await submitSample({
+      const payload = {
         name: name.trim(),
         lat: loc.lat, lng: loc.lng, gps_accuracy_m: loc.gps_accuracy_m, gps_source: gpsSource,
-        collected_at: new Date().toISOString(),
+        collected_at: collectedAt ?? new Date().toISOString(), // keep the original date on edit
         field_observations: notes.trim() || undefined,
         observations: { rock: rockClass.trim() ? { rock_class: rockClass.trim() } : null, minerals },
         media,
-      });
+      };
+
+      let sampleId: string;
+      if (isEdit && edit) {
+        const r = await editSample(String(edit), payload);
+        sampleId = r.sample_id;
+      } else {
+        const r = await submitSample(payload);
+        sampleId = r.sample_id;
+        await clearDraft();
+      }
       submittedRef.current = true;
-      await clearDraft();
-      router.replace(`/(app)/enterprise/sample/${sample_id}`);
+      router.replace(`/(app)/enterprise/sample/${sampleId}`);
     } catch (e) {
-      Alert.alert("Submission failed", e instanceof Error ? e.message : "Unknown error");
+      Alert.alert(isEdit ? "Save failed" : "Submission failed", e instanceof Error ? e.message : "Unknown error");
     } finally {
       setSubmitting(false);
     }
-  }, [loc, canSubmit, photos, name, notes, rockClass, minerals, gpsSource, clearDraft]);
+  }, [loc, canSubmit, photos, uploadedByUri, name, notes, rockClass, minerals, gpsSource, collectedAt, clearDraft, isEdit, edit]);
 
   const collectorName = (session?.user?.user_metadata?.display_name as string | undefined)?.trim()
     || session?.user?.email?.split("@")[0] || "—";
+
+  // Reflect edit vs. create in the native header title.
+  useEffect(() => {
+    navigation.setOptions?.({ title: isEdit ? "Edit Sample" : "New Sample" });
+  }, [navigation, isEdit]);
+
+  if (loadingSample) {
+    return (
+      <View style={[styles.screen, { alignItems: "center", justifyContent: "center" }]}>
+        <ActivityIndicator color={colors.gold} />
+        <Text style={[styles.hint, { marginTop: spacing.md }]}>Loading sample…</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.screen}>
@@ -375,7 +468,7 @@ export default function NewSampleScreen() {
         </Text>
       )}
       <Button
-        title={submitting ? "Submitting…" : "Submit Sample"}
+        title={submitting ? (isEdit ? "Saving…" : "Submitting…") : (isEdit ? "Save & Re-analyze" : "Submit Sample")}
         variant="primary"
         loading={submitting}
         disabled={!canSubmit}

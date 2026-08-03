@@ -5,6 +5,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, FlatList, Pressable, StyleSheet, RefreshControl, ActivityIndicator } from "react-native";
 import { router, useFocusEffect } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, type as t } from "../../../lib/theme";
 import { listSamples, type SampleListRow } from "../../../lib/enterpriseSamples";
@@ -12,6 +13,7 @@ import { Button } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 
 export default function MySamplesScreen() {
+  const insets = useSafeAreaInsets();
   const [rows, setRows] = useState<SampleListRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -75,7 +77,12 @@ export default function MySamplesScreen() {
         />
       )}
 
-      <View style={styles.fabWrap}>
+      {/* Bottom action bar — solid background + safe-area padding so the button
+          always sits clearly ABOVE the phone's system navigation bar (previously
+          it was drawn under the translucent nav bar and looked washed out). */}
+      {/* Math.max fallback: some Android builds report insets.bottom = 0 (no edge-to-edge),
+          so a fixed floor keeps the button clearly ABOVE the system nav bar regardless. */}
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 44) + spacing.sm }]}>
         <Button
           title="New Sample"
           variant="primary"
@@ -90,7 +97,7 @@ export default function MySamplesScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  listPad: { padding: spacing.lg, paddingBottom: 96 },
+  listPad: { padding: spacing.lg, paddingBottom: 140 },
   emptyWrap: { flexGrow: 1, justifyContent: "center", padding: spacing.lg },
   row: {
     flexDirection: "row", alignItems: "center", gap: spacing.md,
@@ -105,7 +112,11 @@ const styles = StyleSheet.create({
   rowMeta: { ...t.caption, marginTop: 2 },
   statusPill: { backgroundColor: colors.surfaceSunken, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4 },
   statusText: { ...t.caption, color: colors.textMuted, textTransform: "capitalize" },
-  fabWrap: { position: "absolute", left: spacing.lg, right: spacing.lg, bottom: spacing.xl },
+  footer: {
+    position: "absolute", left: 0, right: 0, bottom: 0,
+    backgroundColor: colors.bg, borderTopWidth: 1, borderTopColor: colors.border,
+    paddingHorizontal: spacing.lg, paddingTop: spacing.md,
+  },
   errorBox: { backgroundColor: "rgba(228,104,93,0.12)", borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md },
   errorText: { ...t.body, color: colors.danger },
   errorRetry: { ...t.caption, color: colors.danger, marginTop: 4 },

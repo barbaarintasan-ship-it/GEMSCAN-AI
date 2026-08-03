@@ -177,6 +177,27 @@
       "fault": "Fault",
       "contact": "Contact",
       "other": "Other"
+    },
+    "location": {
+      "coords": "{{lat}}, {{lng}}",
+      "accuracy": "GPS accurate to {{m}} m",
+      "noFix": "No GPS position yet",
+      "lookupTitle": "LOOK UP ANOTHER PLACE",
+      "lookupHint": "Enter coordinates to read the geology there. It does not move you.",
+      "lat": "Latitude",
+      "lng": "Longitude",
+      "lookup": "Look up",
+      "backToMe": "Back to my position",
+      "inspectingBanner": "Looking up {{lat}}, {{lng}} — not your position",
+      "useMyPosition": "Use my position"
+    },
+    "evidence2": {
+      "title": "NEARBY EVIDENCE",
+      "fault": "Fault {{distance}}",
+      "occurrence": "{{commodity}} occurrence {{distance}}",
+      "elevation": "Elevation {{m}} m",
+      "none": "Nothing mapped within range",
+      "mapTitle": "OFFLINE GEOLOGICAL MAP"
     }
   }
 }

@@ -7,7 +7,7 @@ import { View, Text, Pressable, ScrollView, StyleSheet, Share, Platform, Switch 
 import { Stack } from "expo-router";
 import { diag, type GpuState } from "../../lib/diagnostics";
 import { FieldSessionProvider, useFieldSession } from "../../lib/field/provider";
-import { WALKING_PROFILE, HEADING_MIN_DELTA_DEG, HEADING_MIN_INTERVAL_MS } from "../../lib/field/types";
+import { WALKING_PROFILE } from "../../lib/field/types";
 
 const GPU_COLOR: Record<GpuState, string> = {
   unknown: "#C9A227",
@@ -80,13 +80,10 @@ export default function DebugScreen() {
         )}
       </View>
 
-      {/* Field Exploration Engine — Phase 1 dev diagnostics (spec Part 11).
-          Dev-only, twice-gated: hidden screen AND compiled out of release. */}
-      {__DEV__ && (
-        <FieldSessionProvider>
-          <FieldEngineSection />
-        </FieldSessionProvider>
-      )}
+      {/* Field Exploration Engine — Phase 1 diagnostics (available in release for testing). */}
+      <FieldSessionProvider>
+        <FieldEngineSection />
+      </FieldSessionProvider>
 
       <Text style={styles.note}>
         This screen is diagnostic only. GPU/OpenGL failures automatically switch the
@@ -96,51 +93,44 @@ export default function DebugScreen() {
   );
 }
 
-// ── Field Engine (P1) dev section — reads controller + recorder snapshots ────
+// ── Field Engine (P1) dev section ───────────────────────────────────────────
+// Every row below is read from ONE report object, and Export serialises that
+// same object — the screen and the JSON cannot drift apart.
 function FieldEngineSection() {
   const { snapshot: s, controller, actions } = useFieldSession();
   const rec = controller.recorder;
+  const report = controller.diagnosticsReport({
+    os: Platform.OS,
+    version: String(Platform.Version),
+  });
+  const { counters, timings, accuracy: acc, services, session, config } = report;
+  const subs = services.subscriptions;
+  const audit = report.cleanupAudit;
+  const trip = report.tripwire;
   const m = s.machine;
-  const subs = controller.subscriptionCounts();
-  const counters = rec.getCounters();
-  const timings = rec.getTimings();
-  const acc = rec.getAccuracyStats();
-  const audit = rec.getLastAudit();
-  const trip = rec.tripwireStatus();
-  const hCounts = controller.heading.counts();
 
-  const fixAge = s.lastFix ? Math.round((Date.now() - s.lastFix.timestamp) / 1000) : null;
-  const stateLabel = `${m.state}${m.pausedBy ? ` (${m.pausedBy})` : ""}${m.errorCode ? ` [${m.errorCode}]` : ""}`;
+  const fix = report.lastFix;
+  const fixAge = fix ? Math.round((Date.now() - fix.timestamp) / 1000) : null;
+  const stateLabel = session.state;
 
   const onExport = () => {
-    void Share.share({
-      message: rec.export({
-        device: { os: Platform.OS, version: String(Platform.Version) },
-        configEcho: {
-          profile: WALKING_PROFILE,
-          headingGate: { minDeltaDeg: HEADING_MIN_DELTA_DEG, minIntervalMs: HEADING_MIN_INTERVAL_MS },
-        },
-        session: {
-          id: s.sessionId, state: stateLabel, fixCount: s.fixCount,
-          headingSupported: s.headingSupported, degradedAccuracy: s.degradedAccuracy,
-        },
-      }),
-    });
+    void Share.share({ message: JSON.stringify(report, null, 2) });
   };
 
   const fieldRows: [string, string][] = [
     ["Session state", stateLabel],
-    ["Session id", s.sessionId ?? "—"],
-    ["Permission", s.permission ? `${s.permission.granted ? "granted" : "denied"}${s.permission.granted && !s.permission.preciseGranted ? " (approximate)" : ""}` : "—"],
-    ["GPS status", controller.location.getStatus()],
-    ["Last fix", s.lastFix ? `${s.lastFix.lat.toFixed(5)}, ${s.lastFix.lng.toFixed(5)} ±${s.lastFix.accuracy ?? "?"}m · ${fixAge}s${s.lastFix.provisional ? " · ≈provisional" : ""}` : "—"],
+    ["Session id", session.id ?? "—"],
+    ["Recording", report.recorderEnabled ? "on" : "OFF (counters frozen)"],
+    ["Permission", session.permission ? `${session.permission.granted ? "granted" : "denied"}${session.permission.granted && !session.permission.preciseGranted ? " (approximate)" : ""}` : "—"],
+    ["GPS status", services.locationStatus],
+    ["Last fix", fix ? `${fix.lat.toFixed(5)}, ${fix.lng.toFixed(5)} ±${fix.accuracy ?? "?"}m · ${fixAge}s${fix.provisional ? " · ≈provisional" : ""}` : "—"],
     ["Fix accuracy (min/med/max)", acc ? `${acc.min} / ${acc.median} / ${acc.max} m` : "—"],
-    ["Heading status", controller.heading.getStatus()],
-    ["Heading", s.lastHeading ? `${Math.round(s.lastHeading.trueHeading)}°${s.lastHeading.needsCalibration ? " · calibrate!" : ""}` : "—"],
+    ["Heading status", services.headingStatus],
+    ["Heading", report.lastHeading ? `${Math.round(report.lastHeading.trueHeading)}°${report.lastHeading.needsCalibration ? " · calibrate!" : ""}` : "—"],
     ["Subscriptions (pos/head/app)", `${subs.position}/${subs.heading}/${subs.appState}`],
-    ["Profile", `${WALKING_PROFILE.name} · balanced · ${WALKING_PROFILE.distanceIntervalM}m/${WALKING_PROFILE.timeIntervalMs}ms · hdg ${HEADING_MIN_DELTA_DEG}°/${HEADING_MIN_INTERVAL_MS}ms`],
+    ["Profile", `${config.profile.name} · balanced · ${config.profile.distanceIntervalM}m/${config.profile.timeIntervalMs}ms · hdg ${config.headingGate.minDeltaDeg}°/${config.headingGate.minIntervalMs}ms`],
     ["Fixes (total/prov/lowAcc)", `${counters.fixesTotal}/${counters.fixesProvisional}/${counters.fixesLowAccuracy}`],
-    ["Heading raw→emitted", `${hCounts.raw}→${hCounts.emitted}`],
+    ["Heading raw→emitted", `${counters.headingRaw}→${counters.headingEmitted}`],
     ["Dispatches", String(counters.dispatches)],
     ["Errors / retries / cycles", `${counters.errors}/${counters.watchRetries}/${counters.startStopCycles}`],
     ["Pauses u/s · resumes", `${counters.pausesUser}/${counters.pausesSystem} · ${counters.resumes}`],
@@ -150,7 +140,8 @@ function FieldEngineSection() {
     ["Resume→fix", timings.resumeToFixMs != null ? `${timings.resumeToFixMs} ms` : "—"],
   ];
 
-  const transitions = rec.getTransitions().slice(-6).reverse();
+  const transitions = report.transitions.slice(-8).reverse();
+  const lifecycle = report.lifecycle.slice(-10).reverse();
 
   // ── Phase 1.1 Battery Test Mode ───────────────────────────────────────────
   // Independent GPS / heading switches for real-device battery comparison.
@@ -165,10 +156,12 @@ function FieldEngineSection() {
   const sensorsToggleable = m.state === "active" || m.state === "paused";
 
   const toggleGps = (v: boolean) => {
+    rec.log(`battery test: GPS ${v ? "on" : "off"}`);
     if (v) void controller.location.start(WALKING_PROFILE);
     else controller.location.stop();
   };
   const toggleHeading = (v: boolean) => {
+    rec.log(`battery test: heading ${v ? "on" : "off"}`);
     if (v) void controller.heading.start();
     else controller.heading.stop();
   };
@@ -218,8 +211,8 @@ function FieldEngineSection() {
         {([
           ["Session state", stateLabel],
           ["Active subscriptions", `pos ${subs.position} · hdg ${subs.heading} · app ${subs.appState}`],
-          ["GPS fixes this session", `${counters.fixesTotal} (${s.fixCount} counted)`],
-          ["Heading raw→emitted", `${hCounts.raw}→${hCounts.emitted}`],
+          ["GPS fixes this session", `${counters.fixesTotal} total · ${session.fixCount} non-provisional`],
+          ["Heading raw→emitted", `${counters.headingRaw}→${counters.headingEmitted}`],
         ] as [string, string][]).map(([k, v]) => (
           <View style={styles.row} key={k}>
             <Text style={styles.k}>{k}</Text>
@@ -271,6 +264,7 @@ function FieldEngineSection() {
         ))}
       </View>
 
+      <Text style={styles.section}>Transition log (newest first)</Text>
       <View style={styles.card}>
         {transitions.length === 0 ? (
           <Text style={styles.empty}>No transitions yet. Tap Start.</Text>
@@ -278,6 +272,19 @@ function FieldEngineSection() {
           transitions.map((t, i) => (
             <Text key={`${t.t}-${i}`} style={styles.log}>
               {new Date(t.t).toLocaleTimeString()} · {t.from} —{t.event}→ {t.to} ({t.dwellMs}ms)
+            </Text>
+          ))
+        )}
+      </View>
+
+      <Text style={styles.section}>Lifecycle log (newest first)</Text>
+      <View style={styles.card}>
+        {lifecycle.length === 0 ? (
+          <Text style={styles.empty}>No lifecycle events yet. Tap Start.</Text>
+        ) : (
+          lifecycle.map((l, i) => (
+            <Text key={`${l.t}-${i}`} style={[styles.log, l.ignored && styles.logError]}>
+              {new Date(l.t).toLocaleTimeString()} · {l.ignored ? "⊘ " : ""}{l.msg}
             </Text>
           ))
         )}

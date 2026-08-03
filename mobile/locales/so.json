@@ -177,6 +177,27 @@
       "fault": "Jeex dhul",
       "contact": "Xudduud dhagax",
       "other": "Mid kale"
+    },
+    "location": {
+      "coords": "{{lat}}, {{lng}}",
+      "accuracy": "GPS saxnaanta {{m}} m",
+      "noFix": "Weli GPS lama helin",
+      "lookupTitle": "EEG MEEL KALE",
+      "lookupHint": "Geli koordinaytada si aad u aragto dhagaxa halkaas. Kaama dhaqaajinayo.",
+      "lat": "Loox (latitude)",
+      "lng": "Dherer (longitude)",
+      "lookup": "Eeg",
+      "backToMe": "Ku noqo meeshayda",
+      "inspectingBanner": "Waxaad eegaysaa {{lat}}, {{lng}} — ma aha meeshaad joogto",
+      "useMyPosition": "Isticmaal meeshayda"
+    },
+    "evidence2": {
+      "title": "CADDAYMAHA AGTAADA",
+      "fault": "Jeex dhul {{distance}}",
+      "occurrence": "Macdan {{commodity}} ah {{distance}}",
+      "elevation": "Dherer {{m}} m",
+      "none": "Waxba lama sawirin gudaha xadka",
+      "mapTitle": "KHARIIDAD DHAGAX OO OFFLINE AH"
     }
   }
 }

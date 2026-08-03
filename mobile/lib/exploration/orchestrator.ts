@@ -36,6 +36,17 @@ export interface ExplorationSnapshot {
 
   /** Where the geologist is, and what is under their feet (step 2). */
   currentCell: string | null;
+  /** The GPS fix itself, so the screen can show real coordinates and accuracy. */
+  position: { lat: number; lng: number; accuracyM: number | null } | null;
+  /**
+   * A place the user asked to look at instead of where they are standing.
+   *
+   * Kept SEPARATE from `position` on purpose: the app must never present a
+   * looked-up point as the user's location. When this is set the screen says so
+   * and suppresses turn-by-turn guidance — you cannot be given a bearing from a
+   * position you are not at (Invariant 4).
+   */
+  inspecting: { lat: number; lng: number } | null;
   context: GeoContext | null;
 
   /** Ranked targets and the one being walked to (step 3). */
@@ -105,6 +116,7 @@ export class ExplorationOrchestrator {
   private seq = 0;
   private lastTargetedCell: string | null = null;
   private retargeting = false;
+  private inspect: { lat: number; lng: number } | null = null;
   private cachedSnapshot: ExplorationSnapshot | null = null;
 
   constructor(private readonly deps: OrchestratorDeps) {}
@@ -166,6 +178,39 @@ export class ExplorationOrchestrator {
     void this.retarget(true);
   }
 
+  /**
+   * Look up a place the user is NOT standing at.
+   *
+   * Reads the same offline knowledge for an arbitrary point, so a geologist can
+   * check ground before walking to it — or check somewhere they will never go.
+   * It does not move the session: the GPS fix keeps updating underneath, and
+   * `inspecting` marks the readout as a lookup rather than a position.
+   */
+  inspectAt(lat: number, lng: number): void {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
+    this.inspect = { lat, lng };
+    this.patch({ inspecting: this.inspect, activeTarget: null });
+    this.lastTargetedCell = null;
+    void this.retarget(true);
+  }
+
+  /** Back to the real position. */
+  clearInspect(): void {
+    if (!this.inspect) return;
+    this.inspect = null;
+    this.patch({ inspecting: null, activeTarget: null });
+    this.lastTargetedCell = null;
+    void this.retarget(true);
+  }
+
+  /** The point the engine is answering about — inspected place, else the fix. */
+  private activePoint(): { lat: number; lng: number } | null {
+    if (this.inspect) return this.inspect;
+    const f = this.deps.field.getSnapshot().lastFix;
+    return f ? { lat: f.lat, lng: f.lng } : null;
+  }
+
   /** Choose a different target from the ranked list. */
   selectTarget(cell: string): void {
     const t = this.snap.targets.find((x) => x.cell === cell);
@@ -213,6 +258,14 @@ export class ExplorationOrchestrator {
     const fix = f.lastFix;
     if (!fix) return;
 
+    // Always publish the real fix, even while inspecting elsewhere: the user
+    // should be able to see where they actually are at all times.
+    this.patch({ position: { lat: fix.lat, lng: fix.lng, accuracyM: fix.accuracy } });
+
+    // While inspecting, GPS movement must not silently re-target to the user's
+    // own position — that would swap the answer under them without a word.
+    if (this.inspect) return;
+
     const cell = cellFor(fix.lat, fix.lng);
     if (cell !== this.snap.currentCell) this.patch({ currentCell: cell });
 
@@ -228,15 +281,14 @@ export class ExplorationOrchestrator {
   }
 
   private async retarget(force: boolean): Promise<void> {
-    const f = this.deps.field.getSnapshot();
-    const fix = f.lastFix;
-    if (!fix) return;
+    const point = this.activePoint();
+    if (!point) return;
     if (this.retargeting && !force) return;
     this.retargeting = true;
 
-    const cell = cellFor(fix.lat, fix.lng);
+    const cell = cellFor(point.lat, point.lng);
     try {
-      const result = await this.deps.targeting.rank(fix.lat, fix.lng, this.deps.targetingOptions);
+      const result = await this.deps.targeting.rank(point.lat, point.lng, this.deps.targetingOptions);
       this.lastTargetedCell = cell;
 
       const visited = this.snap.visitedCells.includes(cell)
@@ -273,6 +325,12 @@ export class ExplorationOrchestrator {
     const f = this.deps.field.getSnapshot();
     const fix = f.lastFix;
     const target = this.snap.activeTarget;
+    // Inspecting somewhere else: show what is there, but no distance, no turn
+    // and no arrival. Those only mean something from where you actually stand.
+    if (this.inspect) {
+      this.patch({ distanceToTargetM: null, relativeBearingDeg: null });
+      return;
+    }
     if (!fix || !target) {
       this.patch({ distanceToTargetM: null, relativeBearingDeg: null });
       return;
@@ -339,6 +397,8 @@ function emptySnapshot(): ExplorationSnapshot {
     startedAt: null,
     endedAt: null,
     currentCell: null,
+    position: null,
+    inspecting: null,
     context: null,
     targets: [],
     activeTarget: null,

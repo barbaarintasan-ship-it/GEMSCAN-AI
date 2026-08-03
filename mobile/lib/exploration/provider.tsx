@@ -21,6 +21,8 @@ import { makeLocalEvidenceProvider, makeWaypointEvidenceSource } from "./localEv
 export interface ExplorationApi {
   snapshot: ExplorationSnapshot;
   orchestrator: ExplorationOrchestrator;
+  /** The installed pack, for the offline map and the evidence readout. */
+  packs: PackStore;
   actions: {
     start: () => void;
     stop: () => void;
@@ -28,6 +30,8 @@ export interface ExplorationApi {
     selectTarget: (cell: string) => void;
     recordEvidence: () => Promise<void>;
     captureObservation: (type: WaypointType, notes?: string) => Promise<void>;
+    inspectAt: (lat: number, lng: number) => void;
+    clearInspect: () => void;
   };
 }
 
@@ -35,9 +39,11 @@ const Ctx = createContext<ExplorationApi | null>(null);
 
 export function ExplorationProvider({ children }: { children: React.ReactNode }) {
   const ref = useRef<ExplorationOrchestrator | null>(null);
+  const packsRef = useRef<PackStore | null>(null);
   if (ref.current == null) {
     // One graph per mounted provider; never rebuilt across re-renders.
     const packs = new PackStore(createBundledPackSource(loadBundledPackFiles));
+    packsRef.current = packs;
     const field = new FieldSessionController();
 
     // The evidence overlay reads the SAME waypoint store the capture writes to,
@@ -69,6 +75,7 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
   const api: ExplorationApi = {
     snapshot,
     orchestrator,
+    packs: packsRef.current!,
     actions: {
       start: () => orchestrator.start(),
       stop: () => orchestrator.stop(),
@@ -76,6 +83,8 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
       selectTarget: (cell) => orchestrator.selectTarget(cell),
       recordEvidence: () => orchestrator.recordEvidence(),
       captureObservation: (type, notes) => orchestrator.captureObservation(type, notes),
+      inspectAt: (lat, lng) => orchestrator.inspectAt(lat, lng),
+      clearInspect: () => orchestrator.clearInspect(),
     },
   };
 

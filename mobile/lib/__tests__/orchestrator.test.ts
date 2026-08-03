@@ -330,4 +330,75 @@ describe("ExplorationOrchestrator", () => {
     expect(field.stopped).toBe(1);
     orch.destroy(); // no throw
   });
+
+  test("shows the real GPS position, with accuracy", async () => {
+    const { orch, field } = harness();
+    orch.start();
+    field.emitFix(MOG.lat, MOG.lng, 12);
+    await settle();
+    const s = orch.getSnapshot();
+    expect(s.position).toEqual({ lat: MOG.lat, lng: MOG.lng, accuracyM: 12 });
+    expect(s.inspecting).toBeNull();
+    orch.stop();
+  });
+
+  test("can look up a place the user is NOT standing at", async () => {
+    const { orch, field } = harness();
+    orch.start();
+    field.emitFix(MOG.lat, MOG.lng);
+    await settle();
+
+    // Somewhere else entirely.
+    orch.inspectAt(9.56, 44.065);
+    await settle();
+    const s = orch.getSnapshot();
+    expect(s.inspecting).toEqual({ lat: 9.56, lng: 44.065 });
+    // The real position is still reported — a lookup never overwrites it.
+    expect(s.position).toEqual({ lat: MOG.lat, lng: MOG.lng, accuracyM: 8 });
+    // No bearing or distance from a position you are not at.
+    expect(s.distanceToTargetM).toBeNull();
+    expect(s.relativeBearingDeg).toBeNull();
+    orch.stop();
+  });
+
+  test("GPS movement does not hijack an active lookup", async () => {
+    const { orch, field } = harness();
+    orch.start();
+    field.emitFix(MOG.lat, MOG.lng);
+    await settle();
+    orch.inspectAt(9.56, 44.065);
+    await settle();
+
+    // Walk a long way; the lookup must stand.
+    field.emitFix(MOG.lat + 0.4, MOG.lng + 0.4);
+    await settle();
+    expect(orch.getSnapshot().inspecting).toEqual({ lat: 9.56, lng: 44.065 });
+    orch.stop();
+  });
+
+  test("returning to my position clears the lookup", async () => {
+    const { orch, field } = harness();
+    orch.start();
+    field.emitFix(MOG.lat, MOG.lng);
+    await settle();
+    orch.inspectAt(9.56, 44.065);
+    await settle();
+    orch.clearInspect();
+    await settle();
+    expect(orch.getSnapshot().inspecting).toBeNull();
+    orch.stop();
+  });
+
+  test("impossible coordinates are refused, not looked up", async () => {
+    const { orch, field } = harness();
+    orch.start();
+    field.emitFix(MOG.lat, MOG.lng);
+    await settle();
+    orch.inspectAt(999, 0);
+    orch.inspectAt(0, 999);
+    orch.inspectAt(Number.NaN, 45);
+    await settle();
+    expect(orch.getSnapshot().inspecting).toBeNull();
+    orch.stop();
+  });
 });
