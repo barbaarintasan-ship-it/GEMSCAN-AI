@@ -18,6 +18,7 @@ import { bandFor, computeConfidence } from "../../../shared/geo-core/confidence.
 import type { ConfidenceBand, EvidenceItem, GeoContext } from "../../../shared/geo-core/types.ts";
 import { cellCentre, cellFor, kRing } from "./h3.ts";
 import { DEFAULT_CONTEXT_RADIUS_M, type OfflineGeoContextService } from "./offlineGeoContext.ts";
+import type { LocalEvidenceSource } from "../exploration/localEvidence.ts";
 
 export interface ExplorationTarget {
   cell: string;
@@ -80,8 +81,20 @@ export const DEFAULT_TARGETING: Required<Omit<TargetingOptions, "radiusM">> = {
  * and scored with the same shared noisy-OR the rest of the system uses. Mapped
  * geology is context, not a signal, and contributes nothing on its own.
  */
-function prospectivityEvidence(ctx: GeoContext, radiusM: number): EvidenceItem[] {
+function prospectivityEvidence(
+  ctx: GeoContext,
+  radiusM: number,
+  local?: LocalEvidenceSource,
+): EvidenceItem[] {
   const items: EvidenceItem[] = [];
+
+  // The geologist's own observations (step 7): what they just found changes
+  // where they should go next. This is the feedback that makes the loop a loop.
+  if (local) {
+    for (const o of local.observationsNear(ctx.location.lat, ctx.location.lng, radiusM)) {
+      items.push({ statement: o.statement, weight: o.weight, tier: "mapped" });
+    }
+  }
 
   for (const o of ctx.knownOccurrences ?? []) {
     const d = Number(o.distanceM ?? radiusM);
@@ -153,7 +166,10 @@ function reasonsFor(ctx: GeoContext, evidence: EvidenceItem[]): string[] {
 }
 
 export class TargetingEngine {
-  constructor(private readonly geo: OfflineGeoContextService) {}
+  constructor(
+    private readonly geo: OfflineGeoContextService,
+    private readonly local?: LocalEvidenceSource,
+  ) {}
 
   /**
    * Rank the neighbourhood. One GeoContext is computed per candidate cell —
@@ -166,7 +182,7 @@ export class TargetingEngine {
     const radiusM = opts.radiusM ?? DEFAULT_CONTEXT_RADIUS_M;
     const currentResult = await this.geo.contextAt(lat, lng, { radiusM });
     const currentScore = computeConfidence(
-      prospectivityEvidence(currentResult.context, radiusM),
+      prospectivityEvidence(currentResult.context, radiusM, this.local),
     ).score;
 
     const candidates = kRing(here, o.rings).filter((c) => c !== here);
@@ -178,7 +194,7 @@ export class TargetingEngine {
       if (distanceM > o.maxDistanceM) continue;
 
       const { context } = await this.geo.contextAt(centre.lat, centre.lng, { radiusM });
-      const evidence = prospectivityEvidence(context, radiusM);
+      const evidence = prospectivityEvidence(context, radiusM, this.local);
       // Same shared noisy-OR the server uses — no new confidence maths here.
       const score = computeConfidence(evidence).score;
       if (score < o.minScore) continue; // nothing indicating mineralisation ⇒ not a target

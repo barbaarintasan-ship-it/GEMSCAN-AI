@@ -15,6 +15,7 @@ import { Stack } from "expo-router";
 import { colors, radius, spacing } from "../../lib/theme";
 import { ExplorationProvider, useExploration } from "../../lib/exploration/provider";
 import { describeTarget, type ExplorationTarget } from "../../lib/geo/targeting.ts";
+import { WAYPOINT_TYPES, type WaypointType } from "../../lib/field/waypointTypes";
 
 export default function ExplorationRoute() {
   return (
@@ -41,7 +42,7 @@ function ExplorationScreen() {
           <HereCard unit={unitOf(s.context)} cell={s.currentCell} bestIsHere={s.bestIsHere} />
 
           {s.state === "awaitingEvidence" && (
-            <EvidenceCard onRecord={() => void actions.recordEvidence()} />
+            <EvidenceCard onCapture={(t) => void actions.captureObservation(t)} />
           )}
 
           {s.activeTarget ? (
@@ -181,20 +182,42 @@ function NoTargetCard({ hasKnowledge }: { hasKnowledge: boolean }) {
   );
 }
 
-function EvidenceCard({ onRecord }: { onRecord: () => void }) {
+function EvidenceCard({ onCapture }: { onCapture: (type: WaypointType) => void }) {
   return (
     <View style={[styles.card, styles.cardGold]}>
       <Text style={styles.h2}>You have arrived</Text>
       <Text style={styles.body}>
-        Record what you can see — an outcrop photo, a specimen scan, or an observation. Your evidence
-        changes what the app recommends next.
+        Record what you can see. Your observation changes what the app recommends next — so say
+        what is actually there, not what you hope is there.
       </Text>
-      <Pressable style={[styles.btn, styles.btnPrimary]} onPress={onRecord}>
-        <Text style={styles.btnPrimaryText}>Record evidence here</Text>
-      </Pressable>
+      <View style={styles.chips}>
+        {WAYPOINT_TYPES.map((t) => (
+          <Pressable key={t} style={styles.chip} onPress={() => onCapture(t)}>
+            <Text style={styles.chipText}>{TYPE_LABELS[t]}</Text>
+          </Pressable>
+        ))}
+      </View>
     </View>
   );
 }
+
+/**
+ * Display copy for the waypoint types. The domain module deliberately carries
+ * no user-facing strings; when the exploration screen is localised these move
+ * to i18n under the keys waypointTypeLabelKey() already defines.
+ */
+const TYPE_LABELS: Record<WaypointType, string> = {
+  outcrop: "Outcrop",
+  float: "Float",
+  "quartz-vein": "Quartz vein",
+  vein: "Vein",
+  sulfides: "Sulfides",
+  gossan: "Gossan",
+  alteration: "Alteration",
+  fault: "Fault",
+  contact: "Contact",
+  other: "Other",
+};
 
 function OtherTargets({
   targets, onSelect,
@@ -303,6 +326,14 @@ const styles = StyleSheet.create({
   btnGhostText: { color: colors.textMuted, fontSize: 15, fontWeight: "600" },
   btnStop: { borderWidth: 1, borderColor: colors.border },
   btnStopText: { color: colors.danger, fontSize: 15, fontWeight: "600" },
+
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.xs },
+  chip: {
+    paddingVertical: spacing.sm, paddingHorizontal: spacing.md,
+    borderRadius: radius.pill, borderWidth: 1, borderColor: colors.goldBorder,
+    backgroundColor: colors.surface,
+  },
+  chipText: { color: colors.text, fontSize: 13, fontWeight: "600" },
 
   otherRow: {
     paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderSubtle, gap: 2,

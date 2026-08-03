@@ -10,6 +10,8 @@
 import type { SessionSnapshot } from "../field/types";
 import type { ExplorationTarget, TargetingEngine, TargetingOptions } from "../geo/targeting.ts";
 import type { PackStore } from "../geo/packStore.ts";
+import type { WaypointService } from "../field/waypointService";
+import type { WaypointType } from "../field/waypointTypes";
 import { cellFor } from "../geo/h3.ts";
 import type { GeoContext } from "../../../shared/geo-core/types.ts";
 
@@ -66,6 +68,8 @@ export interface OrchestratorDeps {
   packs: PackStore;
   now?: () => number;
   targetingOptions?: TargetingOptions;
+  /** Capture side of the evidence loop (step 6). Optional so the loop is testable bare. */
+  waypoints?: WaypointService;
 }
 
 /** The only thing this needs from Phase 1. FieldSessionController satisfies it. */
@@ -169,8 +173,23 @@ export class ExplorationOrchestrator {
   }
 
   /**
-   * Steps 6→7: evidence was captured, so the model must be re-scored NOW,
-   * offline. This is what makes the app an assistant rather than a map.
+   * Step 6: record what the geologist is looking at, then step 7: re-score.
+   *
+   * The capture goes through the existing WaypointService, so position, heading
+   * and photos are handled exactly as they are everywhere else — this does not
+   * invent a second kind of observation. The re-score is immediate and offline;
+   * that is what makes the app an assistant rather than a map.
+   */
+  async captureObservation(type: WaypointType, notes?: string): Promise<void> {
+    if (this.snap.state === "idle" || this.snap.state === "ended") return;
+    const trackId = this.snap.explorationSessionId;
+    await this.deps.waypoints?.capture({ type, notes, trackId });
+    await this.recordEvidence();
+  }
+
+  /**
+   * Step 7 on its own: re-score from whatever evidence now exists. Used when
+   * evidence was captured elsewhere (a scan, a waypoint from another screen).
    */
   async recordEvidence(): Promise<void> {
     if (this.snap.state === "idle" || this.snap.state === "ended") return;

@@ -11,7 +11,7 @@
 import { GeoContextEngine } from "../../../supabase/functions/_shared/geocontext/engine.ts";
 import { buildProviders } from "../../../supabase/functions/_shared/geocontext/providers/index.ts";
 import { cellFor, H3_RESOLUTION } from "./h3.ts";
-import type { GeoContext, GeoQuery } from "../../../shared/geo-core/types.ts";
+import type { GeoContext, GeoContextProvider, GeoQuery } from "../../../shared/geo-core/types.ts";
 import { makePackGateway } from "./packGateway.ts";
 import type { PackStore } from "./packStore.ts";
 
@@ -35,9 +35,16 @@ export interface OfflineContextResult {
  * providers read an in-memory pack.
  */
 export class OfflineGeoContextService {
+  /**
+   * `extraProviders` is how the local evidence overlay joins in (Architecture
+   * §9). It is appended to the pack providers rather than replacing any, so a
+   * geologist's own observations are fused with published knowledge by the same
+   * engine, and the two stay distinguishable by tier and provenance.
+   */
   constructor(
     private readonly packs: PackStore,
     private readonly engineVersion = "1.0.0",
+    private readonly extraProviders: GeoContextProvider[] = [],
   ) {}
 
   /** H3 cell for a position — the key the exploration loop re-targets on (§3.4). */
@@ -54,7 +61,7 @@ export class OfflineGeoContextService {
 
     const gateway = makePackGateway(this.packs.getData());
     const engine = new GeoContextEngine({
-      providers: buildProviders(gateway),
+      providers: [...buildProviders(gateway), ...this.extraProviders],
       engineVersion: this.engineVersion,
     });
 

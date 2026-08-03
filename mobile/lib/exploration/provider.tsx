@@ -12,7 +12,11 @@ import { PackStore, createBundledPackSource } from "../geo/packStore.ts";
 import { OfflineGeoContextService } from "../geo/offlineGeoContext.ts";
 import { TargetingEngine } from "../geo/targeting.ts";
 import { ExplorationOrchestrator, type ExplorationSnapshot } from "./orchestrator.ts";
+import type { WaypointType } from "../field/waypointTypes";
 import { loadBundledPackFiles } from "../geo/bundledPack.ts";
+import { WaypointStore } from "../field/waypointStore";
+import { WaypointService } from "../field/waypointService";
+import { makeLocalEvidenceProvider, makeWaypointEvidenceSource } from "./localEvidence.ts";
 
 export interface ExplorationApi {
   snapshot: ExplorationSnapshot;
@@ -23,6 +27,7 @@ export interface ExplorationApi {
     refresh: () => void;
     selectTarget: (cell: string) => void;
     recordEvidence: () => Promise<void>;
+    captureObservation: (type: WaypointType, notes?: string) => Promise<void>;
   };
 }
 
@@ -33,11 +38,23 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
   if (ref.current == null) {
     // One graph per mounted provider; never rebuilt across re-renders.
     const packs = new PackStore(createBundledPackSource(loadBundledPackFiles));
-    const targeting = new TargetingEngine(new OfflineGeoContextService(packs));
+    const field = new FieldSessionController();
+
+    // The evidence overlay reads the SAME waypoint store the capture writes to,
+    // so what the geologist just recorded is immediately part of the model
+    // (Architecture §9) — there is no second copy of the observations.
+    const waypointStore = new WaypointStore();
+    const waypoints = new WaypointService(field, waypointStore);
+    const localEvidence = makeWaypointEvidenceSource(waypointStore);
+
+    const geo = new OfflineGeoContextService(packs, "1.0.0", [
+      makeLocalEvidenceProvider(localEvidence),
+    ]);
     ref.current = new ExplorationOrchestrator({
-      field: new FieldSessionController(),
-      targeting,
+      field,
+      targeting: new TargetingEngine(geo, localEvidence),
       packs,
+      waypoints,
     });
   }
   const orchestrator = ref.current;
@@ -58,6 +75,7 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
       refresh: () => orchestrator.refresh(),
       selectTarget: (cell) => orchestrator.selectTarget(cell),
       recordEvidence: () => orchestrator.recordEvidence(),
+      captureObservation: (type, notes) => orchestrator.captureObservation(type, notes),
     },
   };
 
