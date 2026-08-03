@@ -114,4 +114,22 @@ describe("bundled Somalia knowledge pack", () => {
       expect(t.drainageDistM).toBeNull();
     }
   });
+
+  itPack("terrain reaches the engine as EVIDENCE, not just as pack rows", async () => {
+    // Stand on a cell that actually has terrain, taken from the pack itself.
+    const t = pack!.data.terrain[0];
+    const store = new PackStore(createBundledPackSource(loadBundledPackFiles));
+    const geo = new OfflineGeoContextService(store);
+
+    const { context } = await geo.contextAt(t.lat, t.lng);
+    expect(context.meta.providersRun).toContain("terrain");
+    expect(context.meta.providersFailed).toEqual([]);
+
+    // The landform must be described to the geologist, not merely stored.
+    const factors = context.confidence.factors.join(" | ");
+    expect(factors).toMatch(/Ridge crest|Slope|Valley floor|Flat ground/);
+    // And elevation must read as a number, not a stringified one.
+    expect(typeof t.elevationM).toBe("number");
+    expect(typeof t.slopeDeg).toBe("number");
+  });
 });
