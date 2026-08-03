@@ -33,6 +33,7 @@ export default function AppLayout() {
       <Stack.Screen name="scan" options={{ headerShown: false }} />
       {/* Enterprise owner beta (Sprint 4.2) — hidden entry point, gated to the
           owner allowlist on the client and enforced by requireEnterprise server-side. */}
+      <Stack.Screen name="exploration" options={{ title: "Exploration" }} />
       <Stack.Screen name="enterprise/samples" options={{ title: "My Samples" }} />
       <Stack.Screen name="enterprise/new-sample" options={{ title: "New Sample" }} />
       <Stack.Screen name="enterprise/sample/[id]" options={{ title: "Sample" }} />

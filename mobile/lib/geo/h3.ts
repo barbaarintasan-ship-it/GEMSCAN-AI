@@ -6,8 +6,9 @@
 // Both are pinned to 4.1.0, so latLngToCell agrees on cell ids.
 import { latLngToCell, gridDisk, cellToLatLng } from "h3-js";
 
-export { H3_RESOLUTION } from "../../../shared/geo-core/geo/h3.ts";
 import { H3_RESOLUTION } from "../../../shared/geo-core/geo/h3.ts";
+
+export { H3_RESOLUTION };
 
 export function cellFor(lat: number, lng: number, res: number = H3_RESOLUTION): string {
   return latLngToCell(lat, lng, res);

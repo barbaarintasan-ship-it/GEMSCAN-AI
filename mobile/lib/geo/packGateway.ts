@@ -56,9 +56,9 @@ function near<T extends { lat: number; lng: number }>(
   lat: number,
   lng: number,
   radiusM: number,
-): Array<{ row: T; distanceM: number }> {
+): { row: T; distanceM: number }[] {
   const { dLat, dLng } = bboxPadding(lat, radiusM);
-  const out: Array<{ row: T; distanceM: number }> = [];
+  const out: { row: T; distanceM: number }[] = [];
   for (const row of rows) {
     if (Math.abs(row.lat - lat) > dLat || Math.abs(row.lng - lng) > dLng) continue;
     const distanceM = haversineM({ lat, lng }, { lat: row.lat, lng: row.lng });
