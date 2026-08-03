@@ -100,8 +100,12 @@ describe("bundled Somalia knowledge pack", () => {
     const d = pack!.data;
     // These are legitimately empty in production today. The test records the
     // fact so a future pack that gains them fails here and gets noticed.
-    // Faults ARE present now — GEM Global Active Faults, onshore subset.
-    expect(d.mapFeatures.length).toBeGreaterThan(10);
+    // Faults ARE present now — Macrostrat official map lines + GEM active faults.
+    expect(d.mapFeatures.length).toBeGreaterThan(50);
+    const sources = new Set(d.mapFeatures.map((f) => f.source));
+    expect(sources.has("macrostrat_lines")).toBe(true);
+    // Every line traces to a published source; none is derived from polygons.
+    expect(d.mapFeatures.every((f) => f.source && f.source.length > 0)).toBe(true);
     expect(d.mapFeatures.every((f) => f.kind === "fault")).toBe(true);
     expect(d.mapFeatures.every((f) => f.lines.length > 0)).toBe(true);
     // Still NO contacts or lineaments: neither has an authoritative source.
