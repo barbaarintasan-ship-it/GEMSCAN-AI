@@ -1,32 +1,41 @@
 // Exploration Mode — the screen for workflow steps 1–8 (Stage E4).
 //
 // Everything shown here comes from the orchestrator snapshot; this file holds
-// no exploration logic of its own. Two rules from the architecture shape the
-// layout more than anything else:
+// no exploration logic of its own. Three rules from the architecture shape the
+// layout more than anything visual:
 //
 //   Invariant 2 — no unexplained recommendation. The REASON sits next to the
 //     bearing, not behind a tap, because a user with no geological training is
 //     being asked to walk somewhere.
 //   Risk 3 — stale packs. Pack version and age are always visible, so guidance
 //     from months-old knowledge is never mistaken for current knowledge.
+//   Bilingual — a Somali geologist who reads no English must be able to run a
+//     session. Nothing user-facing is hardcoded here, including the REASONS,
+//     which arrive STRUCTURED from the engine precisely so they can be rendered
+//     in either language rather than as pre-built English sentences.
 import React from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Stack } from "expo-router";
+import { useTranslation } from "react-i18next";
 import { colors, radius, spacing } from "../../lib/theme";
 import { ExplorationProvider, useExploration } from "../../lib/exploration/provider";
-import { describeTarget, type ExplorationTarget } from "../../lib/geo/targeting.ts";
-import { WAYPOINT_TYPES, type WaypointType } from "../../lib/field/waypointTypes";
+import type { ExplorationTarget, TargetReason } from "../../lib/geo/targeting.ts";
+import { WAYPOINT_TYPES, waypointTypeLabelKey, type WaypointType } from "../../lib/field/waypointTypes";
+
+type TFunc = (key: string, opts?: Record<string, unknown>) => string;
 
 export default function ExplorationRoute() {
+  const { t } = useTranslation();
   return (
     <ExplorationProvider>
-      <Stack.Screen options={{ title: "Exploration" }} />
+      <Stack.Screen options={{ title: t("field.title") }} />
       <ExplorationScreen />
     </ExplorationProvider>
   );
 }
 
 function ExplorationScreen() {
+  const { t } = useTranslation();
   const { snapshot: s, actions } = useExploration();
   const running = s.state !== "idle" && s.state !== "ended";
 
@@ -42,7 +51,7 @@ function ExplorationScreen() {
           <HereCard unit={unitOf(s.context)} cell={s.currentCell} bestIsHere={s.bestIsHere} />
 
           {s.state === "awaitingEvidence" && (
-            <EvidenceCard onCapture={(t) => void actions.captureObservation(t)} />
+            <EvidenceCard onCapture={(type: WaypointType) => void actions.captureObservation(type)} />
           )}
 
           {s.activeTarget ? (
@@ -57,22 +66,22 @@ function ExplorationScreen() {
 
           {s.targets.length > 1 && (
             <OtherTargets
-              targets={s.targets.filter((t) => t.cell !== s.activeTarget?.cell)}
+              targets={s.targets.filter((x) => x.cell !== s.activeTarget?.cell)}
               onSelect={actions.selectTarget}
             />
           )}
 
           <View style={styles.row}>
             <Pressable style={[styles.btn, styles.btnGhost]} onPress={actions.refresh}>
-              <Text style={styles.btnGhostText}>Refresh</Text>
+              <Text style={styles.btnGhostText}>{t("field.actions.refresh")}</Text>
             </Pressable>
             <Pressable style={[styles.btn, styles.btnStop]} onPress={actions.stop}>
-              <Text style={styles.btnStopText}>End session</Text>
+              <Text style={styles.btnStopText}>{t("field.actions.end")}</Text>
             </Pressable>
           </View>
 
           <Text style={styles.meta}>
-            {s.evidenceCount} evidence captured · {s.visitedCells.length} cells assessed
+            {t("field.meta", { evidence: s.evidenceCount, cells: s.visitedCells.length })}
           </Text>
         </>
       )}
@@ -82,27 +91,26 @@ function ExplorationScreen() {
 
 // ── Pieces ──────────────────────────────────────────────────────────────────
 function StartCard({ onStart }: { onStart: () => void }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.card}>
-      <Text style={styles.h1}>Start Exploration</Text>
-      <Text style={styles.body}>
-        The app will read your position, work out the geology beneath you, and guide you toward the
-        most promising ground nearby. It works with no signal.
-      </Text>
+      <Text style={styles.h1}>{t("field.start.heading")}</Text>
+      <Text style={styles.body}>{t("field.start.body")}</Text>
       <Pressable style={[styles.btn, styles.btnPrimary]} onPress={onStart}>
-        <Text style={styles.btnPrimaryText}>Start Exploration</Text>
+        <Text style={styles.btnPrimaryText}>{t("field.start.button")}</Text>
       </Pressable>
     </View>
   );
 }
 
 function StatusLine({ state, suspendedBy }: { state: string; suspendedBy: string | null }) {
+  const { t } = useTranslation();
   if (suspendedBy) {
     // Never invent a position: say plainly why guidance is waiting (§3.9).
     const text =
-      suspendedBy === "no-fix" ? "Waiting for GPS…"
-      : suspendedBy === "paused" ? "Paused — guidance resumes when you do"
-      : "Location unavailable — guidance paused";
+      suspendedBy === "no-fix" ? t("field.status.waitingGps")
+      : suspendedBy === "paused" ? t("field.status.paused")
+      : t("field.status.sensorError");
     return (
       <View style={[styles.status, styles.statusWarn]}>
         <ActivityIndicator size="small" color={colors.gold} />
@@ -111,10 +119,10 @@ function StatusLine({ state, suspendedBy }: { state: string; suspendedBy: string
     );
   }
   const label =
-    state === "orienting" ? "Working out where you are…"
-    : state === "reasoning" ? "Updating from your evidence…"
-    : state === "awaitingEvidence" ? "You have arrived"
-    : "Guiding";
+    state === "orienting" ? t("field.status.orienting")
+    : state === "reasoning" ? t("field.status.reasoning")
+    : state === "awaitingEvidence" ? t("field.status.arrived")
+    : t("field.status.guiding");
   return (
     <View style={styles.status}>
       <Text style={styles.statusText}>{label}</Text>
@@ -125,16 +133,13 @@ function StatusLine({ state, suspendedBy }: { state: string; suspendedBy: string
 function HereCard({
   unit, cell, bestIsHere,
 }: { unit: string | null; cell: string | null; bestIsHere: boolean }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.card}>
-      <Text style={styles.label}>WHERE YOU ARE</Text>
-      <Text style={styles.h2}>{unit ?? "No mapped geology here"}</Text>
-      {cell && <Text style={styles.faint}>Cell {cell}</Text>}
-      {bestIsHere && (
-        <Text style={styles.goodNews}>
-          This is the most promising ground nearby — worth working before moving on.
-        </Text>
-      )}
+      <Text style={styles.label}>{t("field.here.label")}</Text>
+      <Text style={styles.h2}>{unit ?? t("field.here.noGeology")}</Text>
+      {cell ? <Text style={styles.faint}>{t("field.here.cell", { cell })}</Text> : null}
+      {bestIsHere ? <Text style={styles.goodNews}>{t("field.here.bestHere")}</Text> : null}
     </View>
   );
 }
@@ -142,58 +147,65 @@ function HereCard({
 function TargetCard({
   target, distanceM, relativeBearing,
 }: { target: ExplorationTarget; distanceM: number | null; relativeBearing: number | null }) {
+  const { t } = useTranslation();
   return (
     <View style={[styles.card, styles.cardGold]}>
-      <Text style={styles.label}>GO HERE NEXT</Text>
-      <Text style={styles.h1}>{formatDistance(distanceM ?? target.distanceM)} {target.compass}</Text>
+      <Text style={styles.label}>{t("field.target.label")}</Text>
+      <Text style={styles.h1}>
+        {t("field.target.headTo", {
+          distance: formatDistance(t, distanceM ?? target.distanceM),
+          compass: t(compassKey(target.compass)),
+        })}
+      </Text>
 
       <Text style={styles.turn}>
         {relativeBearing == null
-          ? `Bearing ${Math.round(target.bearingDeg)}°`
-          : describeTurn(relativeBearing)}
+          ? t("field.target.bearing", { deg: Math.round(target.bearingDeg) })
+          : describeTurn(relativeBearing, t)}
       </Text>
 
-      {/* Invariant 2: the reason travels with the recommendation. */}
-      <Text style={styles.label}>WHY</Text>
-      {target.reasons.map((r) => (
-        <Text key={r} style={styles.reason}>• {r}</Text>
+      {/* Invariant 2: the reason travels with the recommendation, in the reader's language. */}
+      <Text style={styles.label}>{t("field.target.why")}</Text>
+      {target.reasons.map((r, i) => (
+        <Text key={reasonKey(r, i)} style={styles.reason}>{"•"} {renderReason(r, t)}</Text>
       ))}
 
-      {target.commodities.length > 0 && (
-        <Text style={styles.faint}>Looking for: {target.commodities.join(", ")}</Text>
-      )}
-      <Text style={styles.faint}>Confidence {target.band.toLowerCase()}</Text>
+      {target.commodities.length > 0 ? (
+        <Text style={styles.faint}>
+          {t("field.target.lookingFor", { commodities: target.commodities.join(", ") })}
+        </Text>
+      ) : null}
+      <Text style={styles.faint}>
+        {t("field.target.confidence", { band: t(bandKey(target.band)) })}
+      </Text>
     </View>
   );
 }
 
 function NoTargetCard({ hasKnowledge }: { hasKnowledge: boolean }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.card}>
       <Text style={styles.h2}>
-        {hasKnowledge ? "No stronger ground nearby" : "No geological knowledge for this area"}
+        {hasKnowledge ? t("field.none.noStronger") : t("field.none.noKnowledge")}
       </Text>
       <Text style={styles.body}>
-        {hasKnowledge
-          ? "Nothing within range scores highly enough to send you there. Work this ground, or move on and refresh."
-          : "This app has no offline knowledge covering where you are, so it will not guess a direction."}
+        {hasKnowledge ? t("field.none.noStrongerBody") : t("field.none.noKnowledgeBody")}
       </Text>
     </View>
   );
 }
 
 function EvidenceCard({ onCapture }: { onCapture: (type: WaypointType) => void }) {
+  const { t } = useTranslation();
   return (
     <View style={[styles.card, styles.cardGold]}>
-      <Text style={styles.h2}>You have arrived</Text>
-      <Text style={styles.body}>
-        Record what you can see. Your observation changes what the app recommends next — so say
-        what is actually there, not what you hope is there.
-      </Text>
+      <Text style={styles.h2}>{t("field.evidence.heading")}</Text>
+      <Text style={styles.body}>{t("field.evidence.body")}</Text>
       <View style={styles.chips}>
-        {WAYPOINT_TYPES.map((t) => (
-          <Pressable key={t} style={styles.chip} onPress={() => onCapture(t)}>
-            <Text style={styles.chipText}>{TYPE_LABELS[t]}</Text>
+        {WAYPOINT_TYPES.map((type) => (
+          <Pressable key={type} style={styles.chip} onPress={() => onCapture(type)}>
+            <Text style={styles.chipText}>{t(waypointTypeLabelKey(type))}</Text>
           </Pressable>
         ))}
       </View>
@@ -201,34 +213,24 @@ function EvidenceCard({ onCapture }: { onCapture: (type: WaypointType) => void }
   );
 }
 
-/**
- * Display copy for the waypoint types. The domain module deliberately carries
- * no user-facing strings; when the exploration screen is localised these move
- * to i18n under the keys waypointTypeLabelKey() already defines.
- */
-const TYPE_LABELS: Record<WaypointType, string> = {
-  outcrop: "Outcrop",
-  float: "Float",
-  "quartz-vein": "Quartz vein",
-  vein: "Vein",
-  sulfides: "Sulfides",
-  gossan: "Gossan",
-  alteration: "Alteration",
-  fault: "Fault",
-  contact: "Contact",
-  other: "Other",
-};
-
 function OtherTargets({
   targets, onSelect,
 }: { targets: ExplorationTarget[]; onSelect: (cell: string) => void }) {
+  const { t } = useTranslation();
   return (
     <View style={styles.card}>
-      <Text style={styles.label}>OTHER OPTIONS</Text>
-      {targets.map((t) => (
-        <Pressable key={t.cell} style={styles.otherRow} onPress={() => onSelect(t.cell)}>
-          <Text style={styles.otherTitle}>{formatDistance(t.distanceM)} {t.compass}</Text>
-          <Text style={styles.otherReason} numberOfLines={2}>{describeTarget(t)}</Text>
+      <Text style={styles.label}>{t("field.target.otherOptions")}</Text>
+      {targets.map((x) => (
+        <Pressable key={x.cell} style={styles.otherRow} onPress={() => onSelect(x.cell)}>
+          <Text style={styles.otherTitle}>
+            {t("field.target.headTo", {
+              distance: formatDistance(t, x.distanceM),
+              compass: t(compassKey(x.compass)),
+            })}
+          </Text>
+          <Text style={styles.otherReason} numberOfLines={2}>
+            {x.reasons[0] ? renderReason(x.reasons[0], t) : ""}
+          </Text>
         </Pressable>
       ))}
     </View>
@@ -242,11 +244,12 @@ function PackBanner({
   hasKnowledge: boolean;
   running: boolean;
 }) {
+  const { t } = useTranslation();
   if (!running) return null;
   if (!hasKnowledge || !provenance) {
     return (
       <View style={[styles.banner, styles.bannerWarn]}>
-        <Text style={styles.bannerText}>No knowledge pack installed — guidance unavailable</Text>
+        <Text style={styles.bannerText}>{t("field.pack.none")}</Text>
       </View>
     );
   }
@@ -254,8 +257,10 @@ function PackBanner({
   return (
     <View style={[styles.banner, provenance.stale && styles.bannerWarn]}>
       <Text style={styles.bannerText}>
-        Knowledge v{provenance.packVersion} · {provenance.ageDays} days old
-        {provenance.stale ? " · may be out of date" : ""}
+        {t(provenance.stale ? "field.pack.stale" : "field.pack.info", {
+          version: provenance.packVersion,
+          days: provenance.ageDays,
+        })}
       </Text>
     </View>
   );
@@ -266,15 +271,59 @@ function unitOf(ctx: { geology?: { unit?: string } } | null): string | null {
   return ctx?.geology?.unit ?? null;
 }
 
-function formatDistance(m: number): string {
-  return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`;
+const compassKey = (c: string): string => "field.compass." + c;
+const bandKey = (b: string): string => "field.band." + b;
+const reasonKey = (r: TargetReason, i: number): string => r.kind + "-" + String(i);
+
+/**
+ * Distances go through i18n so the UNIT WORD is translatable: "m" is not
+ * "mitir", and a Somali reader should never meet an English abbreviation.
+ */
+function formatDistance(t: TFunc, m: number): string {
+  return m >= 1000
+    ? t("field.distance.km", { value: (m / 1000).toFixed(1) })
+    : t("field.distance.m", { value: Math.round(m) });
 }
 
-function describeTurn(rel: number): string {
+function describeTurn(rel: number, t: TFunc): string {
   const d = Math.round(Math.abs(rel));
-  if (d <= 15) return "Straight ahead";
-  if (d >= 165) return "Turn around";
-  return `Turn ${rel > 0 ? "right" : "left"} ${d}°`;
+  if (d <= 15) return t("field.target.straight");
+  if (d >= 165) return t("field.target.turnAround");
+  return rel > 0 ? t("field.target.turnRight", { deg: d }) : t("field.target.turnLeft", { deg: d });
+}
+
+/**
+ * Renders a structured reason in the active language.
+ *
+ * The engine reports WHAT it found; this decides how to say it. That split is
+ * exactly what lets a Somali geologist read the same reasoning an English one
+ * does, instead of a translated shell wrapped around English geology.
+ */
+function renderReason(r: TargetReason, t: TFunc): string {
+  switch (r.kind) {
+    case "occurrence":
+      return t("field.reason.occurrence", {
+        commodity: r.commodity,
+        distance: formatDistance(t, r.distanceM),
+      });
+    case "association":
+      return t("field.reason.association", { commodity: r.commodity });
+    case "community":
+      return t("field.reason.community", { count: r.count });
+    case "observation":
+      return t("field.reason.observation", {
+        label: t(waypointTypeLabelKey(r.label as WaypointType)),
+        distance: formatDistance(t, r.distanceM),
+      });
+    case "fault":
+      return t("field.reason.fault", { distance: formatDistance(t, r.distanceM) });
+    case "contact":
+      return t("field.reason.contact", { distance: formatDistance(t, r.distanceM) });
+    case "intersection":
+      return t("field.reason.intersection", { distance: formatDistance(t, r.distanceM) });
+    case "unit":
+      return t("field.reason.unit", { name: r.name });
+  }
 }
 
 const styles = StyleSheet.create({

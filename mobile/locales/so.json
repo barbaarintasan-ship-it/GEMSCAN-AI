@@ -81,5 +81,102 @@
     "refreshFailedShowingSaved": "Lama cusboonaysiin karin — waxaa la muujinayaa xogtii kaydsanayd {{age}}",
     "offlineDetailUnavailableTitle": "Lama heli karo marka internet-ku maqan yahay",
     "offlineDetailUnavailableHint": "Iskaankan hore uma furin marka internet-ku maqnaa, sidaas darteed wax lagu kaydiyay qalabkan wali ma jiraan."
+  },
+  "field": {
+    "title": "Sahamin",
+    "start": {
+      "heading": "Bilow Sahaminta",
+      "body": "App-ku wuxuu akhrinayaa meesha aad joogto, wuxuu ogaanayaa dhagaxa hoostaada, kadibna wuxuu kugu hagayaa dhulka ugu rajada wanaagsan ee kuu dhow. Internet uma baahna.",
+      "button": "Bilow Sahaminta"
+    },
+    "status": {
+      "waitingGps": "Waxaa la sugayaa GPS-ka…",
+      "paused": "Waa la joojiyay — hagitaanku wuu soo noqonayaa marka aad sii wadato",
+      "sensorError": "Meesha lama heli karo — hagitaanka waa la joojiyay",
+      "orienting": "Waxaan ogaanayaa meesha aad joogto…",
+      "reasoning": "Waxaan ku cusboonaysiinayaa waxa aad heshay…",
+      "arrived": "Waad timid",
+      "guiding": "Waa lagu hagayaa"
+    },
+    "here": {
+      "label": "MEESHA AAD JOOGTO",
+      "noGeology": "Halkan dhagax la sawiray lama hayo",
+      "cell": "Unug {{cell}}",
+      "bestHere": "Kani waa dhulka ugu rajada badan ee kuu dhow — ka shaqee ka hor inta aanad dhaqaaqin."
+    },
+    "target": {
+      "label": "HALKAN U SOCO",
+      "why": "SABABTA",
+      "lookingFor": "Waxa la raadinayo: {{commodities}}",
+      "confidence": "Kalsooni {{band}}",
+      "bearing": "Jiho {{deg}}°",
+      "straight": "Toos u soco",
+      "turnAround": "Dib u soo noqo",
+      "turnLeft": "U leexo bidix {{deg}}°",
+      "turnRight": "U leexo midig {{deg}}°",
+      "otherOptions": "DOORASHOOYIN KALE",
+      "headTo": "U soco {{distance}} {{compass}}"
+    },
+    "none": {
+      "noStronger": "Dhul ka fiican lama helin",
+      "noStrongerBody": "Wax kuu dhow oo ku filan lama helin. Halkan ka shaqee, ama dhaqaaq oo mar kale hubi.",
+      "noKnowledge": "Aaggan aqoon dhagax looma hayo",
+      "noKnowledgeBody": "App-ku aqoon uu offline ku hayo aaggan ma leh, sidaas darteed jiho ma malaynayo."
+    },
+    "evidence": {
+      "heading": "Waad timid",
+      "body": "Qor waxa aad aragto. Waxa aad qorto ayaa beddelaya waxa app-ku kuu talinayo — sidaas darteed sheeg waxa dhab ahaan jira, ee ha sheegin waxa aad rajaynayso."
+    },
+    "pack": {
+      "none": "Xog dhagax lama rakibin — hagitaan lama heli karo",
+      "info": "Aqoon v{{version}} · {{days}} maalmood jir",
+      "stale": "Aqoon v{{version}} · {{days}} maalmood jir · waa laga yaabaa inay duugowday"
+    },
+    "actions": {
+      "refresh": "Cusboonaysii",
+      "end": "Jooji sahaminta"
+    },
+    "meta": "{{evidence}} la qoray · {{cells}} aag la eegay",
+    "band": {
+      "High": "sare",
+      "Moderate": "dhexdhexaad",
+      "Low": "hooseeya"
+    },
+    "compass": {
+      "N": "waqooyi",
+      "NE": "waqooyi-bari",
+      "E": "bari",
+      "SE": "koonfur-bari",
+      "S": "koonfur",
+      "SW": "koonfur-galbeed",
+      "W": "galbeed",
+      "NW": "waqooyi-galbeed"
+    },
+    "distance": {
+      "m": "{{value}} mitir",
+      "km": "{{value}} km"
+    },
+    "reason": {
+      "occurrence": "Macdan {{commodity}} ah oo {{distance}} u jirta",
+      "association": "{{commodity}} badanaa waxaa laga helaa dhagaxa halkan yaal",
+      "community": "{{count}} helitaan oo la xaqiijiyay ayaa halkan u dhow",
+      "observation": "Waxaad qortay {{label}} oo {{distance}} u jirta",
+      "fault": "Jeex dhul (fault) oo {{distance}} u jira",
+      "contact": "Xudduud dhagax oo {{distance}} u jirta",
+      "intersection": "Jeex dhul iyo xudduud dhagax ayaa isku tagaya {{distance}} gudaheed",
+      "unit": "Waxaa lagu sawiray {{name}}"
+    },
+    "waypointType": {
+      "outcrop": "Dhagax muuqda",
+      "float": "Dhagax firdhisan",
+      "quartz-vein": "Xidid kuwaars",
+      "vein": "Xidid dhagax",
+      "sulfides": "Sulfide",
+      "gossan": "Gossan (dahaar birreed)",
+      "alteration": "Isbeddel dhagax",
+      "fault": "Jeex dhul",
+      "contact": "Xudduud dhagax",
+      "other": "Mid kale"
+    }
   }
 }

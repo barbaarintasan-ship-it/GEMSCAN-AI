@@ -81,5 +81,102 @@
     "refreshFailedShowingSaved": "Couldn't refresh — showing saved data from {{age}}",
     "offlineDetailUnavailableTitle": "Not available offline",
     "offlineDetailUnavailableHint": "You haven't opened this scan before while offline, so there's nothing saved on this device yet for it."
+  },
+  "field": {
+    "title": "Exploration",
+    "start": {
+      "heading": "Start Exploration",
+      "body": "The app reads your position, works out the geology beneath you, and guides you toward the most promising ground nearby. It works with no signal.",
+      "button": "Start Exploration"
+    },
+    "status": {
+      "waitingGps": "Waiting for GPS…",
+      "paused": "Paused — guidance resumes when you do",
+      "sensorError": "Location unavailable — guidance paused",
+      "orienting": "Working out where you are…",
+      "reasoning": "Updating from what you found…",
+      "arrived": "You have arrived",
+      "guiding": "Guiding"
+    },
+    "here": {
+      "label": "WHERE YOU ARE",
+      "noGeology": "No mapped geology here",
+      "cell": "Cell {{cell}}",
+      "bestHere": "This is the most promising ground nearby — work it before moving on."
+    },
+    "target": {
+      "label": "GO HERE NEXT",
+      "why": "WHY",
+      "lookingFor": "Looking for: {{commodities}}",
+      "confidence": "Confidence {{band}}",
+      "bearing": "Bearing {{deg}}°",
+      "straight": "Straight ahead",
+      "turnAround": "Turn around",
+      "turnLeft": "Turn left {{deg}}°",
+      "turnRight": "Turn right {{deg}}°",
+      "otherOptions": "OTHER OPTIONS",
+      "headTo": "Head {{distance}} {{compass}}"
+    },
+    "none": {
+      "noStronger": "No stronger ground nearby",
+      "noStrongerBody": "Nothing within range scores high enough to send you there. Work this ground, or move on and refresh.",
+      "noKnowledge": "No geological knowledge for this area",
+      "noKnowledgeBody": "The app has no offline knowledge covering where you are, so it will not guess a direction."
+    },
+    "evidence": {
+      "heading": "You have arrived",
+      "body": "Record what you can see. What you record changes what the app recommends next — so say what is actually there, not what you hope is there."
+    },
+    "pack": {
+      "none": "No knowledge pack installed — guidance unavailable",
+      "info": "Knowledge v{{version}} · {{days}} days old",
+      "stale": "Knowledge v{{version}} · {{days}} days old · may be out of date"
+    },
+    "actions": {
+      "refresh": "Refresh",
+      "end": "End session"
+    },
+    "meta": "{{evidence}} recorded · {{cells}} areas assessed",
+    "band": {
+      "High": "high",
+      "Moderate": "moderate",
+      "Low": "low"
+    },
+    "compass": {
+      "N": "north",
+      "NE": "north-east",
+      "E": "east",
+      "SE": "south-east",
+      "S": "south",
+      "SW": "south-west",
+      "W": "west",
+      "NW": "north-west"
+    },
+    "distance": {
+      "m": "{{value}} m",
+      "km": "{{value}} km"
+    },
+    "reason": {
+      "occurrence": "{{commodity}} occurrence {{distance}} away",
+      "association": "{{commodity}} is commonly found in the rock here",
+      "community": "{{count}} verified finds recorded nearby",
+      "observation": "You recorded {{label}} {{distance}} away",
+      "fault": "Fault {{distance}} away",
+      "contact": "Rock boundary {{distance}} away",
+      "intersection": "A fault and a rock boundary cross within {{distance}}",
+      "unit": "Mapped as {{name}}"
+    },
+    "waypointType": {
+      "outcrop": "Outcrop",
+      "float": "Float",
+      "quartz-vein": "Quartz vein",
+      "vein": "Vein",
+      "sulfides": "Sulfides",
+      "gossan": "Gossan",
+      "alteration": "Alteration",
+      "fault": "Fault",
+      "contact": "Contact",
+      "other": "Other"
+    }
   }
 }

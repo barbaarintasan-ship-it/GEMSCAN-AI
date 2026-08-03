@@ -187,6 +187,9 @@ describe("evidence changes the recommendation", () => {
 
     expect(without.targets).toEqual([]);
     expect(withEvidence.targets.length).toBeGreaterThan(0);
-    expect(withEvidence.targets[0].reasons.join(" ")).toContain("Gossan");
+    // The reason is structured: kind + the waypoint type the geologist chose.
+    const obs = withEvidence.targets[0].reasons.find((r) => r.kind === "observation");
+    expect(obs).toBeDefined();
+    if (obs && obs.kind === "observation") expect(obs.label).toBe("gossan");
   });
 });

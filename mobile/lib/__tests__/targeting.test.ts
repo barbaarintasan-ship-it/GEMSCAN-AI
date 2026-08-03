@@ -4,7 +4,7 @@ import type { PackData } from "../../../shared/geo-core/pack/types.ts";
 import { bearingDeg, compassPoint } from "../../../shared/geo-core/geo/spatial.ts";
 import { PackStore, createBundledPackSource } from "../geo/packStore.ts";
 import { OfflineGeoContextService } from "../geo/offlineGeoContext.ts";
-import { TargetingEngine, describeTarget } from "../geo/targeting.ts";
+import { TargetingEngine } from "../geo/targeting.ts";
 
 const MOG = { lat: 2.0469, lng: 45.3182 };
 const NOW = Date.parse("2026-08-03T00:00:00.000Z");
@@ -92,9 +92,15 @@ describe("TargetingEngine", () => {
     expect(result.targets.length).toBeGreaterThan(0);
     for (const t of result.targets) {
       expect(t.reasons.length).toBeGreaterThan(0);
-      expect(t.reasons.every((r) => typeof r === "string" && r.trim().length > 0)).toBe(true);
-      // Reasons are evidence statements, not engine bookkeeping.
-      expect(t.reasons.some((r) => /Corroborated across/.test(r))).toBe(false);
+      // Reasons are STRUCTURED, not prose: that is what lets the UI render them
+      // in Somali as well as English. Anything pre-formatted here would be
+      // untranslatable at the edge.
+      for (const r of t.reasons) {
+        expect(typeof r.kind).toBe("string");
+        expect(r.kind.length).toBeGreaterThan(0);
+      }
+      // The mineralisation signal leads; mapped unit is context and comes last.
+      expect(t.reasons[0].kind).not.toBe("unit");
     }
   });
 
@@ -168,10 +174,13 @@ describe("TargetingEngine", () => {
       .toEqual(a.targets.map((t) => [t.cell, t.score, Math.round(t.distanceM)]));
   });
 
-  test("describeTarget reads as instruction plus reason", async () => {
+  test("a target names the commodity its evidence points at", async () => {
     const result = await engineFor(dataWithNeCluster()).rank(MOG.lat, MOG.lng);
-    const line = describeTarget(result.targets[0]);
-    expect(line).toMatch(/^Head .+\. .+\.$/);
-    expect(line.length).toBeGreaterThan(20);
+    const occ = result.targets[0].reasons.find((r) => r.kind === "occurrence");
+    expect(occ).toBeDefined();
+    if (occ && occ.kind === "occurrence") {
+      expect(occ.commodity).toBe("gold");
+      expect(occ.distanceM).toBeGreaterThan(0);
+    }
   });
 });

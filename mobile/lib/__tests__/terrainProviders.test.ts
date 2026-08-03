@@ -175,7 +175,9 @@ describe("structure changes where you are sent", () => {
     expect((await bare.targeting.rank(MOG.lat, MOG.lng)).targets).toEqual([]);
     const result = await structured.targeting.rank(MOG.lat, MOG.lng);
     expect(result.targets.length).toBeGreaterThan(0);
-    expect(result.targets[0].reasons.join(" ")).toMatch(/Fault|Contact|intersect/);
+    // Reasons are structured so the UI can render them in Somali too.
+    const kinds = result.targets[0].reasons.map((r) => r.kind);
+    expect(kinds.some((k) => k === "fault" || k === "contact" || k === "intersection")).toBe(true);
   });
 
   test("drainage alone does not manufacture a lode target", async () => {
