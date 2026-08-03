@@ -3,7 +3,7 @@
     "name": "LuulScan",
     "slug": "gemestone",
     "owner": "gemestones-team",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "scheme": "gemscanai",
     "userInterfaceStyle": "dark",
     "orientation": "portrait",
@@ -13,7 +13,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#080C14"
     },
-    "runtimeVersion": "1.0.0",
+    "runtimeVersion": "1.0.1",
     "updates": {
       "url": "https://u.expo.dev/d24307ed-5428-4bbc-97ba-efd4a426856b",
       "fallbackToCacheTimeout": 0
@@ -53,14 +53,19 @@
     },
     "android": {
       "package": "com.gemscan.ai",
-      "permissions": ["CAMERA"],
+      "versionCode": 57,
+      "permissions": [
+        "CAMERA"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B0B0C"
       }
     },
     "extra": {
-      "router": { "origin": false },
+      "router": {
+        "origin": false
+      },
       "eas": {
         "projectId": "d24307ed-5428-4bbc-97ba-efd4a426856b"
       }
