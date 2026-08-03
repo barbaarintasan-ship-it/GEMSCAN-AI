@@ -3,7 +3,7 @@
     "name": "LuulScan",
     "slug": "gemestone",
     "owner": "gemestones-team",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "scheme": "gemscanai",
     "userInterfaceStyle": "dark",
     "orientation": "portrait",
@@ -53,7 +53,7 @@
     },
     "android": {
       "package": "com.gemscan.ai",
-      "versionCode": 61,
+      "versionCode": 62,
       "permissions": [
         "CAMERA"
       ],
