@@ -1,7 +1,8 @@
-# Field Exploration — Architecture v1
+# Field Exploration — Architecture v1.1
 
-**Status:** For review — no implementation yet
+**Status:** Approved; implementation in progress (E0–E5 shipped)
 **Date:** 2026-08-03
+**v1.1 change:** terrain intelligence and offline geological map layers added as pack content and providers (§7.7). Part I — the workflow — is unchanged.
 **Answers:** *What happens from the moment the user presses "Start Exploration" until the exploration session ends?*
 **Extends:** GEOCONTEXT_ENGINE_ARCHITECTURE_v1, GEOLOGICAL_INTELLIGENCE_ENGINE_v1
 **Consumes:** Field Exploration Engine Phase 1 (frozen)
@@ -272,8 +273,8 @@ Which workflow step needs what, and where it runs:
 | Step | Capability | Offline | Cloud |
 |---|---|---|---|
 | 1 Start | Entitlement, sensors, pack activation | ✅ | — |
-| 2 Orient | H3, local geology, occurrences | ✅ | — |
-| 3 Target | Rule firing, prospectivity, scoring | ✅ | — |
+| 2 Orient | H3, local geology, occurrences, map layers, terrain | ✅ | — |
+| 3 Target | Rule firing, structural + terrain signals, prospectivity, scoring | ✅ | — |
 | 4 Walk | GPS, heading, re-target policy | ✅ | — |
 | 5 Arrive | Accuracy-aware geometry | ✅ | — |
 | 6 Capture | Waypoints, photos, local store | ✅ | — |
@@ -301,6 +302,8 @@ not belong.
 | **PackGateway** | 2, 3 | new (§7.3) |
 | **Providers** (7 existing) | 2, 3 | ✅ port unchanged (§7.3) |
 | **Shared reasoning core** | 2, 3, 7 | extract (§8) |
+| **MapLayerProvider** (faults, contacts, lineaments) | 2, 3 | new (§7.7) |
+| **TerrainProvider** (DEM-derived morphology) | 2, 3 | new (§7.7) — dormant until DEM is ingested |
 | **LocalEvidenceProvider** | 6, 7 | new (§9) |
 | **Waypoint store/service** | 6 | ✅ M2.1 built |
 | **TargetingEngine** | 3, 7 | new — specified separately (§10.5) |
@@ -355,6 +358,8 @@ pack/
   rules.json         EMIE: 27 rock→commodity, 12 assemblage
   commodities.json   23 profiles (bilingual: en + so)
   associations.json  mineral_association weights
+  maplayers.json     faults, contacts, lineaments, drainage — line geometry
+  terrain.json       H3-indexed DEM derivatives (elevation, slope, morphology)
 ```
 
 **Size:** ~200 KB of source SQL → well under 1 MB packed. **v1 ships inside the APK**, so
@@ -450,6 +455,48 @@ Not read in full: bodies of `community.ts`, `knowledge.ts`, `mineralAssociation.
 constrained by `buildProviders(gw)`, but **E0 must confirm none performs I/O outside the
 gateway** before the "zero changes" claim is relied upon.
 
+### 7.7 Terrain intelligence and geological map layers
+
+Exploration does not reason from point occurrences alone. A geologist reads
+STRUCTURE and LANDFORM: where a fault meets a contact, where a lineament cuts a
+favourable unit, where drainage would concentrate float, whether a slope is
+outcrop or cover. Those signals are added here as pack content and two
+providers, consumed by the same engine as everything else.
+
+**Constraint (resolves §14.1):** no online satellite imagery is used during an
+exploration session — ever. Terrain and map layers are PREPROCESSED into packs
+and queried locally, which is the offline commitment applied to a new input
+rather than an exception to it. This permits DEM-derived terrain (a
+measurement of ground shape); it does NOT re-open spectral/remote-sensing
+alteration mapping or ML inference, which stay excluded.
+
+**Map layers** — line geometry from `geo.geological_layer`, whose `kind`
+already distinguishes fault, contact, lineament and drainage. The pack stores
+the polylines; the device measures distance to the nearest segment.
+
+This needs one new spatial predicate. §7.3's three operations assume points and
+polygons, but a fault is a LINE: `pointToSegmentM` is added to the shared core,
+and it is the only genuinely new geometry in this extension.
+
+**Terrain** — H3-indexed DEM derivatives at pack resolution: elevation, slope,
+aspect, relative relief, and a morphology class (ridge / slope / valley /
+flat), plus distance to mapped drainage. Stored per cell rather than as a
+raster, because the engine asks "what is the ground like HERE", not "render me
+a surface" — which keeps the pack small and the query O(1).
+
+**Structural intersections are computed, not asserted.** Where a fault and a
+contact both pass within a short distance of a cell, that intersection is a
+stronger signal than either alone — a classic structural trap. The provider
+emits it as its own evidence item, so the reason a geologist is sent somewhere
+can say "fault–contact intersection" rather than only "near a fault".
+
+**Data status, stated plainly:** `geo.geological_layer` can carry the line
+features today. There is NO DEM source in the database — `geo.raster_layer_registry`
+exists but is unused. The TerrainProvider therefore ships DORMANT, following
+the same pattern as the structural-geology provider: the query path, pack slot
+and scoring are complete and tested, and terrain evidence appears the moment a
+DEM is ingested. Nothing fabricates terrain in the meantime.
+
 ---
 
 ## 8. Shared reasoning core
@@ -527,6 +574,10 @@ beneath.
 | **E4** | **Steps 3–5** — be told where to go, and why | TargetingEngine, orchestrator, Exploration Mode UI, heading arrow |
 | **E5** | **Steps 6–7** — evidence changes the recommendation | LocalEvidenceProvider, re-score, track recording |
 | **E6** | **Step 8 + survive a week** | Sync, pack updates, cloud verification upgrade, export |
+| **E7** | **Richer guidance** — structure and landform, not just points | Map-layer + terrain pack content, `pointToSegmentM`, the two providers, terrain-aware prospectivity |
+
+E7 is ordered last only because it enriches a loop that must already close; its
+pack content and providers are additive and change no earlier stage.
 
 **E4 is the first stage where the product exists.** At its end a geologist walks into the
 field with no signal and is guided. E0–E3 build the foundation and prove it correct; E5–E6
@@ -587,12 +638,19 @@ with every target.
 
 ## 14. Open decisions
 
-### 14.1 Satellite layers — **blocking E1 scope**
-The product vision lists *"satellite/geological layers already cached"* among offline
-inputs, but a recorded owner constraint states **no satellite / ML / remote-sensing**, and
-EMIE was built without it. `GeoContextData.remoteSensing` exists as a type with no provider;
-`geo.raster_layer_registry` exists but is unused. These cannot both hold. **Owner decision
-required.**
+### 14.1 Satellite layers — **RESOLVED (owner, 2026-08-03)**
+Settled in favour of preprocessing: geological map layers and terrain-derived
+information are baked into packs and queried locally, and **no online satellite
+imagery is used during an exploration session**. See §7.7.
+
+The recorded "no satellite / ML / remote-sensing" constraint still holds for
+what it was about — spectral alteration mapping and ML inference are still
+excluded. DEM-derived terrain is a measurement of ground shape, not imagery
+interpretation, and is in scope. `GeoContextData.remoteSensing` remains an
+unused type.
+
+Outstanding, and needed before E7 can produce terrain evidence: **which DEM**
+(SRTM 30 m and ASTER 30 m are both free and cover Somalia), and who ingests it.
 
 ### 14.2 Pack scope — assumed, cheap to revise
 **Assumption: a single Somalia-wide pack for v1.** At <1 MB, regional splitting adds
