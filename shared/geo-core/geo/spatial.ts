@@ -39,6 +39,28 @@ export function withinM(a: LatLng, b: LatLng, radiusM: number): boolean {
   return haversineM(a, b) <= radiusM;
 }
 
+/**
+ * Initial great-circle bearing from `a` to `b`, degrees clockwise from true
+ * north (0–360). This is what the heading arrow points along: the direction to
+ * set off in, which on a sphere is not the same as the constant compass bearing
+ * that would eventually arrive. Over a traverse's few kilometres the difference
+ * is negligible, and the initial bearing is the correct one to walk.
+ */
+export function bearingDeg(a: LatLng, b: LatLng): number {
+  const la1 = toRad(a.lat);
+  const la2 = toRad(b.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const y = Math.sin(dLng) * Math.cos(la2);
+  const x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLng);
+  return (((Math.atan2(y, x) * 180) / Math.PI) + 360) % 360;
+}
+
+/** Compass point for a bearing — how a recommendation is spoken, not plotted. */
+export function compassPoint(bearing: number): string {
+  const points = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  return points[Math.round((((bearing % 360) + 360) % 360) / 45) % 8];
+}
+
 // ── Polygons ────────────────────────────────────────────────────────────────
 export type Position = [number, number]; // [lng, lat]
 export type Ring = Position[];
