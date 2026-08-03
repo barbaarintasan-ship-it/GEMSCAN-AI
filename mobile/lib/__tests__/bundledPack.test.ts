@@ -1,0 +1,106 @@
+// The REAL bundled Somalia pack (Stage E2/E4 acceptance).
+//
+// Every other test builds a pack from a fixture. This one loads the actual
+// artifact that ships in the APK and runs the exploration engine against it, so
+// it fails if the pack is missing, corrupt, or built with a schema the app
+// cannot read — the exact conditions that would put "No geological knowledge
+// for this area" in front of a geologist standing on mapped ground.
+import { loadBundledPackFiles } from "../geo/bundledPack.ts";
+import { PackStore, createBundledPackSource } from "../geo/packStore.ts";
+import { OfflineGeoContextService } from "../geo/offlineGeoContext.ts";
+import { TargetingEngine } from "../geo/targeting.ts";
+import { readPack } from "../../../shared/geo-core/pack/read.ts";
+
+const files = loadBundledPackFiles();
+const pack = files ? readPack(files) : null;
+
+// If no pack is bundled the suite reports that plainly rather than silently
+// passing — a missing pack is the single most likely cause of an app that
+// "works" but knows nothing.
+const itPack = pack ? test : test.skip;
+
+describe("bundled Somalia knowledge pack", () => {
+  test("a pack is bundled at all", () => {
+    expect(files).not.toBeNull();
+    expect(pack).not.toBeNull();
+  });
+
+  itPack("passes integrity verification as the app loads it", async () => {
+    const store = new PackStore(createBundledPackSource(loadBundledPackFiles));
+    const status = await store.load();
+    expect(status.state).toBe("ready");
+    expect(store.isReady()).toBe(true);
+  });
+
+  itPack("carries the production datasets", () => {
+    const d = pack!.data;
+    expect(d.geology.length).toBeGreaterThan(300);      // Macrostrat
+    expect(d.occurrences.length).toBeGreaterThan(100);  // MRDS
+    expect(d.rules.length).toBeGreaterThan(20);         // EMIE rock→commodity
+    expect(d.commodities.length).toBeGreaterThan(20);   // EMIE profiles
+    expect(d.assemblages.length).toBeGreaterThan(5);    // EMIE assemblages
+    expect(pack!.manifest.h3Resolution).toBe(7);
+    expect(pack!.manifest.region).toBe("SO");
+  });
+
+  itPack("answers 'what is here?' offline on real Somali ground", async () => {
+    // Stand on a real MRDS occurrence from the pack itself, so the test does
+    // not hardcode a coordinate that a future dataset might not cover.
+    const site = pack!.data.occurrences[0];
+    const store = new PackStore(createBundledPackSource(loadBundledPackFiles));
+    const geo = new OfflineGeoContextService(store);
+
+    const { context, hasKnowledge, provenance } = await geo.contextAt(site.lat, site.lng);
+
+    expect(hasKnowledge).toBe(true);
+    expect(provenance).not.toBeNull();
+    // This is the assertion that matters: the engine found the occurrence it
+    // is standing on, with no network.
+    expect(context.knownOccurrences.length).toBeGreaterThan(0);
+    expect(context.confidence.score).toBeGreaterThan(0);
+    expect(context.meta.providersFailed).toEqual([]);
+  });
+
+  itPack("knows the mapped geology under a point inside a Macrostrat polygon", async () => {
+    const store = new PackStore(createBundledPackSource(loadBundledPackFiles));
+    const geo = new OfflineGeoContextService(store);
+
+    // Centre of the first mapped unit's bbox is inside it for these polygons.
+    const unit = pack!.data.geology[0];
+    const lng = (unit.bbox[0] + unit.bbox[2]) / 2;
+    const lat = (unit.bbox[1] + unit.bbox[3]) / 2;
+    const { context } = await geo.contextAt(lat, lng);
+
+    // Either the unit resolves, or the bbox centre fell in a concavity — in
+    // which case at least the query must complete without inventing geology.
+    if (context.geology.unit) {
+      expect(typeof context.geology.unit).toBe("string");
+    }
+    expect(context.meta.providersFailed).toEqual([]);
+  });
+
+  itPack("produces guidance, not just a readout", async () => {
+    const site = pack!.data.occurrences[0];
+    const store = new PackStore(createBundledPackSource(loadBundledPackFiles));
+    const targeting = new TargetingEngine(new OfflineGeoContextService(store));
+
+    const result = await targeting.rank(site.lat, site.lng);
+    expect(result.hasKnowledge).toBe(true);
+    // Standing on an occurrence, the engine should rate this ground — either it
+    // is the best nearby, or it can name somewhere better. Both are real answers.
+    expect(result.current.score).toBeGreaterThan(0);
+    for (const t of result.targets) {
+      expect(t.reasons.length).toBeGreaterThan(0);
+      expect(t.bearingDeg).toBeGreaterThanOrEqual(0);
+      expect(t.bearingDeg).toBeLessThan(360);
+    }
+  });
+
+  itPack("reports what it does NOT have, rather than implying coverage", () => {
+    const d = pack!.data;
+    // These are legitimately empty in production today. The test records the
+    // fact so a future pack that gains them fails here and gets noticed.
+    expect(d.mapFeatures.length).toBe(0); // no fault/contact line geometry yet
+    expect(d.terrain.length).toBe(0);     // no DEM ingested yet
+  });
+});

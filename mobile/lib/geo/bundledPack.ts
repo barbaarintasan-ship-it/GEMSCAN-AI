@@ -26,6 +26,8 @@ function tryRequireAll(): Record<string, unknown> | null {
       [PACK_FILES.knowledge]: require("../../assets/geo-pack/knowledge.json"),
       [PACK_FILES.structures]: require("../../assets/geo-pack/structures.json"),
       [PACK_FILES.community]: require("../../assets/geo-pack/community.json"),
+      [PACK_FILES.mapFeatures]: require("../../assets/geo-pack/maplayers.json"),
+      [PACK_FILES.terrain]: require("../../assets/geo-pack/terrain.json"),
       [PACK_FILES.associations]: require("../../assets/geo-pack/associations.json"),
       [PACK_FILES.rules]: require("../../assets/geo-pack/rules.json"),
       [PACK_FILES.commodities]: require("../../assets/geo-pack/commodities.json"),

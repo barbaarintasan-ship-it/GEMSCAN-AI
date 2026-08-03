@@ -171,7 +171,7 @@ async function extract(client: Client): Promise<{ data: PackData; datasets: Pack
   }>(`
     select o.id::text, o.name, o.commodity_key, o.deposit_type, o.host_rocks,
            extensions.st_y(o.geom) as lat, extensions.st_x(o.geom) as lng,
-           o.dataset_id::text, d.source, d.version, o.reference
+           o.dataset_id::text, d.source_key as source, d.version, o.reference
     from geo.mineral_occurrence o
     join geo.dataset_registry d on d.id = o.dataset_id
     where o.geom is not null
@@ -197,7 +197,7 @@ async function extract(client: Client): Promise<{ data: PackData; datasets: Pack
            extensions.st_y(extensions.st_centroid(gk.geom)) as lat,
            extensions.st_x(extensions.st_centroid(gk.geom)) as lng,
            ks.title as source_title,
-           ks.dataset_id::text, d.source as dataset_source, d.version as dataset_version
+           ks.dataset_id::text, d.source_key as dataset_source, d.version as dataset_version
     from geo.geological_knowledge gk
     join geo.knowledge_source ks on ks.id = gk.source_id
     left join geo.dataset_registry d on d.id = ks.dataset_id
@@ -274,7 +274,7 @@ async function extract(client: Client): Promise<{ data: PackData; datasets: Pack
   `);
 
   const datasets = await q<PackDatasetRef>(`
-    select id::text as "datasetId", source, version from geo.dataset_registry
+    select id::text as "datasetId", source_key as source, version from geo.dataset_registry
   `);
 
   return {
