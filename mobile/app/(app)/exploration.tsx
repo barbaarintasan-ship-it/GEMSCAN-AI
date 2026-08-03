@@ -26,7 +26,7 @@ import {
   ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput,
   useWindowDimensions, View,
 } from "react-native";
-import { Stack, router } from "expo-router";
+import { Stack, router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
@@ -122,6 +122,17 @@ function ExplorationScreen() {
   React.useEffect(() => {
     if (s.state === "awaitingEvidence") setExpanded(true);
   }, [s.state]);
+
+  // Returned from a submitted sample. The loop continues: fold the new evidence
+  // in and re-score, so the next recommendation accounts for what was just
+  // found. The session is NOT restarted — it never stopped.
+  const { analysed } = useLocalSearchParams<{ analysed?: string }>();
+  const foldedIn = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!analysed || foldedIn.current === analysed) return;
+    foldedIn.current = analysed;
+    void actions.recordEvidence();
+  }, [analysed, actions]);
 
   if (!running) {
     return (
@@ -233,7 +244,7 @@ function ExplorationScreen() {
       >
         {arrived ? (
           <ArrivedBlock
-            onScan={() => goToCapture(s.position)}
+            onScan={() => goToCapture()}
             onWaypoint={() => void actions.captureObservation("outcrop")}
             onRecalculate={actions.refresh}
             t={t}
@@ -278,7 +289,7 @@ function ExplorationScreen() {
           <SheetAction
             icon={<Ionicons name="camera" size={20} color={colors.text} />}
             label={t("field.sheet.captureEvidence")}
-            onPress={() => goToCapture(s.position)}
+            onPress={() => goToCapture()}
           />
           <SheetAction
             icon={<Ionicons name="location" size={20} color={colors.text} />}
@@ -342,14 +353,11 @@ function ExplorationScreen() {
  * the same session id. The capture screen is told where it was opened from so
  * it can hand control straight back when the analysis finishes.
  */
-function goToCapture(position: { lat: number; lng: number } | null): void {
-  router.push({
-    pathname: "/(app)/enterprise/new-sample",
-    params: {
-      from: "exploration",
-      ...(position ? { lat: String(position.lat), lng: String(position.lng) } : {}),
-    },
-  });
+function goToCapture(): void {
+  // No coordinates are passed: the capture screen takes its OWN fix through the
+  // same code every other sample uses. Handing it a position from here would
+  // create a second, staler source of truth for where a sample was collected.
+  router.push({ pathname: "/(app)/enterprise/new-sample", params: { from: "exploration" } });
 }
 
 // ── Header ──────────────────────────────────────────────────────────────────

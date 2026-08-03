@@ -7,7 +7,7 @@
 // GPS richness (§2) and photo categories (§3) arrive in the next slices.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, TextInput, ScrollView, StyleSheet, Pressable, Image, Alert, ActivityIndicator } from "react-native";
-import { router, useNavigation, useLocalSearchParams } from "expo-router";
+import { router, useNavigation, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -30,6 +30,8 @@ import {
   type SampleMediaInput,
 } from "../../../lib/enterpriseSamples";
 
+import { takeCapturedPhotos } from "../../../lib/captureHandoff";
+
 const DRAFT_KEY = "enterprise:new-sample:draft";
 type GpsFix = { lat: number; lng: number; gps_accuracy_m?: number };
 type DraftShape = {
@@ -49,7 +51,13 @@ export default function NewSampleScreen() {
   // Edit mode: /enterprise/new-sample?edit=<sampleId>. Prefills from the existing
   // sample and PUTs instead of POSTing. No AsyncStorage draft in edit mode — the
   // server copy is the source of truth.
-  const { edit } = useLocalSearchParams<{ edit?: string }>();
+  const { edit, from, lat, lng } = useLocalSearchParams<{
+    edit?: string; from?: string; lat?: string; lng?: string;
+  }>();
+  // Opened from a running exploration session. The session is still alive
+  // behind this screen — this is a push, not a replace — so finishing here
+  // returns to the live map rather than starting anything new.
+  const fromExploration = from === "exploration";
   const isEdit = !!edit;
   // Maps an already-uploaded photo's display URI → its Storage path, so on save we
   // reuse kept photos (never re-upload/​re-download them) and only upload new ones.
@@ -207,13 +215,34 @@ export default function NewSampleScreen() {
     if (uris.length) setPhotos((p) => [...p, ...uris]);
   }, []);
 
+  // The field camera hands its photos back through a single in-memory slot and
+  // pops. Draining on focus is what makes the round trip feel like one screen
+  // rather than a detour — and the slot clears on read, so a re-render cannot
+  // attach the same burst twice.
+  useFocusEffect(
+    useCallback(() => {
+      const captured = takeCapturedPhotos();
+      if (captured.length) setPhotos((p) => [...p, ...captured.map((c) => c.uri)]);
+    }, []),
+  );
+
+  const openFieldCamera = useCallback((needs?: string[]) => {
+    router.push({
+      pathname: "/(app)/enterprise/field-camera",
+      ...(needs?.length ? { params: { need: needs.join(",") } } : {}),
+    });
+  }, []);
+
   const addPhoto = useCallback(() => {
     Alert.alert("Add photo", undefined, [
-      { text: "Take Photo", onPress: () => pickFrom("camera") },
+      // The geological camera first: it is the one with focus lock, burst and
+      // full sensor resolution. The system picker stays for photos already taken.
+      { text: "Field Camera", onPress: () => openFieldCamera() },
+      { text: "Quick Photo", onPress: () => pickFrom("camera") },
       { text: "Choose from Library", onPress: () => pickFrom("library") },
       { text: "Cancel", style: "cancel" },
     ]);
-  }, [pickFrom]);
+  }, [pickFrom, openFieldCamera]);
 
   const addMineral = useCallback(() => {
     const m = mineralDraft.trim();
@@ -263,13 +292,25 @@ export default function NewSampleScreen() {
         await clearDraft();
       }
       submittedRef.current = true;
-      router.replace(`/(app)/enterprise/sample/${sampleId}`);
+      if (fromExploration) {
+        // Straight back to the live map, with the sample id carried along so
+        // the session can pick up the analysis when it lands. The exploration
+        // session is NOT ended and was never replaced — it has been running
+        // underneath this screen the whole time. The sample detail is one tap
+        // away from the map; forcing it here would break the walking loop.
+        router.replace({
+          pathname: "/(app)/exploration",
+          params: { analysed: sampleId },
+        });
+      } else {
+        router.replace(`/(app)/enterprise/sample/${sampleId}`);
+      }
     } catch (e) {
       Alert.alert(isEdit ? "Save failed" : "Submission failed", e instanceof Error ? e.message : "Unknown error");
     } finally {
       setSubmitting(false);
     }
-  }, [loc, canSubmit, photos, uploadedByUri, name, notes, rockClass, minerals, gpsSource, collectedAt, clearDraft, isEdit, edit]);
+  }, [loc, canSubmit, photos, uploadedByUri, name, notes, rockClass, minerals, gpsSource, collectedAt, clearDraft, isEdit, edit, fromExploration]);
 
   const collectorName = (session?.user?.user_metadata?.display_name as string | undefined)?.trim()
     || session?.user?.email?.split("@")[0] || "—";
@@ -388,6 +429,10 @@ export default function NewSampleScreen() {
           <Text style={styles.addPhotoText}>Add</Text>
         </Pressable>
       </View>
+      <Pressable style={styles.fieldCamBtn} onPress={() => openFieldCamera()}>
+        <Ionicons name="camera" size={20} color="#0B0B0C" />
+        <Text style={styles.fieldCamText}>Open field camera</Text>
+      </Pressable>
 
       {/* Optional geology — the AI determines these (§6). */}
       <View style={styles.aiNote}>
@@ -514,6 +559,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSunken, alignItems: "center", justifyContent: "center",
     borderWidth: 1, borderColor: colors.border,
   },
+  fieldCamBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm,
+    backgroundColor: colors.gold, borderRadius: radius.lg,
+    paddingVertical: spacing.md, marginTop: spacing.sm,
+  },
+  fieldCamText: { color: "#0B0B0C", fontWeight: "700", fontSize: 15 },
   addPhoto: {
     width: 72, height: 72, borderRadius: radius.md, borderWidth: 1, borderColor: colors.goldBorder,
     borderStyle: "dashed", alignItems: "center", justifyContent: "center", gap: 2,

@@ -270,5 +270,32 @@
       "contact": "Xidhiidh dhagax",
       "intersection": "Isgoys qaab-dhismeed"
     }
+  },
+  "camera": {
+    "permission": "LuulScan wuxuu u baahan yahay kaamiraddaa si uu dhagaxa u sawiro.",
+    "grant": "Ogolow kaamirada",
+    "torch": "Iftiin",
+    "grid": "Xarriiqyo",
+    "focusLock": "Diiradda",
+    "flash": {
+      "off": "Flash daaran",
+      "auto": "Flash toos ah",
+      "on": "Flash shidan"
+    },
+    "zoom1x": "1x",
+    "count": "{{n}} sawir",
+    "removeHint": "Sawirka qabo si aad u saarto",
+    "burstHint": "Badhanka hay si aad u qaadato ilaa {{n}} sawir isku xigta",
+    "done": "Isticmaal kuwan",
+    "needed": "WAXA WELI LOO BAAHAN YAHAY",
+    "need": {
+      "closer": "Sawir dhow",
+      "angle": "Jiho kale",
+      "fresh_surface": "Dhinac cusub oo la jebiyay",
+      "wider_context": "Sawir ballaadhan",
+      "vein_closeup": "Xididka quartz-ka oo dhow",
+      "weathered": "Dusha duugoobay",
+      "mineral_closeup": "Macdanta oo dhow"
+    }
   }
 }

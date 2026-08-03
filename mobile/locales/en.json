@@ -270,5 +270,32 @@
       "contact": "Contact",
       "intersection": "Structure crossing"
     }
+  },
+  "camera": {
+    "permission": "LuulScan needs the camera to photograph rock in the field.",
+    "grant": "Allow camera",
+    "torch": "Light",
+    "grid": "Grid",
+    "focusLock": "Focus",
+    "flash": {
+      "off": "Flash off",
+      "auto": "Flash auto",
+      "on": "Flash on"
+    },
+    "zoom1x": "1x",
+    "count": "{{n}} photos",
+    "removeHint": "Hold a photo to remove",
+    "burstHint": "Hold the shutter for a burst of up to {{n}} frames",
+    "done": "Use these",
+    "needed": "STILL NEEDED",
+    "need": {
+      "closer": "Closer photo",
+      "angle": "Different angle",
+      "fresh_surface": "Fresh broken surface",
+      "wider_context": "Wider context",
+      "vein_closeup": "Quartz vein close-up",
+      "weathered": "Weathered surface",
+      "mineral_closeup": "Mineral close-up"
+    }
   }
 }
