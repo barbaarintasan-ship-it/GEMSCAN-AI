@@ -73,6 +73,13 @@ export type GeoAssessment = {
   status: string;
   created_at: string;
   report: {
+    headline?: Bilingual;
+    simpleSummary?: Bilingual;
+    opportunity?: "high" | "moderate" | "low" | "none";
+    interpretation?: {
+      whatItIs?: Bilingual; commonlyHosts?: Bilingual; lookForNext?: Bilingual;
+      whyItMatters?: Bilingual; environment?: Bilingual;
+    };
     uncertainties?: Bilingual[];
     missingInformation?: Bilingual[];
     recommendations?: Array<{ action: string; actionSo?: string; scaleM?: number; flagged?: boolean }>;
@@ -81,6 +88,22 @@ export type GeoAssessment = {
   assessment_evidence: AssessmentEvidence[];
   assessment_edge: AssessmentEdge[];
 };
+
+// The geologist's binding review (decision + confidence + notes) and the discussion
+// timeline — surfaced to the collector so review feedback actually reaches them.
+export type SampleReview = {
+  id: string;
+  round_no: number;
+  status: string;
+  decision: string | null; // verify | needs_more_data | reject
+  geologist_confidence: number | null;
+  corrected_interpretation: string | null;
+  review_notes: string | null;
+  recommendation: string | null;
+  reviewer_role: string | null;
+  submitted_at: string | null;
+};
+export type DiscussionMsg = { id: string; author_role: string | null; body: string; created_at: string };
 
 export type SampleDetail = SampleListRow & {
   field_observations: string | null;
@@ -91,6 +114,8 @@ export type SampleDetail = SampleListRow & {
   alteration_observation: Array<{ alteration_type: string | null; intensity: string | null; notes: string | null }>;
   structural_measurement: Array<unknown>;
   assessment?: GeoAssessment | null;
+  review?: SampleReview | null;
+  discussion?: DiscussionMsg[];
 };
 
 async function authHeader(): Promise<Record<string, string>> {
@@ -137,6 +162,30 @@ export async function submitSample(input: NewSampleInput): Promise<{ sample_id: 
   });
   const body = await readBody(res);
   if (!res.ok) throw new Error(body?.detail || body?.message || body?.error || `Submit failed (${res.status})`);
+  return body;
+}
+
+// Statuses after a geologist has reached a final decision — the sample is locked
+// and the collector can no longer edit it. Everything before that (draft → …→
+// awaiting_review, and needs_more_data) stays editable. Mirrors the edit_sample
+// RPC gate (migration 0080); the server is still the authority.
+const LOCKED_STATUSES = new Set(["verified", "rejected"]);
+
+/** Whether the collector may still edit + re-submit this sample (pre-review). */
+export function sampleIsEditable(status: string | null | undefined): boolean {
+  return !!status && !LOCKED_STATUSES.has(status);
+}
+
+/** PUT /enterprise-samples/:id — edit a collected sample and re-submit it. Only
+ *  allowed before a geologist reviews it; triggers a fresh AI analysis server-side. */
+export async function editSample(id: string, input: NewSampleInput): Promise<{ sample_id: string; revision_no: number; sample: SampleDetail }> {
+  const res = await fetch(`${FUNCTIONS_URL}/enterprise-samples/${id}`, {
+    method: "PUT",
+    headers: await authHeader(),
+    body: JSON.stringify(input),
+  });
+  const body = await readBody(res);
+  if (!res.ok) throw new Error(body?.detail || body?.message || body?.error || `Edit failed (${res.status})`);
   return body;
 }
 

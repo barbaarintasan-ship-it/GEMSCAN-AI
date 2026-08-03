@@ -18,7 +18,11 @@ import {
 } from "./types";
 import { LocationService } from "./locationService";
 import { HeadingService } from "./headingService";
-import { DiagnosticsRecorder } from "./diagnostics";
+import {
+  DiagnosticsRecorder,
+  buildFieldDiagnosticsReport,
+  type FieldDiagnosticsReport,
+} from "./diagnostics";
 
 // ── Pure transition function (spec Part 4 — the exact table) ────────────────
 // Returns the next machine snapshot, or null when the event is illegal in the
@@ -127,6 +131,23 @@ export class FieldSessionController {
     };
   }
 
+  /**
+   * Everything the diagnostics surface shows, in one object. The screen renders
+   * from it and Export serialises the very same object, so the two can never
+   * disagree.
+   */
+  diagnosticsReport(device?: { os: string; version: string } | null): FieldDiagnosticsReport {
+    return buildFieldDiagnosticsReport({
+      recorder: this.recorder,
+      snapshot: this.snap,
+      locationStatus: this.location.getStatus(),
+      headingStatus: this.heading.getStatus(),
+      subscriptions: this.subscriptionCounts(),
+      headingCounts: this.heading.counts(),
+      device,
+    });
+  }
+
   // ── Commands (all safe to call in any state) ──────────────────────────────
   start(): void {
     if (this.snap.machine.state !== "idle") { this.ignored("start"); return; }
@@ -137,32 +158,39 @@ export class FieldSessionController {
       startedAt: Date.now(),
     };
     this.dispatch({ type: "START" });
+    this.recorder.log(`session ${this.snap.sessionId} started`);
     void this.runStartFlow();
   }
 
   retry(): void {
     if (!this.dispatch({ type: "RETRY" })) { this.ignored("retry"); return; }
+    this.recorder.log("retry — re-running start flow");
     void this.runStartFlow();
   }
 
   dismiss(): void {
     if (!this.dispatch({ type: "DISMISS" })) this.ignored("dismiss");
+    else this.recorder.log("error dismissed");
   }
 
   pause(): void {
     if (this.dispatch({ type: "PAUSE_USER" })) {
       this.recorder.pause("user");
+      this.recorder.log("paused by user — sensors stopped");
       this.stopSensors();
     } else this.ignored("pause");
   }
 
   resume(): void {
-    if (this.dispatch({ type: "RESUME_USER" })) this.afterResume();
-    else this.ignored("resume");
+    if (this.dispatch({ type: "RESUME_USER" })) {
+      this.recorder.log("resumed by user");
+      this.afterResume();
+    } else this.ignored("resume");
   }
 
   stop(): void {
     if (!this.dispatch({ type: "STOP" })) { this.ignored("stop"); return; }
+    this.recorder.log("stop requested — tearing down");
     this.flowGen++; // abandon any in-flight start/permission flow
     this.teardown();
     this.dispatch({ type: "CLEANUP_DONE" });
@@ -184,9 +212,13 @@ export class FieldSessionController {
     this.attachSensorListeners();
     this.appStateSub ??= this.appStateApi.subscribe((status) => {
       if (status === "active") {
-        if (this.dispatch({ type: "APP_FOREGROUND" })) this.afterResume();
+        if (this.dispatch({ type: "APP_FOREGROUND" })) {
+          this.recorder.log("app foregrounded — auto-resume");
+          this.afterResume();
+        }
       } else if (this.dispatch({ type: "APP_BACKGROUND" })) {
         this.recorder.pause("system");
+        this.recorder.log(`app ${status} — system pause`);
         this.stopSensors();
       }
     });
@@ -203,6 +235,7 @@ export class FieldSessionController {
     if (!alive()) return;
     if (!perm.granted) {
       this.recorder.error();
+      this.recorder.log("location permission denied");
       this.updateSnap({ permission: perm });
       this.dispatch({ type: "PERM_DENIED" });
       return;
@@ -212,10 +245,12 @@ export class FieldSessionController {
     if (!alive()) return;
     if (!services) {
       this.recorder.error();
+      this.recorder.log("device location services disabled");
       this.updateSnap({ permission: perm });
       this.dispatch({ type: "SERVICES_OFF" });
       return;
     }
+    this.recorder.log(`permission granted (${perm.preciseGranted ? "precise" : "approximate"})`);
     this.updateSnap({ permission: perm, degradedAccuracy: !perm.preciseGranted });
     this.dispatch({ type: "PERM_GRANTED", precise: perm.preciseGranted });
 
@@ -224,19 +259,25 @@ export class FieldSessionController {
     if (!alive()) return;
     if (!first.ok) {
       this.recorder.error();
+      this.recorder.log("first fix timed out");
       this.dispatch({ type: "FIRST_FIX_TIMEOUT" });
       return;
     }
+    this.recorder.log(`first fix ±${first.fix.accuracy ?? "?"}m`);
     this.dispatch({ type: "FIRST_FIX_OK" });
     await this.startSensors();
   }
 
   private async startSensors(): Promise<void> {
     this.watchRetried = false;
-    await this.location.start(WALKING_PROFILE);
+    const watching = await this.location.start(WALKING_PROFILE);
+    this.recorder.log(`position watch ${watching ? "started" : "not started (already watching or failed)"}`);
     const headingOk = await this.heading.start();
     if (!headingOk && this.heading.getStatus() === "unavailable") {
+      this.recorder.log("heading unavailable on this device");
       this.updateSnap({ headingSupported: false });
+    } else {
+      this.recorder.log(`heading watch ${headingOk ? "started" : "already running"}`);
     }
   }
 
@@ -265,19 +306,22 @@ export class FieldSessionController {
       this.updateSnap({ lastHeading: h });
     });
     this.unsubUnavailable ??= this.heading.onUnavailable(() => {
+      this.recorder.log("heading reported unavailable");
       this.updateSnap({ headingSupported: false });
     });
-    this.unsubLocError ??= this.location.onError(() => {
+    this.unsubLocError ??= this.location.onError((message) => {
       const s = this.snap.machine.state;
       if (s !== "active" && s !== "paused") return;
       if (!this.watchRetried) {
         // Single silent internal retry (spec Part 7).
         this.watchRetried = true;
         this.recorder.watchRetry();
+        this.recorder.log(`watch error — retrying once (${message})`);
         this.location.stop();
         void this.location.start(WALKING_PROFILE);
       } else {
         this.recorder.error();
+        this.recorder.log(`watch error after retry — fatal (${message})`);
         this.dispatch({ type: "WATCH_FATAL" });
         this.stopSensors();
       }
@@ -298,7 +342,7 @@ export class FieldSessionController {
 
     this.recorder.armTripwire();
     this.recorder.cycle();
-    this.recorder.audit([
+    const audit = this.recorder.audit([
       { name: "location service idle", pass: this.location.getStatus() === "idle" },
       {
         name: "heading service stopped",
@@ -308,6 +352,9 @@ export class FieldSessionController {
       { name: "heading subscriptions = 0", pass: this.heading.subscriptionCount() === 0 },
       { name: "appState listener removed", pass: this.appStateSub === null },
     ]);
+    this.recorder.log(
+      `cleanup ${audit.pass ? "PASS" : `FAIL — ${audit.checks.filter((c) => !c.pass).map((c) => c.name).join(", ")}`}`,
+    );
   }
 
   // ── Machine plumbing ──────────────────────────────────────────────────────

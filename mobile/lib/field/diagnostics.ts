@@ -7,20 +7,32 @@
 // sensor path pays nothing.
 import {
   DIAG_RING_CAPACITY,
+  HEADING_MIN_DELTA_DEG,
+  HEADING_MIN_INTERVAL_MS,
+  LOW_ACCURACY_M,
   TRIPWIRE_WINDOW_MS,
+  WALKING_PROFILE,
   type CleanupAudit,
   type CleanupCheck,
   type DiagCounters,
   type DiagTimings,
   type FieldFix,
+  type FieldHeading,
+  type HeadingServiceStatus,
   type LifecycleLogEntry,
+  type LocationProfileConfig,
+  type LocationServiceStatus,
+  type MachineSnapshot,
   type MachineState,
+  type PermissionResult,
+  type SessionSnapshot,
   type TransitionLogEntry,
 } from "./types";
 
-// __DEV__ is defined by React Native / jest-expo; default true elsewhere (dev).
-declare const __DEV__: boolean | undefined;
-const DEV = typeof __DEV__ === "undefined" ? true : __DEV__;
+// The recorder is a passive counter; the only surface that mounts a session is
+// the diagnostics screen, which is reachable in release builds for field
+// testing. Gating on __DEV__ therefore zeroed every metric on exactly the
+// builds under test, so recording is on by default and the caller opts out.
 
 function emptyCounters(): DiagCounters {
   return {
@@ -74,7 +86,7 @@ export class DiagnosticsRecorder {
   private tripwireArmedAt: number | null = null;
   private tripwireViolated = false;
 
-  constructor(enabled: boolean = DEV, now: () => number = Date.now) {
+  constructor(enabled: boolean = true, now: () => number = Date.now) {
     this.enabled = enabled;
     this.now = now;
   }
@@ -154,7 +166,7 @@ export class DiagnosticsRecorder {
     if (fix.accuracy != null) {
       this.accuracies.push(fix.accuracy);
       if (this.accuracies.length > INTERVAL_WINDOW) this.accuracies.shift();
-      if (fix.accuracy > 50) this.counters.fixesLowAccuracy++;
+      if (fix.accuracy > LOW_ACCURACY_M) this.counters.fixesLowAccuracy++;
     }
     if (this.lastFixAt != null) {
       this.fixIntervals.push(t - this.lastFixAt);
@@ -246,22 +258,104 @@ export class DiagnosticsRecorder {
     };
   }
 
-  /** Complete artifact for remote debugging — dev-triggered share only. */
-  export(extra: Record<string, unknown>): string {
-    return JSON.stringify(
-      {
-        exportedAt: new Date(this.now()).toISOString(),
-        counters: this.getCounters(),
-        timings: this.getTimings(),
-        accuracy: this.getAccuracyStats(),
-        transitions: this.getTransitions(),
-        lifecycle: this.getLifecycle(),
-        cleanupAudit: this.lastAudit,
-        tripwire: this.tripwireStatus(),
-        ...extra,
-      },
-      null,
-      2,
-    );
-  }
+  /** Clock the report builder shares, so exportedAt matches the ring timestamps. */
+  clock(): number { return this.now(); }
+}
+
+// ── Report: the single source both the screen and the export render from ─────
+// Two independent read paths (screen rows vs. an export that re-read the
+// recorder with its own extras) is how they drifted apart. Everything the
+// diagnostics screen displays now comes from this object, and Export is
+// nothing but JSON.stringify of the same object.
+export interface FieldDiagnosticsReport {
+  exportedAt: string;
+  recorderEnabled: boolean;
+  device: { os: string; version: string } | null;
+  config: {
+    profile: LocationProfileConfig;
+    headingGate: { minDeltaDeg: number; minIntervalMs: number };
+    lowAccuracyM: number;
+  };
+  session: {
+    id: string | null;
+    state: string;              // the same label the screen shows
+    machine: MachineSnapshot;
+    startedAt: string | null;
+    fixCount: number;           // non-provisional fixes accepted into the snapshot
+    headingSupported: boolean;
+    degradedAccuracy: boolean;
+    permission: PermissionResult | null;
+  };
+  services: {
+    locationStatus: LocationServiceStatus;
+    headingStatus: HeadingServiceStatus;
+    subscriptions: { position: number; heading: number; appState: number };
+  };
+  lastFix: FieldFix | null;
+  lastHeading: FieldHeading | null;
+  counters: DiagCounters;
+  timings: DiagTimings;
+  accuracy: { min: number; median: number; max: number } | null;
+  transitions: TransitionLogEntry[];
+  lifecycle: LifecycleLogEntry[];
+  cleanupAudit: CleanupAudit | null;
+  tripwire: { armed: boolean; violated: boolean };
+}
+
+/** State label used by the screen AND the export — one formatting rule. */
+export function formatMachineState(m: MachineSnapshot): string {
+  return `${m.state}${m.pausedBy ? ` (${m.pausedBy})` : ""}${m.errorCode ? ` [${m.errorCode}]` : ""}`;
+}
+
+export function buildFieldDiagnosticsReport(input: {
+  recorder: DiagnosticsRecorder;
+  snapshot: SessionSnapshot;
+  locationStatus: LocationServiceStatus;
+  headingStatus: HeadingServiceStatus;
+  subscriptions: { position: number; heading: number; appState: number };
+  headingCounts: { raw: number; emitted: number };
+  device?: { os: string; version: string } | null;
+}): FieldDiagnosticsReport {
+  const { recorder: rec, snapshot: s } = input;
+  // Heading raw/emitted live in the HeadingService (it owns the throttle gate);
+  // the counters block carries them so the export can't disagree with the row.
+  const counters: DiagCounters = {
+    ...rec.getCounters(),
+    headingRaw: input.headingCounts.raw,
+    headingEmitted: input.headingCounts.emitted,
+  };
+  return {
+    exportedAt: new Date(rec.clock()).toISOString(),
+    recorderEnabled: rec.enabled,
+    device: input.device ?? null,
+    config: {
+      profile: WALKING_PROFILE,
+      headingGate: { minDeltaDeg: HEADING_MIN_DELTA_DEG, minIntervalMs: HEADING_MIN_INTERVAL_MS },
+      lowAccuracyM: LOW_ACCURACY_M,
+    },
+    session: {
+      id: s.sessionId,
+      state: formatMachineState(s.machine),
+      machine: s.machine,
+      startedAt: s.startedAt != null ? new Date(s.startedAt).toISOString() : null,
+      fixCount: s.fixCount,
+      headingSupported: s.headingSupported,
+      degradedAccuracy: s.degradedAccuracy,
+      permission: s.permission,
+    },
+    services: {
+      locationStatus: input.locationStatus,
+      headingStatus: input.headingStatus,
+      subscriptions: input.subscriptions,
+    },
+    lastFix: s.lastFix,
+    lastHeading: s.lastHeading,
+    counters,
+    timings: rec.getTimings(),
+    accuracy: rec.getAccuracyStats(),
+    transitions: rec.getTransitions(),
+    lifecycle: rec.getLifecycle(),
+    cleanupAudit: rec.getLastAudit(),
+    tripwire: rec.tripwireStatus(),
+  };
 }

@@ -24,6 +24,15 @@ export type VerifyResult =
 export interface VerifyOptions {
   /** Inclusive engine-version range this build of the app understands. */
   supportedEngineVersions?: { min: string; max: string };
+  /**
+   * Skip per-file sha256 comparison. Set ONLY when the caller cannot supply the
+   * pack's original bytes — the APK-bundled pack, which the platform hands over
+   * as parsed JSON. Everything else is still checked: the manifest must be
+   * readable and self-consistent, the format and engine version supported, and
+   * every declared file present. Provenance replaces the hash there (§7.5); a
+   * downloaded pack must never set this.
+   */
+  skipFileHashes?: boolean;
 }
 
 /** Numeric-aware compare so "1.10.0" sorts after "1.9.0", unlike a string compare. */
@@ -94,9 +103,12 @@ export function verifyPack(files: Record<string, string>, opts: VerifyOptions = 
 
   for (const name of Object.keys(manifest.files).sort()) {
     const content = files[name];
+    // Presence is checked even when hashes are not: a pack missing a file is
+    // incomplete however it was delivered.
     if (content === undefined) {
       return { ok: false, failure: { code: "file-missing", detail: name } };
     }
+    if (opts.skipFileHashes) continue;
     if (sha256Hex(content) !== manifest.files[name]) {
       return { ok: false, failure: { code: "file-corrupt", detail: name } };
     }

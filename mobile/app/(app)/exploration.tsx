@@ -41,7 +41,12 @@ function ExplorationScreen() {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <PackBanner provenance={s.packProvenance} hasKnowledge={s.hasKnowledge} running={running} />
+      <PackBanner
+        provenance={s.packProvenance}
+        hasKnowledge={s.hasKnowledge}
+        running={running}
+        problem={s.packProblem}
+      />
 
       {!running ? (
         <StartCard onStart={actions.start} />
@@ -238,18 +243,21 @@ function OtherTargets({
 }
 
 function PackBanner({
-  provenance, hasKnowledge, running,
+  provenance, hasKnowledge, running, problem,
 }: {
   provenance: { packVersion: string; ageDays: number; stale: boolean } | null;
   hasKnowledge: boolean;
   running: boolean;
+  problem: string | null;
 }) {
   const { t } = useTranslation();
   if (!running) return null;
   if (!hasKnowledge || !provenance) {
     return (
       <View style={[styles.banner, styles.bannerWarn]}>
-        <Text style={styles.bannerText}>{t("field.pack.none")}</Text>
+        {/* A refused pack and an absent one are different problems; saying
+            "none installed" for both is what made this undiagnosable. */}
+        <Text style={styles.bannerText}>{problem ?? t("field.pack.none")}</Text>
       </View>
     );
   }

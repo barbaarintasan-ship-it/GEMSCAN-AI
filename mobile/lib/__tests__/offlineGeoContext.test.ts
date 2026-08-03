@@ -78,7 +78,20 @@ const BUILD_OPTS = {
 
 const NOW = Date.parse("2026-08-03T00:00:00.000Z");
 
+/**
+ * A pack source whose bytes ARE exact — how a downloaded pack (E6) arrives, and
+ * the only case where sha256 comparison means anything.
+ */
+function exactSource(files: Record<string, string> | null) {
+  return { name: "exact", bytesAreExact: true, load: async () => files };
+}
+
 function storeWith(files: Record<string, string> | null, now = () => NOW) {
+  return new PackStore(exactSource(files), now);
+}
+
+/** The APK-bundled source: Metro hands over parsed JSON, so bytes are not exact. */
+function bundledStore(files: Record<string, string> | null, now = () => NOW) {
   return new PackStore(createBundledPackSource(() => files), now);
 }
 
@@ -188,7 +201,7 @@ describe("PackStore", () => {
 
   test("a source that throws is treated as no pack, not a crash", async () => {
     const store = new PackStore(
-      { name: "broken", load: async () => { throw new Error("io"); } },
+      { name: "broken", bytesAreExact: true, load: async () => { throw new Error("io"); } },
       () => NOW,
     );
     expect((await store.load()).state).toBe("empty");
@@ -204,6 +217,24 @@ describe("PackStore", () => {
     // Invariant 6: refused, not degraded — nothing from the pack is visible.
     expect(store.getData().occurrences).toEqual([]);
     expect(store.isReady()).toBe(false);
+  });
+
+  test("the BUNDLED source skips byte hashes — provenance replaces them", async () => {
+    // Metro parses a required .json and the device re-serialises it, so the
+    // builder's exact bytes never reach the app: comparing hashes there tests
+    // whether two JS engines agree on JSON formatting, not pack integrity, and
+    // a mismatch silently rejected a good pack. The bundled pack is trusted
+    // because it shipped inside the signed APK (Architecture §7.5).
+    const files = builtFiles();
+    files["occurrences.json"] = files["occurrences.json"].replace('"gold"', '"platinum"');
+    expect((await bundledStore(files).load()).state).toBe("ready");
+
+    // Structure is still enforced, hashes or not: a missing file is refused.
+    const incomplete = builtFiles();
+    delete incomplete["rules.json"];
+    const status = await bundledStore(incomplete).load();
+    expect(status.state).toBe("refused");
+    if (status.state === "refused") expect(status.failure.code).toBe("file-missing");
   });
 
   test("a pack built for an unsupported engine version is refused", async () => {
@@ -224,7 +255,7 @@ describe("PackStore", () => {
   test("load() is idempotent across concurrent callers", async () => {
     let loads = 0;
     const store = new PackStore(
-      { name: "counted", load: async () => { loads++; return builtFiles(); } },
+      { name: "counted", bytesAreExact: true, load: async () => { loads++; return builtFiles(); } },
       () => NOW,
     );
     await Promise.all([store.load(), store.load(), store.load()]);

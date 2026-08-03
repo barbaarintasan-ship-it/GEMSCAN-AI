@@ -53,6 +53,8 @@ export interface ExplorationSnapshot {
   bestIsHere: boolean;
   hasKnowledge: boolean;
   packProvenance: { packVersion: string; builtAt: string; ageDays: number; stale: boolean } | null;
+  /** Why the pack is unusable, when it is. Null when it loaded or none is installed. */
+  packProblem: string | null;
 
   /** Guidance is suspended (field session paused, no fix, sensor error). */
   suspendedBy: SuspendReason | null;
@@ -257,6 +259,7 @@ export class ExplorationOrchestrator {
         bestIsHere: result.bestIsHere,
         hasKnowledge: result.hasKnowledge,
         packProvenance: this.deps.packs.provenance(),
+        packProblem: packProblemOf(this.deps.packs.getStatus()),
         visitedCells: visited,
       });
       this.updateGuidance();
@@ -323,6 +326,11 @@ function suspendReasonFor(f: SessionSnapshot): SuspendReason | null {
   return null;
 }
 
+/** A refused pack must say what is wrong with it; silence looks like absence. */
+function packProblemOf(status: { state: string; reason?: string }): string | null {
+  return status.state === "refused" ? (status.reason ?? "Pack refused") : null;
+}
+
 function emptySnapshot(): ExplorationSnapshot {
   return {
     state: "idle",
@@ -339,6 +347,7 @@ function emptySnapshot(): ExplorationSnapshot {
     bestIsHere: false,
     hasKnowledge: false,
     packProvenance: null,
+    packProblem: null,
     suspendedBy: null,
     evidenceCount: 0,
     visitedCells: [],

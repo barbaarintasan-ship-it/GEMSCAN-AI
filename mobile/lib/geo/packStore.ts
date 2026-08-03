@@ -19,10 +19,26 @@ import type { PackData, PackManifest } from "../../../shared/geo-core/pack/types
 /** Engine-version range this build of the app understands (§7.2). */
 export const SUPPORTED_ENGINE_VERSIONS = { min: "1.0.0", max: "1.99.99" };
 
-/** A source of raw pack files: filename → exact content. */
+/** A source of raw pack files: filename → content. */
 export interface PackSource {
   readonly name: string;
   load(): Promise<Record<string, string> | null>;
+  /**
+   * True when `load()` returns the pack's EXACT original bytes, so per-file
+   * sha256 comparison is meaningful.
+   *
+   * False for the bundled pack. Metro parses a required .json into an object,
+   * so the device never sees the builder's bytes — it re-serialises them, and
+   * two different JS engines (Deno writing, Hermes reading) are not obliged to
+   * emit byte-identical JSON. Comparing hashes there tests engine agreement,
+   * not pack integrity, and a mismatch silently rejected a perfectly good pack.
+   *
+   * The bundled pack is instead trusted by PROVENANCE — it shipped inside the
+   * signed APK (Architecture §7.5). Structure, format and engine version are
+   * still checked; only the byte hashes are skipped. A downloaded pack (E6)
+   * arrives as real bytes and keeps full hash verification.
+   */
+  readonly bytesAreExact: boolean;
 }
 
 export type PackStatus =
@@ -68,7 +84,10 @@ export class PackStore {
       return this.status;
     }
 
-    const verdict = verifyPack(files, { supportedEngineVersions: SUPPORTED_ENGINE_VERSIONS });
+    const verdict = verifyPack(files, {
+      supportedEngineVersions: SUPPORTED_ENGINE_VERSIONS,
+      skipFileHashes: !this.source.bytesAreExact,
+    });
     if (!verdict.ok) {
       // Refused: the previous data (empty here) stays in place. Nothing from an
       // unverified pack is ever read.
@@ -131,6 +150,8 @@ export function createBundledPackSource(
 ): PackSource {
   return {
     name: "bundled",
+    // Re-serialised from Metro's parsed JSON, not the builder's bytes.
+    bytesAreExact: false,
     load: async () => loader(),
   };
 }
