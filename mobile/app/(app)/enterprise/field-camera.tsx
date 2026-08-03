@@ -93,7 +93,12 @@ export default function FieldCameraScreen() {
     if (!cam.current || !ready) return null;
     try {
       const p = await cam.current.takePictureAsync({
-        quality: 1,
+        // Not 1. At full quality the sensor writes 7–8 MB per frame, and a
+        // traverse with a few bursts fills a field phone — 27 photos on one
+        // real sample came to 136 MB. 0.9 roughly halves the file with nothing
+        // visible lost on rock, and the copy that is uploaded is resized again
+        // by lib/photoBudget anyway.
+        quality: 0.9,
         // EXIF carries orientation, and without it a portrait outcrop shot
         // arrives at the analysis rotated.
         exif: true,
