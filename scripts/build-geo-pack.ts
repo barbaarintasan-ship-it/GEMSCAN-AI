@@ -118,14 +118,20 @@ async function extract(client: Client): Promise<{ data: PackData; datasets: Pack
            extensions.st_asgeojson(geom) as gj
     from geo.geological_layer
   `);
-  const geology: PackGeologyUnit[] = geologyRows.map((r) => {
+  // POLYGONS ONLY. Line features (faults, contacts) go to mapFeatures instead —
+  // carrying them here too would duplicate them, and a line has no rings, so its
+  // bbox would be [0,0,0,0] and would drag the manifest's extent to the Gulf of
+  // Guinea. A pack must describe the ground it actually covers.
+  const geology: PackGeologyUnit[] = [];
+  for (const r of geologyRows) {
     const { rings, isPolygon } = ringsOf(JSON.parse(r.gj) as GeoJson);
-    return {
+    if (!isPolygon || rings.length === 0) continue;
+    geology.push({
       id: r.id, name: r.name, kind: r.kind, source: r.source,
       attributes: r.attributes ?? null,
       rings, isPolygon, bbox: bboxOfRings(rings),
-    };
-  });
+    });
+  }
 
   // Map layers (§7.7) — the LINE features from the same table: faults,
   // contacts, lineaments, drainage. Polygons became `geology` above; these are

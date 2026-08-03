@@ -100,9 +100,13 @@ describe("bundled Somalia knowledge pack", () => {
     const d = pack!.data;
     // These are legitimately empty in production today. The test records the
     // fact so a future pack that gains them fails here and gets noticed.
-    // No fault/contact/lineament line geometry: the Macrostrat load is a
-    // 0.5-degree grid of rectangles, so it cannot yield real contacts.
-    expect(d.mapFeatures.length).toBe(0);
+    // Faults ARE present now — GEM Global Active Faults, onshore subset.
+    expect(d.mapFeatures.length).toBeGreaterThan(10);
+    expect(d.mapFeatures.every((f) => f.kind === "fault")).toBe(true);
+    expect(d.mapFeatures.every((f) => f.lines.length > 0)).toBe(true);
+    // Still NO contacts or lineaments: neither has an authoritative source.
+    expect(d.mapFeatures.some((f) => f.kind === "contact")).toBe(false);
+    expect(d.mapFeatures.some((f) => f.kind === "lineament")).toBe(false);
     // Terrain IS present now — SRTM 30 m sampled around known occurrences.
     expect(d.terrain.length).toBeGreaterThan(1000);
     for (const t of d.terrain.slice(0, 50)) {
