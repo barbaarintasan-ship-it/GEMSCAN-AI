@@ -12,7 +12,7 @@ import { supabase } from "../../../../lib/supabase";
 import { colors, spacing, radius, type as t } from "../../../../lib/theme";
 import { Card } from "../../../../components/ui/Card";
 import { SectionLabel } from "../../../../components/ui/SectionLabel";
-import { getSample, reanalyzeSample, sampleIsEditable, type SampleDetail, type AssessmentEvidence, type MediaRole } from "../../../../lib/enterpriseSamples";
+import { deleteSample, getSample, reanalyzeSample, sampleIsEditable, type SampleDetail, type AssessmentEvidence, type MediaRole } from "../../../../lib/enterpriseSamples";
 import { shotNeedsFor } from "../../../../lib/shotNeeds";
 
 export default function SampleDetailScreen() {
@@ -49,6 +49,37 @@ export default function SampleDetailScreen() {
   useEffect(() => { load(); }, [load]);
 
   // Force a fresh AI re-analysis (picks up newly loaded data, e.g. MRDS).
+  const onDelete = useCallback(() => {
+    if (!sample) return;
+    const label = sample.name || `Sample ${String(id).slice(0, 8)}`;
+    Alert.alert(
+      so ? "Muunadda tirtir?" : "Delete sample?",
+      so
+        ? `"${label}" iyo sawirradeeda waa la tirtiri doonaa. Dib looma soo celin karo.`
+        : `"${label}" and its photos will be removed. This cannot be undone.`,
+      [
+        { text: so ? "Jooji" : "Cancel", style: "cancel" },
+        {
+          text: so ? "Tirtir" : "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteSample(String(id));
+              // Back to the list, which reloads on focus and will no longer
+              // carry this row.
+              router.back();
+            } catch (e) {
+              Alert.alert(
+                so ? "Tirtiridu way fashilantay" : "Delete failed",
+                e instanceof Error ? e.message : "Unknown error",
+              );
+            }
+          },
+        },
+      ],
+    );
+  }, [sample, id, so]);
+
   const onReanalyze = useCallback(async () => {
     setReanalyzing(true);
     try {
@@ -98,6 +129,14 @@ export default function SampleDetailScreen() {
             <Text style={styles.editBtnText}>{so ? "Wax ka beddel" : "Edit"}</Text>
           </Pressable>
         )}
+        {/* A verified sample is a record someone signed their name to; the
+            server refuses to delete one, so the control is not offered. */}
+        {sample.status !== "verified" && (
+          <Pressable style={styles.deleteBtn} onPress={onDelete} hitSlop={6}>
+            <Ionicons name="trash-outline" size={15} color={colors.danger} />
+            <Text style={styles.deleteBtnText}>{so ? "Tirtir" : "Delete"}</Text>
+          </Pressable>
+        )}
       </View>
 
       <View style={styles.badges}>
@@ -110,6 +149,34 @@ export default function SampleDetailScreen() {
       {/* The whole point of 0092/0093: a run that died says so, says why, and
           offers the way out. Before this, the sample sat at "Submitted"
           indefinitely and the collector had no signal at all. */}
+      {/* A run that started and never came back. The isolate can be killed
+          outright — by a timeout or by memory — and a killed isolate records
+          nothing, so "processing" would otherwise last forever. Ten minutes is
+          far longer than any successful run takes. */}
+      {sample.status === "ai_processing" && isStalled(sample.ai_attempted_at) ? (
+        <Card>
+          <View style={styles.failHead}>
+            <Ionicons name="time-outline" size={20} color={colors.gold} />
+            <Text style={[styles.failTitle, { color: colors.gold }]}>
+              {so ? "Falanqayntu way daaheysaa" : "Analysis is taking too long"}
+            </Text>
+          </View>
+          <Text style={styles.failHint}>
+            {so
+              ? "Waxay bilaabatay laakiin ma soo noqon. Muunaddaadu way badbaaday. Isku day mar kale."
+              : "It started but never came back. Your sample is safe. Try again."}
+          </Text>
+          <Pressable style={styles.failBtn} onPress={onReanalyze} disabled={reanalyzing}>
+            {reanalyzing
+              ? <ActivityIndicator color="#0B0B0C" />
+              : <>
+                  <Ionicons name="refresh" size={18} color="#0B0B0C" />
+                  <Text style={styles.failBtnText}>{so ? "Mar kale isku day" : "Run the analysis again"}</Text>
+                </>}
+          </Pressable>
+        </Card>
+      ) : null}
+
       {sample.status === "ai_failed" || sample.ai_error ? (
         <Card>
           <View style={styles.failHead}>
@@ -228,6 +295,15 @@ const STATUS_LABELS: Record<string, string> = {
   community_confirmed: "Community Confirmed", expert_verified: "Expert Verified",
   lab_verified: "Lab Verified", held: "Held",
 };
+/** A run older than this that has not finished is not running any more. */
+const STALLED_AFTER_MS = 10 * 60 * 1000;
+
+function isStalled(attemptedAt: string | null | undefined): boolean {
+  if (!attemptedAt) return false;
+  const t = Date.parse(attemptedAt);
+  return Number.isFinite(t) && Date.now() - t > STALLED_AFTER_MS;
+}
+
 function statusLabel(s: string): string {
   return STATUS_LABELS[s] ?? s.replace(/_/g, " ");
 }
@@ -727,6 +803,8 @@ function GeologistReview({ sample, so }: { sample: SampleDetail; so: boolean }) 
 }
 
 const styles = StyleSheet.create({
+  deleteBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 4 },
+  deleteBtnText: { ...t.caption, color: colors.danger, fontWeight: "700" },
   failHead: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   failTitle: { ...t.subheading, color: "#E4685D" },
   failReason: { ...t.body, color: colors.text, marginTop: spacing.sm },

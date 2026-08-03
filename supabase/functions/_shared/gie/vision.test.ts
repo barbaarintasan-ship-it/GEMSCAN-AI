@@ -222,3 +222,69 @@ Deno.test("if every photo is too large, vision returns empty rather than throwin
   assertEquals(obs, []);
   assertEquals(generated, false);
 });
+
+// ── Size is checked BEFORE the download ─────────────────────────────────────
+//
+// The previous version fetched every photo and then discarded the oversized
+// ones. For "Qarka Qardhl" that pulled 76 MB into the isolate before deciding
+// to use none of it, and the runtime killed the function — which is why the
+// sample sat at "ai_processing" with no error recorded. A killed isolate runs
+// no catch block.
+
+Deno.test("an oversized photo is never downloaded at all", async () => {
+  const fetched: string[] = [];
+  const obs = await runVision(urls(11), {
+    // 6.94 MB on disk — the real figure from the sample that killed the run.
+    probeSizeBytes: () => Promise.resolve(Math.round(6.94 * MB)),
+    fetchImageBase64: (u) => { fetched.push(u); return Promise.resolve(image(6.94)); },
+    generate: () => Promise.resolve("{}"),
+  });
+  assertEquals(fetched, []);
+  assertEquals(obs, []);
+});
+
+Deno.test("the budget stops the loop before the next download, not after", async () => {
+  const fetched: string[] = [];
+  await runVision(urls(10), {
+    probeSizeBytes: () => Promise.resolve(Math.round(4 * MB)), // ~5.3 MB encoded
+    fetchImageBase64: (u) => { fetched.push(u); return Promise.resolve(image(4)); },
+    generate: () => Promise.resolve('{"observations":[]}'),
+  });
+  // 12 MB budget / 5.3 MB each = two images, and only two downloads.
+  assertEquals(fetched.length, 2);
+});
+
+Deno.test("a probe that cannot answer does not discard the photo", async () => {
+  const seen: { images?: VisionImage[] } = {};
+  const good = depsFor([0.4, 0.4], seen);
+  await runVision(["u0", "u1"], {
+    probeSizeBytes: () => Promise.resolve(null),
+    fetchImageBase64: good.fetchImageBase64,
+    generate: good.generate,
+  });
+  // Unknown size is not evidence of a large photo.
+  assertEquals(seen.images!.length, 2);
+});
+
+Deno.test("a probe that throws does not discard the photo either", async () => {
+  const seen: { images?: VisionImage[] } = {};
+  const good = depsFor([0.4], seen);
+  await runVision(["u0"], {
+    probeSizeBytes: () => Promise.reject(new Error("HEAD not allowed")),
+    fetchImageBase64: good.fetchImageBase64,
+    generate: good.generate,
+  });
+  assertEquals(seen.images!.length, 1);
+});
+
+Deno.test("a lying probe is caught by the real bytes", async () => {
+  const seen: { images?: VisionImage[] } = {};
+  await runVision(["u0", "u1"], {
+    probeSizeBytes: () => Promise.resolve(1000),          // claims tiny
+    fetchImageBase64: () => Promise.resolve(image(9)),     // delivers huge
+    generate: (_p, images) => { seen.images = images; return Promise.resolve("{}"); },
+  });
+  // The post-download check is what keeps a wrong Content-Length from
+  // reintroducing the whole failure.
+  assertEquals(seen.images, undefined);
+});

@@ -61,6 +61,8 @@ export type SampleListRow = {
   ai_confidence: number | null;
   /** Why the last analysis attempt failed. Null when it succeeded or none has run. */
   ai_error: string | null;
+  /** When analysis last STARTED. A long-past value with status ai_processing is a run that died. */
+  ai_attempted_at: string | null;
   geologist_confidence: number | null;
   confidence_score: number | null;
   area_id: string;
@@ -188,6 +190,25 @@ export async function uploadSampleMedia(uri: string, role: MediaRole): Promise<S
     .upload(path, decode(base64), { contentType: "image/jpeg", upsert: true });
   if (error) throw new Error(`Photo upload failed: ${error.message}`);
   return { role, storage_path: path };
+}
+
+/**
+ * DELETE /enterprise-samples/:id — the collector clears their own sample.
+ *
+ * Soft delete on the server: the row survives so audit history and any
+ * assessment stay coherent, while every read path stops returning it. The
+ * stored photos ARE removed, because "deleted" that leaves megabytes behind is
+ * not what anyone means by it.
+ */
+export async function deleteSample(id: string): Promise<void> {
+  const res = await fetch(`${FUNCTIONS_URL}/enterprise-samples/${id}`, {
+    method: "DELETE",
+    headers: await authHeader(),
+  });
+  if (!res.ok) {
+    const body = await readBody(res);
+    throw new Error(body?.detail || body?.message || body?.error || `Delete failed (${res.status})`);
+  }
 }
 
 /** POST /enterprise-samples — create a sample. Returns the created detail. */

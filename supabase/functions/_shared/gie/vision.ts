@@ -27,6 +27,17 @@ export interface VisualObservation {
 export interface VisionImage { base64: string; mimeType: string }
 
 export interface VisionDeps {
+  /**
+   * Byte size of the image WITHOUT downloading it, or null if unknown.
+   *
+   * This exists because checking the size after the download is too late. An
+   * earlier version fetched every photo and then discarded the oversized ones —
+   * which still pulled 76 MB into the isolate for one sample, and the runtime
+   * killed the function before any error handler could run. A killed isolate
+   * records nothing, which is why that sample sat at "ai_processing" with no
+   * reason attached.
+   */
+  probeSizeBytes?: (url: string) => Promise<number | null>;
   fetchImageBase64: (url: string) => Promise<VisionImage>;
   // Returns the model's raw text (expected to be JSON per the prompt).
   generate: (prompt: string, images: VisionImage[]) => Promise<string>;
@@ -141,6 +152,24 @@ export async function runVision(imageUrls: string[], deps: VisionDeps): Promise<
   for (const u of imageUrls) {
     if (images.length >= MAX_VISION_IMAGES) break;
 
+    // ASK FIRST, DOWNLOAD SECOND. The encoded size is about a third larger than
+    // the file, so the declared length is scaled before it is judged. A probe
+    // that cannot answer returns null and the image is fetched as before —
+    // unknown size is not a reason to discard a photo.
+    if (deps.probeSizeBytes) {
+      let declared: number | null = null;
+      try {
+        declared = await deps.probeSizeBytes(u);
+      } catch {
+        declared = null;
+      }
+      if (declared != null) {
+        const encoded = Math.ceil(declared * 4 / 3);
+        if (encoded > MAX_SINGLE_IMAGE_BYTES) continue;
+        if (bytes + encoded > MAX_VISION_BYTES) break;
+      }
+    }
+
     let img: VisionImage;
     try {
       img = await deps.fetchImageBase64(u);
@@ -150,13 +179,11 @@ export async function runVision(imageUrls: string[], deps: VisionDeps): Promise<
       continue;
     }
 
+    // Checked again on the real bytes: the probe may have been unavailable, and
+    // a declared length can disagree with what actually arrives.
     const size = img.base64.length;
     if (size > MAX_SINGLE_IMAGE_BYTES) continue;
-    if (bytes + size > MAX_VISION_BYTES) {
-      // Budget spent. Later images are lower quality anyway — the caller sorts
-      // best-first — so stopping here costs the least.
-      break;
-    }
+    if (bytes + size > MAX_VISION_BYTES) break;
 
     images.push(img);
     bytes += size;
@@ -173,6 +200,18 @@ export async function runVision(imageUrls: string[], deps: VisionDeps): Promise<
 
 // ── Default deps: the real Gemini call (mirrors the consumer integration) ────
 export const defaultVisionDeps: VisionDeps = {
+  probeSizeBytes: async (url) => {
+    try {
+      const res = await fetch(url, { method: "HEAD" });
+      if (!res.ok) return null;
+      const len = res.headers.get("content-length");
+      const n = len == null ? NaN : Number(len);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    } catch {
+      // No answer is not "too big" — fall through and fetch it normally.
+      return null;
+    }
+  },
   fetchImageBase64: async (url) => {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`image fetch failed (${res.status})`);

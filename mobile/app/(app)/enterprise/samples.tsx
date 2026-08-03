@@ -3,12 +3,12 @@
 // RLS-scoped server-side). Tapping a row opens its detail; the FAB starts a new
 // sample. Deliberately minimal — no admin, org, mission or verification UI.
 import React, { useCallback, useState } from "react";
-import { View, Text, FlatList, Pressable, StyleSheet, RefreshControl, ActivityIndicator } from "react-native";
+import { View, Text, FlatList, Pressable, StyleSheet, RefreshControl, ActivityIndicator, Alert } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius, type as t } from "../../../lib/theme";
-import { listSamples, type SampleListRow } from "../../../lib/enterpriseSamples";
+import { deleteSample, listSamples, type SampleListRow } from "../../../lib/enterpriseSamples";
 import { Button } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 
@@ -33,6 +33,33 @@ export default function MySamplesScreen() {
 
   // Reload on focus so a freshly submitted sample shows up when we pop back.
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const confirmDelete = useCallback((item: { id: string; name: string | null }) => {
+    const label = item.name || `Sample ${item.id.slice(0, 8)}`;
+    Alert.alert(
+      "Delete sample?",
+      `"${label}" and its photos will be removed. This cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            // Removed from the list immediately. The server call is what makes
+            // it true, so a failure puts it back rather than leaving the list
+            // disagreeing with the database.
+            setRows((cur) => cur.filter((x) => x.id !== item.id));
+            try {
+              await deleteSample(item.id);
+            } catch (e) {
+              Alert.alert("Delete failed", e instanceof Error ? e.message : "Unknown error");
+              void load();
+            }
+          },
+        },
+      ],
+    );
+  }, [load]);
 
   return (
     <View style={styles.container}>
@@ -62,7 +89,16 @@ export default function MySamplesScreen() {
             ) : null
           }
           renderItem={({ item }) => (
-            <Pressable style={styles.row} onPress={() => router.push(`/(app)/enterprise/sample/${item.id}`)}>
+            <Pressable
+              style={styles.row}
+              onPress={() => router.push(`/(app)/enterprise/sample/${item.id}`)}
+              // Long-press to delete, rather than a button on every row: the
+              // list is for opening samples, and a delete control sitting under
+              // the thumb of someone scrolling with muddy hands is a mistake
+              // waiting to happen. The confirmation names the sample.
+              onLongPress={() => confirmDelete(item)}
+              delayLongPress={500}
+            >
               <View style={styles.rowIcon}><Ionicons name="cube-outline" size={20} color={colors.gold} /></View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowTitle} numberOfLines={1}>{item.name || `Sample ${item.id.slice(0, 8)}`}</Text>

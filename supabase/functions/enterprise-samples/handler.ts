@@ -37,6 +37,7 @@ export interface Deps {
   listSamples: (req: Request, actor: Actor) => Promise<unknown>;
   getSample: (req: Request, actor: Actor, id: string) => Promise<unknown | null>;
   reanalyze: (actor: Actor, id: string) => Promise<void>;
+  deleteSample: (actor: Actor, id: string) => Promise<void>;
 }
 
 export const defaultDeps: Deps = {
@@ -81,6 +82,26 @@ export const defaultDeps: Deps = {
     return data ?? [];
   },
   reanalyze: (_actor, id) => { triggerAnalysis(id, true); return Promise.resolve(); },
+  deleteSample: async (actor, id) => {
+    const svc = serviceClient();
+    const { data, error } = await svc.rpc("delete_sample", { p_actor: actor.userId, p_sample: id });
+    if (error) {
+      const m = error.message;
+      if (/not_found:/i.test(m)) throw new NotFoundError(m.replace(/^.*not_found:\s*/i, ""));
+      if (/forbidden:/i.test(m)) throw new ForbiddenError(m.replace(/^.*forbidden:\s*/i, ""));
+      if (/locked:/i.test(m)) throw new ConflictError(m.replace(/^.*locked:\s*/i, ""));
+      throw new Error(`delete_sample: ${m}`);
+    }
+    // The photos go too — the collector asked for the sample to be gone, and
+    // leaving megabytes of orphaned storage behind is not "deleted". Failures
+    // here are logged, not raised: the sample IS deleted from every read path,
+    // and reporting an error would suggest otherwise.
+    const paths = ((data as { media_paths?: string[] } | null)?.media_paths ?? []).filter(Boolean);
+    if (paths.length) {
+      const { error: rmErr } = await svc.storage.from("scan-images").remove(paths);
+      if (rmErr) console.error(`delete_sample ${id}: storage cleanup failed — ${rmErr.message}`);
+    }
+  },
   getSample: async (req, actor, id) => {
     const uc = userClient(req);
     const { data } = await uc.from("sample").select(DETAIL).eq("id", id).maybeSingle();
@@ -212,6 +233,14 @@ export async function handleSamples(req: Request, deps: Deps = defaultDeps): Pro
       if (!s) throw new NotFoundError("sample not found");
       await deps.reanalyze(actor, id);
       return json({ status: "reanalyzing", sample_id: id }, 202);
+    }
+
+    // DELETE /enterprise-samples/:id → the collector clears their own sample.
+    // Ownership, status and audit are all enforced in the RPC, so this route
+    // adds no second opinion about who may delete what.
+    if (req.method === "DELETE" && id) {
+      await deps.deleteSample(actor, id);
+      return json({ status: "deleted", sample_id: id }, 200);
     }
     if (req.method === "POST") {
       const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;

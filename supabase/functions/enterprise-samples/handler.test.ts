@@ -14,6 +14,7 @@ function base(over: Partial<Deps> = {}): Deps {
     listSamples: async () => [{ id: "s1" }, { id: "s2" }],
     getSample: async (_r, _a, id) => (id === "s1" ? { id: "s1", sample_media: [] } : null),
     reanalyze: async () => {},
+    deleteSample: async () => {},
     ...over,
   };
 }
@@ -137,4 +138,33 @@ Deno.test("PUT :id when locked (reviewed) -> 409", async () => {
 });
 Deno.test("OPTIONS -> 200", async () => {
   assertEquals((await handleSamples(req("OPTIONS"), base())).status, 200);
+});
+
+// ── Deleting a sample ───────────────────────────────────────────────────────
+//
+// enterprise.sample has carried a deleted_at column since the schema was
+// written and every read filtered on it, but nothing could ever set it. A field
+// collector accumulates duplicates, mistakes and test entries with no way to
+// clear them.
+
+Deno.test("DELETE /:id removes the caller's own sample", async () => {
+  let deleted: string | null = null;
+  const r = await handleSamples(
+    req("DELETE", undefined, "https://x/enterprise-samples/s1"),
+    base({ deleteSample: async (_a, id) => { deleted = id; } }),
+  );
+  assertEquals(r.status, 200);
+  assertEquals(deleted, "s1");
+});
+
+Deno.test("DELETE without an id is not a mass delete", async () => {
+  let called = false;
+  const r = await handleSamples(
+    req("DELETE", undefined, "https://x/enterprise-samples"),
+    base({ deleteSample: async () => { called = true; } }),
+  );
+  // Falling through to a route that deletes everything is the failure mode
+  // worth pinning: the collection is the geologist's fieldwork.
+  assertEquals(called, false);
+  assertEquals(r.status >= 400, true);
 });
