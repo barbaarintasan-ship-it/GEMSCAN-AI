@@ -58,11 +58,11 @@ Deno.test("tierWeight/edgeWeight: ai_visual is weak, field is strong", () => {
 Deno.test("scoreConclusion: multi-group evidence beats single-group cap", () => {
   const byId = new Map(NODES.map((n) => [n.id, n]));
   // single group (visual only) is capped at 0.6 → ≤60
-  const single = scoreConclusion({ kind: "rock_type", statement: "x", isInterpretation: true,
+  const single = scoreConclusion({ kind: "rock_type", statement: "x", statementSo: "x", isInterpretation: true,
     supporting: [{ evidenceId: "e3", contribution: 0.9 }], contradicting: [] }, byId);
   assert(single.confidence <= 60);
   // two groups (field + occurrence) not capped → higher
-  const multi = scoreConclusion({ kind: "rock_type", statement: "x", isInterpretation: true,
+  const multi = scoreConclusion({ kind: "rock_type", statement: "x", statementSo: "x", isInterpretation: true,
     supporting: [{ evidenceId: "e1", contribution: 0.9 }, { evidenceId: "e2", contribution: 0.8 }], contradicting: [] }, byId);
   assert(multi.confidence > single.confidence);
 });

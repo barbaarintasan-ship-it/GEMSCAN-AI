@@ -12,11 +12,28 @@ import type { GeoContextProvider, ProviderContribution, GeoQuery } from "../geoc
 // Provider name → evidence type.
 const PROVIDER_EV_TYPE: Record<string, EvidenceType> = {
   geology: "spatial",
+  structural_geology: "spatial",
   occurrence: "occurrence",
   knowledge: "knowledge",
+  geological_knowledge: "knowledge",
   mineral_association: "association",
   community: "prior_sample",
 };
+
+type Epistemic = "observed" | "inferred" | "possible" | "unsupported";
+
+// Providers stash their epistemic tag (+ structured detail) as a JSON string in
+// provenance.quote. Lift it here; otherwise default by evidence type.
+function epistemicOf(provenance: unknown, evType: EvidenceType): Epistemic {
+  const q = (provenance as { quote?: unknown } | undefined)?.quote;
+  if (typeof q === "string") {
+    try {
+      const o = JSON.parse(q) as { epistemic?: Epistemic };
+      if (o?.epistemic) return o.epistemic;
+    } catch { /* not JSON — fall through */ }
+  }
+  return evType === "knowledge" || evType === "association" ? "possible" : "inferred";
+}
 
 type RawNode = EvidenceInput;
 
@@ -24,7 +41,7 @@ type RawNode = EvidenceInput;
 export function fieldEvidence(s: SampleInput): RawNode[] {
   const out: RawNode[] = [];
   const push = (statement: string, statementSo: string, quality: number) =>
-    out.push({ source: "field_sample", evType: "field", statement, statementSo, isObservation: true, tier: "field_observation", quality });
+    out.push({ source: "field_sample", evType: "field", statement, statementSo, isObservation: true, epistemic: "observed", tier: "field_observation", quality });
 
   // Location + elevation
   const accPart = s.gpsAccuracyM != null ? ` (±${Math.round(s.gpsAccuracyM)} m)` : "";
@@ -83,6 +100,7 @@ export function geoEvidence(contributions: ProviderContribution[]): RawNode[] {
         evType,
         statement: item.statement,
         isObservation: false, // provider-derived spatial/knowledge inference
+        epistemic: epistemicOf(item.provenance, evType),
         tier: item.tier,
         quality: clamp01(item.weight),
         datasetId,

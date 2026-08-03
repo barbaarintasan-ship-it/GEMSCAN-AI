@@ -7,7 +7,7 @@
 // build weighted edges, and flag any recommendation that over-reaches (>10 m
 // without ≥2 independent dataset groups).
 import type { Bilingual, EvidenceNode, EvidenceSet, EvidenceType } from "./types.ts";
-import type { ConclusionKind, ReasoningOutput } from "./reasoning.ts";
+import type { ConclusionKind, InterpretationLayer, ReasoningOutput } from "./reasoning.ts";
 import { edgeWeight, overallConfidence, scoreConclusion } from "./scoring.ts";
 
 export interface AssembledEdge {
@@ -36,6 +36,10 @@ export interface Assessment {
   conclusions: AssembledConclusion[];
   evidence: EvidenceNode[];
   report: {
+    headline: Bilingual;         // plain-language one-liner (Simple mode)
+    simpleSummary: Bilingual;    // 3–5 everyday sentences (Simple mode)
+    opportunity: "high" | "moderate" | "low" | "none";
+    interpretation: InterpretationLayer; // Geological Interpretation Layer (teaching narrative)
     uncertainties: Bilingual[];
     missingInformation: Bilingual[];
     recommendations: AssembledRecommendation[];
@@ -90,6 +94,10 @@ export function assembleAssessment(set: EvidenceSet, reasoning: ReasoningOutput)
     conclusions: kept.map((k) => k.c),
     evidence: set.nodes,
     report: {
+      headline: reasoning.headline,
+      simpleSummary: reasoning.simpleSummary,
+      opportunity: reasoning.opportunity,
+      interpretation: reasoning.interpretation,
       uncertainties: reasoning.uncertainties,
       missingInformation: reasoning.missingInformation,
       recommendations,

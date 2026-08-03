@@ -6,7 +6,7 @@
 // Writes go through the atomic enterprise.submit_sample RPC (service role); reads use
 // the user-scoped client so existing RLS policies apply. Deps are injected for tests.
 import { corsHeaders } from "../_shared/cors.ts";
-import { BadRequestError, errorResponse, json, NotFoundError } from "../_shared/enterprise/errors.ts";
+import { BadRequestError, ConflictError, errorResponse, ForbiddenError, json, NotFoundError } from "../_shared/enterprise/errors.ts";
 import { resolveActor as realResolveActor, type Actor } from "../_shared/enterprise/auth.ts";
 import { serviceClient, userClient } from "../_shared/enterprise/clients.ts";
 import { requireEnterprise as realRequireEnterprise } from "../_shared/enterprise/authz.ts";
@@ -30,6 +30,7 @@ export interface Deps {
   resolveActor: (req: Request) => Promise<Actor>;
   requireEnterprise: (actor: Actor) => Promise<void>;
   createSample: (actor: Actor, payload: Record<string, unknown>) => Promise<unknown>;
+  editSample: (actor: Actor, id: string, payload: Record<string, unknown>) => Promise<unknown>;
   listSamples: (req: Request, actor: Actor) => Promise<unknown>;
   getSample: (req: Request, actor: Actor, id: string) => Promise<unknown | null>;
   reanalyze: (actor: Actor, id: string) => Promise<void>;
@@ -51,6 +52,24 @@ export const defaultDeps: Deps = {
     const { data: detail } = await svc.from("sample").select(DETAIL).eq("id", id).maybeSingle();
     return { ...(data as object), sample: detail };
   },
+  editSample: async (actor, id, payload) => {
+    const svc = serviceClient();
+    const { data, error } = await svc.rpc("edit_sample", { p_actor: actor.userId, p_sample: id, p_payload: payload });
+    // The RPC raises typed prefixes; map each to the right HTTP status.
+    if (error) {
+      const m = error.message;
+      if (/not_found:/i.test(m)) throw new NotFoundError(m.replace(/^.*not_found:\s*/i, ""));
+      if (/forbidden:/i.test(m)) throw new ForbiddenError(m.replace(/^.*forbidden:\s*/i, ""));
+      if (/locked:/i.test(m)) throw new ConflictError(m.replace(/^.*locked:\s*/i, ""));
+      if (/validation:/i.test(m)) throw new BadRequestError(m.replace(/^.*validation:\s*/i, ""));
+      throw new Error(`edit_sample: ${m}`);
+    }
+    // A fresh assessment must be regenerated from the edited data (replaces the one
+    // the RPC just deleted). Force = new input hash so the newest write wins.
+    triggerAnalysis(id, true);
+    const { data: detail } = await svc.from("sample").select(DETAIL).eq("id", id).maybeSingle();
+    return { ...(data as object), sample: detail };
+  },
   listSamples: async (req, actor) => {
     const { data, error } = await userClient(req).from("sample")
       .select(LIST_COLS)
@@ -60,7 +79,8 @@ export const defaultDeps: Deps = {
   },
   reanalyze: (_actor, id) => { triggerAnalysis(id, true); return Promise.resolve(); },
   getSample: async (req, actor, id) => {
-    const { data } = await userClient(req).from("sample").select(DETAIL).eq("id", id).maybeSingle();
+    const uc = userClient(req);
+    const { data } = await uc.from("sample").select(DETAIL).eq("id", id).maybeSingle();
     if (!data) return null;
     // Latest geological assessment (RLS: can_read_assessment) + its evidence graph.
     const { data: assessment } = await userClient(req, "geo").from("geological_assessment")
@@ -69,7 +89,15 @@ export const defaultDeps: Deps = {
         "assessment_evidence(id,source,ev_type,statement,statement_so,is_observation,tier,quality)," +
         "assessment_edge(conclusion_id,evidence_id,polarity,contribution,effective_weight)")
       .eq("sample_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle();
-    return { ...(data as object), assessment: assessment ?? null };
+    // Geologist's latest binding review + the discussion timeline, so the collector
+    // actually SEES the reviewer's decision, confidence, notes and messages (RLS:
+    // can_read_sample lets the collector read their own sample's review/discussion).
+    const { data: review } = await uc.from("sample_review")
+      .select("id,round_no,status,decision,geologist_confidence,corrected_interpretation,review_notes,recommendation,reviewer_role,submitted_at")
+      .eq("sample_id", id).eq("status", "submitted").order("round_no", { ascending: false }).limit(1).maybeSingle();
+    const { data: discussion } = await uc.from("sample_discussion")
+      .select("id,author_role,body,created_at").eq("sample_id", id).order("created_at", { ascending: true });
+    return { ...(data as object), assessment: assessment ?? null, review: review ?? null, discussion: discussion ?? [] };
   },
 };
 
@@ -89,7 +117,18 @@ function triggerAnalysis(sampleId: string, force = false): void {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "content-type": "application/json" },
     body: JSON.stringify({ sample_id: sampleId, force }),
-  }).then(() => {}).catch(() => {});
+  })
+    // Swallowing this is what made a real outage invisible: analyze-sample was
+    // failing on samples with many photos, and because the rejection was
+    // discarded the sample simply sat at "submitted" with nothing recorded
+    // anywhere. Fire-and-forget must still REPORT — it just must not block.
+    .then(async (res) => {
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        console.error(`analyze-sample ${sampleId} -> HTTP ${res.status}: ${body.slice(0, 500)}`);
+      }
+    })
+    .catch((e) => console.error(`analyze-sample ${sampleId} -> request failed:`, e));
   // deno-lint-ignore no-explicit-any
   const er = (globalThis as any).EdgeRuntime;
   if (er?.waitUntil) er.waitUntil(p);
@@ -151,6 +190,17 @@ export async function handleSamples(req: Request, deps: Deps = defaultDeps): Pro
     const parts = new URL(req.url).pathname.split("/").filter(Boolean);
     const idx = parts.indexOf("enterprise-samples");
     const id = idx >= 0 && parts[idx + 1] ? parts[idx + 1] : (parts.length && parts[parts.length - 1] !== "enterprise-samples" ? parts[parts.length - 1] : null);
+
+    // PUT /enterprise-samples/:id → edit + re-submit a sample the caller collected,
+    // as long as a geologist hasn't reviewed it yet (the RPC enforces the gate and
+    // kicks off a fresh AI analysis). Only samples the caller can read (RLS) proceed.
+    if (req.method === "PUT" && id) {
+      const s = await deps.getSample(req, actor, id);
+      if (!s) throw new NotFoundError("sample not found");
+      const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+      const updated = await deps.editSample(actor, id, buildPayload(body));
+      return json(updated, 200);
+    }
 
     // POST /enterprise-samples/:id → force a re-analysis of that sample (owner or,
     // later, a geologist). Only samples the caller can read (RLS) can be re-run.

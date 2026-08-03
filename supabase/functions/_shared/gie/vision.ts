@@ -79,6 +79,7 @@ export function visualEvidence(obs: VisualObservation[], imageQuality = 1): Evid
     statement: o.statement,
     statementSo: o.statementSo,
     isObservation: true, // describing what is literally visible
+    epistemic: "observed",
     tier: "ai_visual",
     quality: clamp01(o.clarity * iq),
     provenance: { source: "gemini_vision", aspect: o.aspect },
@@ -86,9 +87,28 @@ export function visualEvidence(obs: VisualObservation[], imageQuality = 1): Evid
 }
 
 // ── Impure: run the vision call over image URLs ─────────────────────────────
+/**
+ * Hard ceiling on how many photos go into ONE vision call.
+ *
+ * Every image is downloaded, base64-encoded (~1.33x its bytes) and inlined into
+ * a single request, with all of them resident in memory at once. A field sample
+ * with 27 photos therefore meant ~27 x 4 MB of raw image becoming well over
+ * 100 MB of base64 in an Edge Function capped far below that — and a request
+ * far past Gemini's inline-payload limit. Samples with 2-5 photos analysed
+ * fine; 9 and 27 died silently and sat at "submitted" forever.
+ *
+ * Six is enough for identification: the caller sends the highest-quality images
+ * first, and past a handful the model gains almost nothing.
+ */
+export const MAX_VISION_IMAGES = 6;
+
 export async function runVision(imageUrls: string[], deps: VisionDeps): Promise<VisualObservation[]> {
   if (imageUrls.length === 0) return [];
-  const images = await Promise.all(imageUrls.map((u) => deps.fetchImageBase64(u)));
+  // Sequential, not Promise.all: parallel fetches hold every image in memory
+  // simultaneously, which is the other half of what blew the memory ceiling.
+  const capped = imageUrls.slice(0, MAX_VISION_IMAGES);
+  const images: VisionImage[] = [];
+  for (const u of capped) images.push(await deps.fetchImageBase64(u));
   const text = await deps.generate(buildVisionPrompt(), images);
   return parseVisionResponse(text);
 }

@@ -24,11 +24,15 @@ function base(over: Partial<AnalyzeDeps> = {}): AnalyzeDeps {
         datasets: [{ datasetId: "d1", source: "MRDS" }], evidence: [{ statement: "Au 300 m", weight: 0.7, tier: "mapped" }] }],
       providersRun: ["occurrence"], providersFailed: [],
     }),
-    runVision: () => Promise.resolve([{ statement: "quartz veining", aspect: "vein", clarity: 0.7 }]),
+    runVision: () => Promise.resolve([{ statement: "quartz veining", statementSo: "silig quartz", aspect: "vein" as const, clarity: 0.7 }]),
     runReasoning: () => Promise.resolve({
-      conclusions: [{ kind: "mineralization", statement: "Possible Au quartz vein", isInterpretation: true,
+      headline: { en: "Possible gold-bearing quartz vein worth a look", so: "Silig quartz oo laga yaabo dahab" },
+      simpleSummary: { en: "The photos show quartz veining that can host gold.", so: "Quartz laga yaabo dahab." },
+      opportunity: "moderate" as const,
+      interpretation: { whatItIs: { en: "", so: "" }, commonlyHosts: { en: "", so: "" }, lookForNext: { en: "", so: "" }, whyItMatters: { en: "", so: "" }, environment: { en: "", so: "" } },
+      conclusions: [{ kind: "mineralization" as const, statement: "Possible Au quartz vein", statementSo: "Silig quartz oo dahab", isInterpretation: true,
         supporting: [{ evidenceId: "e1", contribution: 0.8 }], contradicting: [] }],
-      uncertainties: ["no assay"], missingInformation: ["strike/dip"], recommendations: [],
+      uncertainties: [{ en: "no assay", so: "assay ma jiro" }], missingInformation: [{ en: "strike/dip", so: "" }], recommendations: [],
     }),
     saveAssessment: (_s, _a, _p) => Promise.resolve({ assessment_id: "a1", overall_confidence: 42 }),
     ...over,
@@ -56,7 +60,7 @@ Deno.test("happy path: gathers, reasons, saves, returns counts", async () => {
 Deno.test("evidence set includes field, geo and visual nodes", async () => {
   let nodeCount = 0;
   await handleAnalyze(req({ sample_id: "s1" }), base({
-    runReasoning: (nodes) => { nodeCount = nodes.length; return Promise.resolve({ conclusions: [], uncertainties: [], missingInformation: [], recommendations: [] }); },
+    runReasoning: (nodes) => { nodeCount = nodes.length; return Promise.resolve({ headline: { en: "", so: "" }, simpleSummary: { en: "", so: "" }, opportunity: "none" as const, interpretation: { whatItIs: { en: "", so: "" }, commonlyHosts: { en: "", so: "" }, lookForNext: { en: "", so: "" }, whyItMatters: { en: "", so: "" }, environment: { en: "", so: "" } }, conclusions: [], uncertainties: [], missingInformation: [], recommendations: [] }); },
   }));
   // >=1 field + 1 geo + 1 visual
   assert(nodeCount >= 3);

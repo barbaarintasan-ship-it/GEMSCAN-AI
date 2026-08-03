@@ -2,7 +2,7 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { buildPayload, type Deps, handleSamples } from "./handler.ts";
 import type { Actor } from "../_shared/enterprise/auth.ts";
-import { UnauthorizedError, ForbiddenError } from "../_shared/enterprise/errors.ts";
+import { UnauthorizedError, ForbiddenError, ConflictError } from "../_shared/enterprise/errors.ts";
 
 const OWNER: Actor = { userId: "owner-1", email: "awmusse.musse@gmail.com", contributorId: "c1", role: "admin" };
 function base(over: Partial<Deps> = {}): Deps {
@@ -10,6 +10,7 @@ function base(over: Partial<Deps> = {}): Deps {
     resolveActor: async () => OWNER,
     requireEnterprise: async () => {},
     createSample: async (_a, p) => ({ sample_id: "s1", area_id: "a1", media_count: (p.media as unknown[]).length, sample: { id: "s1" } }),
+    editSample: async (_a, id, p) => ({ sample_id: id, revision_no: 2, media_count: (p.media as unknown[]).length, sample: { id } }),
     listSamples: async () => [{ id: "s1" }, { id: "s2" }],
     getSample: async (_r, _a, id) => (id === "s1" ? { id: "s1", sample_media: [] } : null),
     reanalyze: async () => {},
@@ -97,6 +98,42 @@ Deno.test("POST :id on an invisible sample -> 404 (no re-analysis)", async () =>
   const r = await handleSamples(req("POST", undefined, "https://x/enterprise-samples/zzz"), base({ reanalyze: async () => { reran = true; } }));
   assertEquals(r.status, 404);
   assert(!reran);
+});
+Deno.test("PUT :id valid -> 200 and calls editSample", async () => {
+  let edited = "";
+  const r = await handleSamples(
+    req("PUT", GOOD, "https://x/enterprise-samples/s1"),
+    base({ editSample: async (_a, id, p) => { edited = id; return { sample_id: id, revision_no: 2, media_count: (p.media as unknown[]).length }; } }),
+  );
+  assertEquals(r.status, 200);
+  assertEquals(edited, "s1");
+  const b = await r.json(); assertEquals(b.sample_id, "s1"); assertEquals(b.revision_no, 2);
+});
+Deno.test("PUT :id with invalid body -> 400 (no edit)", async () => {
+  let edited = false;
+  const r = await handleSamples(
+    req("PUT", { ...GOOD, name: "  " }, "https://x/enterprise-samples/s1"),
+    base({ editSample: async () => { edited = true; return {}; } }),
+  );
+  assertEquals(r.status, 400);
+  assert(!edited);
+});
+Deno.test("PUT :id on an invisible sample -> 404 (no edit)", async () => {
+  let edited = false;
+  const r = await handleSamples(
+    req("PUT", GOOD, "https://x/enterprise-samples/zzz"),
+    base({ editSample: async () => { edited = true; return {}; } }),
+  );
+  assertEquals(r.status, 404);
+  assert(!edited);
+});
+Deno.test("PUT :id when locked (reviewed) -> 409", async () => {
+  const r = await handleSamples(
+    req("PUT", GOOD, "https://x/enterprise-samples/s1"),
+    base({ editSample: async () => { throw new ConflictError("a geologist has already reviewed this sample"); } }),
+  );
+  assertEquals(r.status, 409);
+  assertEquals((await r.json()).code, "conflict");
 });
 Deno.test("OPTIONS -> 200", async () => {
   assertEquals((await handleSamples(req("OPTIONS"), base())).status, 200);

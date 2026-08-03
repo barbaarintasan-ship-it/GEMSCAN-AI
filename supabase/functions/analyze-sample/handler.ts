@@ -74,9 +74,30 @@ export async function handleAnalyze(req: Request, deps: AnalyzeDeps = defaultDep
     const { sample } = loaded;
 
     // GATHER (geo) + VISION → unified Evidence Set (visual folded in before ids)
-    const query: GeoQuery = { lat: sample.lat, lng: sample.lng, radiusM: RADIUS_M, h3: cellFor(sample.lat, sample.lng) };
+    const query: GeoQuery = {
+      lat: sample.lat, lng: sample.lng, radiusM: RADIUS_M, h3: cellFor(sample.lat, sample.lng),
+      // EMIE: give the knowledge providers the sample's own field observations so
+      // they can key off the actual host rock / minerals / alteration / structure.
+      sample: {
+        hostRocks: sample.hostRock?.rockClass ? [sample.hostRock.rockClass] : [],
+        minerals: sample.minerals.map((m) => m.mineral).filter(Boolean),
+        alteration: sample.alteration?.alterationType ? [sample.alteration.alterationType] : [],
+        structures: sample.structural.map((s) => s.structureType).filter((x): x is string => !!x),
+      },
+    };
     const { contributions, providersRun, providersFailed } = await deps.runProviders(query);
-    const visualObs = await deps.runVision(loaded.imageUrls);
+    // Vision is ENRICHMENT, not a precondition. A failure here (oversized
+    // payload, a dead signed URL, a model hiccup) used to reject the whole run,
+    // leaving the sample at "submitted" with no assessment and no explanation.
+    // The geological providers alone still yield a real assessment, so a vision
+    // failure degrades the result rather than discarding it — the same rule the
+    // GeoContext engine already applies to a failing provider.
+    let visualObs: VisualObservation[] = [];
+    try {
+      visualObs = await deps.runVision(loaded.imageUrls);
+    } catch (e) {
+      console.error(`analyze-sample ${sampleId}: vision failed, continuing without it —`, e);
+    }
     const set = assemble(
       [...fieldEvidence(sample), ...geoEvidence(contributions), ...visualEvidence(visualObs, loaded.imageQuality)],
       providersRun, providersFailed,
@@ -152,7 +173,11 @@ export const defaultDeps: AnalyzeDeps = {
     const lat = Number((coord as { lat?: number })?.lat ?? 0);
     const lng = Number((coord as { lng?: number })?.lng ?? 0);
 
-    const media = (s.sample_media ?? []) as Array<{ storage_path: string; image_quality_score: number | null }>;
+    // Highest-quality images first: runVision caps the count, so ordering decides
+    // WHICH photos the model actually sees. Unscored media sorts last rather than
+    // being dropped — a missing score is not evidence of a bad photo.
+    const media = ([...(s.sample_media ?? [])] as Array<{ storage_path: string; image_quality_score: number | null }>)
+      .sort((a, b) => (b.image_quality_score ?? -1) - (a.image_quality_score ?? -1));
     const paths = media.map((m) => m.storage_path);
     const imageUrls: string[] = [];
     for (const p of paths) {
