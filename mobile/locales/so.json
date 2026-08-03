@@ -83,7 +83,7 @@
     "offlineDetailUnavailableHint": "Iskaankan hore uma furin marka internet-ku maqnaa, sidaas darteed wax lagu kaydiyay qalabkan wali ma jiraan."
   },
   "field": {
-    "title": "Sahamin",
+    "title": "Baaritaan",
     "start": {
       "heading": "Bilow Sahaminta",
       "body": "App-ku wuxuu akhrinayaa meesha aad joogto, wuxuu ogaanayaa dhagaxa hoostaada, kadibna wuxuu kugu hagayaa dhulka ugu rajada wanaagsan ee kuu dhow. Internet uma baahna.",
@@ -96,7 +96,8 @@
       "orienting": "Waxaan ogaanayaa meesha aad joogto…",
       "reasoning": "Waxaan ku cusboonaysiinayaa waxa aad heshay…",
       "arrived": "Waad timid",
-      "guiding": "Waa lagu hagayaa"
+      "guiding": "Waa lagu hagayaa",
+      "noTarget": "Meel lagu socdo halkan ma jirto"
     },
     "here": {
       "label": "MEESHA AAD JOOGTO",
@@ -115,7 +116,8 @@
       "turnLeft": "U leexo bidix {{deg}}°",
       "turnRight": "U leexo midig {{deg}}°",
       "otherOptions": "DOORASHOOYIN KALE",
-      "headTo": "U soco {{distance}} {{compass}}"
+      "headTo": "U soco {{distance}} {{compass}}",
+      "pill": "Bartilmaameed: {{distance}} {{compass}}"
     },
     "none": {
       "noStronger": "Dhul ka fiican lama helin",
@@ -189,7 +191,8 @@
       "lookup": "Eeg",
       "backToMe": "Ku noqo meeshayda",
       "inspectingBanner": "Waxaad eegaysaa {{lat}}, {{lng}} — ma aha meeshaad joogto",
-      "useMyPosition": "Isticmaal meeshayda"
+      "useMyPosition": "Isticmaal meeshayda",
+      "navigate": "U soco halkan"
     },
     "evidence2": {
       "title": "CADDAYMAHA AGTAADA",
@@ -197,7 +200,75 @@
       "occurrence": "Macdan {{commodity}} ah {{distance}}",
       "elevation": "Dherer {{m}} m",
       "none": "Waxba lama sawirin gudaha xadka",
-      "mapTitle": "KHARIIDAD DHAGAX OO OFFLINE AH"
+      "mapTitle": "KHARIIDAD DHAGAX OO OFFLINE AH",
+      "unknownCommodity": "macdan",
+      "farTitle": "WAXA UGU DHOW EE LA OGYAHAY, OO FOG",
+      "farOccurrence": "Macdan {{commodity}} ah — {{distance}} xagga {{compass}}",
+      "farFault": "Jeex la khariidadeeyay — {{distance}} xagga {{compass}}",
+      "farHint": "Way ka fog tahay in lagu lugeeyo. Waxaa loo muujiyay inaad ogaato dhinaca ay dhulka la yaqaan ku taallo.",
+      "unit": "Dhagaxa halkan: {{name}}",
+      "faultDir": "Jeex: {{distance}} {{compass}}",
+      "occurrenceDir": "Macdan {{commodity}} ah: {{distance}} {{compass}}"
+    },
+    "destination": {
+      "label": "BARTA AAD DOORATAY",
+      "headTo": "{{distance}} xagga {{compass}}",
+      "waitingFix": "Sugaya GPS-ka si uu jiho u siiyo…",
+      "stop": "Jooji socodka"
+    },
+    "net": {
+      "online": "Waad ku xiran tahay internetka",
+      "offline": "Internet ma jiro",
+      "downloading": "Waxaa la soo dejinayaa sawirada dayax-gacmeedka…"
+    },
+    "map": {
+      "layers": "Lakabyada",
+      "layersTitle": "LAKABYADA KHARIIDADDA",
+      "centre": "Bartamaha",
+      "track": "Wadada",
+      "waypoints": "Meelaha",
+      "satellite": "Dayax-gacmeed",
+      "satelliteShort": "DAY",
+      "geology": "Khariidad juqraafi",
+      "terrain": "Dhulka / DEM",
+      "faults": "Jeexyada",
+      "occurrences": "Macdanta MRDS",
+      "target": "Bartilmaameedka"
+    },
+    "sheet": {
+      "distance": "Masaafada",
+      "direction": "Jihada",
+      "directionValue": "{{compass}} ({{deg}}°)",
+      "confidence": "Kalsoonida",
+      "reason": "Sababta",
+      "interpretation": "FASIRAADDA JUQRAAFIGA",
+      "nearbyEvidence": "CADDAYMAHA U DHOW",
+      "captureEvidence": "Qaad caddayn",
+      "addWaypoint": "Ku dar meel",
+      "addNote": "Ku dar qoraal",
+      "recalculate": "Dib u xisaabi",
+      "walkToward": "U soco {{distance}} xagga {{compass}}. {{reason}}",
+      "nothingHereFar": "Halkan wax lagu socdo ma jiraan. Dhulka ugu dhow ee la yaqaan waa {{distance}} xagga {{compass}}.",
+      "youAreOn": "Waxaad saaran tahay {{unit}}.",
+      "unitUnknown": "Barta aad joogto qayb khariidadaysan ma haysato.",
+      "faultAhead": "Jeex la khariidadeeyay ayaa {{distance}} kaa jira, taasoo macdanta kulmin karta.",
+      "walked": "Waxaad socotay {{distance}}"
+    },
+    "arrived": {
+      "title": "Waad gaadhay bartilmaameedka",
+      "body": "Meel wanaagsan oo la baaro. Sawir waxa aad arki karto.",
+      "scanArea": "Baar goobta",
+      "recordObservation": "Duub waxa aad aragtay",
+      "recalculate": "Xisaabi bartilmaameed cusub"
+    },
+    "short": {
+      "occurrence": "{{commodity}} u dhow",
+      "association": "Xidhiidh {{commodity}}",
+      "community": "Warbixin deegaan",
+      "observation": "Waxa aad aragtay",
+      "fault": "Jeex",
+      "contact": "Xidhiidh dhagax",
+      "intersection": "Isgoys qaab-dhismeed"
     }
   }
 }

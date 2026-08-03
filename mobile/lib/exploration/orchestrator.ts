@@ -19,6 +19,7 @@ export type ExplorationState =
   | "idle"
   | "orienting"        // first fix in; computing what is here
   | "guiding"          // a target is recommended; the user is walking
+  | "noTarget"         // targeting finished and found nothing worth walking to
   | "awaitingEvidence" // target reached; evidence requested
   | "reasoning"        // re-scoring after new evidence
   | "summarising"
@@ -47,6 +48,21 @@ export interface ExplorationSnapshot {
    * position you are not at (Invariant 4).
    */
   inspecting: { lat: number; lng: number } | null;
+  /**
+   * A point the user chose to walk to, entered by hand.
+   *
+   * Deliberately NOT an ExplorationTarget. A target carries a score, a band and
+   * reasons — it is the engine's recommendation, and manufacturing those for a
+   * coordinate somebody typed would put words in the engine's mouth. This is
+   * plain navigation to a chosen point, presented as such, and it coexists with
+   * whatever the engine is separately recommending.
+   */
+  destination: { lat: number; lng: number } | null;
+  /** Metres and bearing to `destination`, from the last fix. */
+  destinationDistanceM: number | null;
+  destinationBearingDeg: number | null;
+  /** Degrees to turn to face the destination; null without a heading. */
+  destinationRelativeBearingDeg: number | null;
   context: GeoContext | null;
 
   /** Ranked targets and the one being walked to (step 3). */
@@ -54,6 +70,13 @@ export interface ExplorationSnapshot {
   activeTarget: ExplorationTarget | null;
   /** Metres to the active target, from the last fix. */
   distanceToTargetM: number | null;
+  /**
+   * Where the phone is pointing, degrees from true north.
+   *
+   * Display only — it orients the map's direction cone. Guidance still uses
+   * `relativeBearingDeg` below, computed from this exactly as before.
+   */
+  headingDeg: number | null;
   /**
    * Degrees the geologist must turn, relative to where they are facing.
    * Null when heading is unavailable — the bearing is still shown absolutely.
@@ -204,6 +227,32 @@ export class ExplorationOrchestrator {
     void this.retarget(true);
   }
 
+  /**
+   * Walk to a point the user entered by hand.
+   *
+   * Separate from `inspectAt`, which reads the geology somewhere without moving
+   * the session. This one gives a real bearing and distance — and it takes them
+   * from the GPS fix, never from an inspected point, because a direction from a
+   * place you are not standing would send someone the wrong way.
+   */
+  navigateTo(lat: number, lng: number): void {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
+    this.patch({ destination: { lat, lng } });
+    this.updateGuidance();
+  }
+
+  /** Stop navigating to the chosen point. */
+  clearDestination(): void {
+    if (!this.snap.destination) return;
+    this.patch({
+      destination: null,
+      destinationDistanceM: null,
+      destinationBearingDeg: null,
+      destinationRelativeBearingDeg: null,
+    });
+  }
+
   /** The point the engine is answering about — inspected place, else the fix. */
   private activePoint(): { lat: number; lng: number } | null {
     if (this.inspect) return this.inspect;
@@ -303,7 +352,7 @@ export class ExplorationOrchestrator {
       const active = stillActive ?? result.targets[0] ?? null;
 
       this.patch({
-        state: active ? "guiding" : "orienting",
+        state: active ? "guiding" : "noTarget",
         currentCell: cell,
         context: result.current.context,
         targets: result.targets,
@@ -325,6 +374,26 @@ export class ExplorationOrchestrator {
     const f = this.deps.field.getSnapshot();
     const fix = f.lastFix;
     const target = this.snap.activeTarget;
+
+    const headingDeg = f.lastHeading?.trueHeading ?? null;
+    if (headingDeg !== this.snap.headingDeg) this.patch({ headingDeg });
+
+    // A chosen destination is navigation, not a recommendation, so it is
+    // computed first and independently: it must keep working while the user is
+    // looking somewhere else up, and while the engine has nothing to recommend.
+    // It is always measured from the GPS fix — never from an inspected point.
+    if (this.snap.destination) {
+      const dest = this.snap.destination;
+      const headingNow = f.lastHeading?.trueHeading;
+      const b = fix ? bearingTo(fix.lat, fix.lng, dest.lat, dest.lng) : null;
+      this.patch({
+        destinationDistanceM: fix ? haversine(fix.lat, fix.lng, dest.lat, dest.lng) : null,
+        destinationBearingDeg: b,
+        destinationRelativeBearingDeg:
+          b == null || headingNow == null ? null : relativeBearing(b, headingNow),
+      });
+    }
+
     // Inspecting somewhere else: show what is there, but no distance, no turn
     // and no arrival. Those only mean something from where you actually stand.
     if (this.inspect) {
@@ -376,6 +445,17 @@ function haversine(lat1: number, lng1: number, lat2: number, lng2: number): numb
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+/** Initial great-circle bearing, degrees clockwise from true north. */
+function bearingTo(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const p1 = toRad(lat1);
+  const p2 = toRad(lat2);
+  const dl = toRad(lng2 - lng1);
+  const y = Math.sin(dl) * Math.cos(p2);
+  const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
 function suspendReasonFor(f: SessionSnapshot): SuspendReason | null {
   const s = f.machine.state;
   if (s === "error") return "sensor-error";
@@ -398,11 +478,16 @@ function emptySnapshot(): ExplorationSnapshot {
     endedAt: null,
     currentCell: null,
     position: null,
+    destination: null,
+    destinationDistanceM: null,
+    destinationBearingDeg: null,
+    destinationRelativeBearingDeg: null,
     inspecting: null,
     context: null,
     targets: [],
     activeTarget: null,
     distanceToTargetM: null,
+    headingDeg: null,
     relativeBearingDeg: null,
     bestIsHere: false,
     hasKnowledge: false,

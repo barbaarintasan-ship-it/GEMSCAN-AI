@@ -96,7 +96,8 @@
       "orienting": "Working out where you are…",
       "reasoning": "Updating from what you found…",
       "arrived": "You have arrived",
-      "guiding": "Guiding"
+      "guiding": "Guiding",
+      "noTarget": "Nothing to walk to here"
     },
     "here": {
       "label": "WHERE YOU ARE",
@@ -115,7 +116,8 @@
       "turnLeft": "Turn left {{deg}}°",
       "turnRight": "Turn right {{deg}}°",
       "otherOptions": "OTHER OPTIONS",
-      "headTo": "Head {{distance}} {{compass}}"
+      "headTo": "Head {{distance}} {{compass}}",
+      "pill": "Target: {{distance}} {{compass}}"
     },
     "none": {
       "noStronger": "No stronger ground nearby",
@@ -189,7 +191,8 @@
       "lookup": "Look up",
       "backToMe": "Back to my position",
       "inspectingBanner": "Looking up {{lat}}, {{lng}} — not your position",
-      "useMyPosition": "Use my position"
+      "useMyPosition": "Use my position",
+      "navigate": "Navigate here"
     },
     "evidence2": {
       "title": "NEARBY EVIDENCE",
@@ -197,7 +200,75 @@
       "occurrence": "{{commodity}} occurrence {{distance}}",
       "elevation": "Elevation {{m}} m",
       "none": "Nothing mapped within range",
-      "mapTitle": "OFFLINE GEOLOGICAL MAP"
+      "mapTitle": "OFFLINE GEOLOGICAL MAP",
+      "unknownCommodity": "mineral",
+      "farTitle": "NEAREST KNOWN, FURTHER AWAY",
+      "farOccurrence": "{{commodity}} occurrence — {{distance}} to the {{compass}}",
+      "farFault": "Mapped fault — {{distance}} to the {{compass}}",
+      "farHint": "Too far to walk to. Shown so you know which way the known ground lies.",
+      "unit": "Current geology: {{name}}",
+      "faultDir": "Fault: {{distance}} {{compass}}",
+      "occurrenceDir": "{{commodity}} occurrence: {{distance}} {{compass}}"
+    },
+    "destination": {
+      "label": "YOUR CHOSEN POINT",
+      "headTo": "{{distance}} to the {{compass}}",
+      "waitingFix": "Waiting for GPS to give a direction…",
+      "stop": "Stop navigating"
+    },
+    "net": {
+      "online": "You are online",
+      "offline": "You are offline",
+      "downloading": "Downloading imagery…"
+    },
+    "map": {
+      "layers": "Layers",
+      "layersTitle": "MAP LAYERS",
+      "centre": "Center",
+      "track": "Track",
+      "waypoints": "Waypoints",
+      "satellite": "Satellite",
+      "satelliteShort": "SAT",
+      "geology": "Geological map",
+      "terrain": "Terrain / DEM",
+      "faults": "Faults",
+      "occurrences": "MRDS occurrences",
+      "target": "Target"
+    },
+    "sheet": {
+      "distance": "Distance",
+      "direction": "Direction",
+      "directionValue": "{{compass}} ({{deg}}°)",
+      "confidence": "Confidence",
+      "reason": "Reason",
+      "interpretation": "GEOLOGICAL INTERPRETATION",
+      "nearbyEvidence": "NEARBY EVIDENCE",
+      "captureEvidence": "Capture evidence",
+      "addWaypoint": "Add waypoint",
+      "addNote": "Add note",
+      "recalculate": "Recalculate",
+      "walkToward": "Walk {{distance}} {{compass}}. {{reason}}",
+      "nothingHereFar": "Nothing to walk to here. The nearest known ground is {{distance}} to the {{compass}}.",
+      "youAreOn": "You are on {{unit}}.",
+      "unitUnknown": "No mapped unit covers this point.",
+      "faultAhead": "A mapped fault lies {{distance}} away, which can concentrate minerals.",
+      "walked": "Walked {{distance}}"
+    },
+    "arrived": {
+      "title": "You reached the target",
+      "body": "Good spot to investigate. Photograph what you can see.",
+      "scanArea": "Scan area",
+      "recordObservation": "Record observation",
+      "recalculate": "Recalculate new target"
+    },
+    "short": {
+      "occurrence": "{{commodity}} nearby",
+      "association": "{{commodity}} association",
+      "community": "Local reports",
+      "observation": "Your observation",
+      "fault": "Fault",
+      "contact": "Contact",
+      "intersection": "Structure crossing"
     }
   }
 }

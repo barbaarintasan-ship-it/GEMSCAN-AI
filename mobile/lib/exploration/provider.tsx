@@ -12,7 +12,7 @@ import { PackStore, createBundledPackSource } from "../geo/packStore.ts";
 import { OfflineGeoContextService } from "../geo/offlineGeoContext.ts";
 import { TargetingEngine } from "../geo/targeting.ts";
 import { ExplorationOrchestrator, type ExplorationSnapshot } from "./orchestrator.ts";
-import type { WaypointType } from "../field/waypointTypes";
+import type { Waypoint, WaypointType } from "../field/waypointTypes";
 import { loadBundledPackFiles } from "../geo/bundledPack.ts";
 import { WaypointStore } from "../field/waypointStore";
 import { WaypointService } from "../field/waypointService";
@@ -23,6 +23,15 @@ export interface ExplorationApi {
   orchestrator: ExplorationOrchestrator;
   /** The installed pack, for the offline map and the evidence readout. */
   packs: PackStore;
+  /**
+   * Recorded observations, for the map's waypoint layer.
+   *
+   * Read straight from the SAME WaypointStore the capture writes to, rather
+   * than through the exploration engine. Drawing a pin is a display concern;
+   * routing it through the engine would mean changing a working part of the
+   * system to move data it does not need.
+   */
+  waypoints: Array<{ lng: number; lat: number; type: string }>;
   actions: {
     start: () => void;
     stop: () => void;
@@ -32,12 +41,18 @@ export interface ExplorationApi {
     captureObservation: (type: WaypointType, notes?: string) => Promise<void>;
     inspectAt: (lat: number, lng: number) => void;
     clearInspect: () => void;
+    navigateTo: (lat: number, lng: number) => void;
+    clearDestination: () => void;
   };
 }
 
 const Ctx = createContext<ExplorationApi | null>(null);
 
+/** Stable empty array: a fresh [] on each read would loop useSyncExternalStore. */
+const EMPTY_WAYPOINTS: readonly Waypoint[] = [];
+
 export function ExplorationProvider({ children }: { children: React.ReactNode }) {
+  const waypointStoreRef = useRef<WaypointStore | null>(null);
   const ref = useRef<ExplorationOrchestrator | null>(null);
   const packsRef = useRef<PackStore | null>(null);
   if (ref.current == null) {
@@ -50,6 +65,8 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
     // so what the geologist just recorded is immediately part of the model
     // (Architecture §9) — there is no second copy of the observations.
     const waypointStore = new WaypointStore();
+    waypointStoreRef.current = waypointStore;
+    void waypointStore.load();
     const waypoints = new WaypointService(field, waypointStore);
     const localEvidence = makeWaypointEvidenceSource(waypointStore);
 
@@ -65,6 +82,11 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
   }
   const orchestrator = ref.current;
 
+  const waypoints = useSyncExternalStore(
+    (cb) => waypointStoreRef.current?.subscribe(cb) ?? (() => {}),
+    () => waypointStoreRef.current?.all() ?? EMPTY_WAYPOINTS,
+  );
+
   const snapshot = useSyncExternalStore(
     (cb) => orchestrator.subscribe(cb),
     () => orchestrator.getSnapshot(),
@@ -72,10 +94,22 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => () => orchestrator.destroy(), [orchestrator]);
 
+  // Only waypoints with a real fix can be drawn; one without a position is a
+  // valid observation but has nowhere to go on a map, and putting it at the
+  // viewer's own position would invent a location it never had.
+  const waypointPins = React.useMemo(
+    () =>
+      waypoints
+        .filter((w) => w.position && !w.deletedAt)
+        .map((w) => ({ lng: w.position!.lng, lat: w.position!.lat, type: w.type as string })),
+    [waypoints],
+  );
+
   const api: ExplorationApi = {
     snapshot,
     orchestrator,
     packs: packsRef.current!,
+    waypoints: waypointPins,
     actions: {
       start: () => orchestrator.start(),
       stop: () => orchestrator.stop(),
@@ -85,6 +119,8 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
       captureObservation: (type, notes) => orchestrator.captureObservation(type, notes),
       inspectAt: (lat, lng) => orchestrator.inspectAt(lat, lng),
       clearInspect: () => orchestrator.clearInspect(),
+      navigateTo: (lat, lng) => orchestrator.navigateTo(lat, lng),
+      clearDestination: () => orchestrator.clearDestination(),
     },
   };
 
