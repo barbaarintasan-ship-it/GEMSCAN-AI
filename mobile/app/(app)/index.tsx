@@ -154,13 +154,18 @@ export default function HomeScreen() {
         </Pressable>
       )}
 
-      {/* Exploration Mode — same owner gate as Field Samples (architecture §14.4). */}
-      {isOwnerEmail(session?.user?.email) && (
-        <Pressable style={styles.collectionButton} onPress={() => router.push("/(app)/exploration")} hitSlop={8}>
-          <Ionicons name="compass-outline" size={16} color={colors.gold} />
-          <Text style={styles.collectionButtonText}>{t("field.title")}</Text>
-        </Pressable>
-      )}
+      {/* Exploration Mode.
+          Deliberately NOT behind the owner gate that hides Field Samples above.
+          That gate exists because Field Samples calls enterprise endpoints, and
+          hiding the entry point mirrors the server's requireEnterprise check.
+          Exploration Mode calls NO server at all — it runs entirely against the
+          bundled offline knowledge pack — so gating it would hide a feature
+          without protecting anything. Entitlement (architecture §14.4) is still
+          an open decision; when it lands it belongs on the session, not here. */}
+      <Pressable style={styles.collectionButton} onPress={() => router.push("/(app)/exploration")} hitSlop={8}>
+        <Ionicons name="compass-outline" size={16} color={colors.gold} />
+        <Text style={styles.collectionButtonText}>{t("field.title")}</Text>
+      </Pressable>
 
       {/* Gemstone showcase */}
       <View style={styles.showcase}>
