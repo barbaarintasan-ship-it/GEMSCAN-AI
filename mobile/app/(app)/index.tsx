@@ -43,6 +43,12 @@ export default function HomeScreen() {
   const { t, i18n } = useTranslation();
   const { session } = useAuth();
 
+  // One gate, evaluated once, for every enterprise entry point below.
+  // Kept as a named value rather than inlined per-button so the two entries
+  // cannot drift apart again — which is exactly how Exploration ended up
+  // reachable while Field Samples was hidden.
+  const showEnterprise = isOwnerEmail(session?.user?.email);
+
   // Refresh the Deep Scan credit balance every time the home screen is focused
   // (e.g. returning from a scan), so a just-used Deep Scan shows 99 immediately
   // instead of the cached 100.
@@ -146,26 +152,23 @@ export default function HomeScreen() {
         <Text style={styles.collectionButtonText}>{t("home.myCollection")}</Text>
       </Pressable>
 
-      {/* Enterprise owner beta (Sprint 4.2) — visible only to the owner allowlist. */}
-      {isOwnerEmail(session?.user?.email) && (
-        <Pressable style={styles.collectionButton} onPress={() => router.push("/(app)/enterprise/samples")} hitSlop={8}>
-          <Ionicons name="briefcase-outline" size={16} color={colors.gold} />
-          <Text style={styles.collectionButtonText}>Enterprise · Field Samples</Text>
-        </Pressable>
-      )}
+      {/* Enterprise owner beta (Sprint 4.2) — visible only to the owner allowlist.
+          ONE gate for every enterprise entry point. They were written separately
+          once and immediately diverged: Exploration ended up reachable when
+          Field Samples was not. A single expression cannot drift. */}
+      {showEnterprise && (
+        <>
+          <Pressable style={styles.collectionButton} onPress={() => router.push("/(app)/enterprise/samples")} hitSlop={8}>
+            <Ionicons name="briefcase-outline" size={16} color={colors.gold} />
+            <Text style={styles.collectionButtonText}>Enterprise · Field Samples</Text>
+          </Pressable>
 
-      {/* Exploration Mode.
-          Deliberately NOT behind the owner gate that hides Field Samples above.
-          That gate exists because Field Samples calls enterprise endpoints, and
-          hiding the entry point mirrors the server's requireEnterprise check.
-          Exploration Mode calls NO server at all — it runs entirely against the
-          bundled offline knowledge pack — so gating it would hide a feature
-          without protecting anything. Entitlement (architecture §14.4) is still
-          an open decision; when it lands it belongs on the session, not here. */}
-      <Pressable style={styles.collectionButton} onPress={() => router.push("/(app)/exploration")} hitSlop={8}>
-        <Ionicons name="compass-outline" size={16} color={colors.gold} />
-        <Text style={styles.collectionButtonText}>{t("field.title")}</Text>
-      </Pressable>
+          <Pressable style={styles.collectionButton} onPress={() => router.push("/(app)/exploration")} hitSlop={8}>
+            <Ionicons name="compass-outline" size={16} color={colors.gold} />
+            <Text style={styles.collectionButtonText}>{t("field.title")}</Text>
+          </Pressable>
+        </>
+      )}
 
       {/* Gemstone showcase */}
       <View style={styles.showcase}>
