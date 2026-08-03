@@ -39,6 +39,8 @@ export function readPack(files: Record<string, string>): LoadedPack {
       knowledge: rowsOf(files, PACK_FILES.knowledge, "knowledge") as PackData["knowledge"],
       structures: rowsOf(files, PACK_FILES.structures, "structures") as PackData["structures"],
       community: rowsOf(files, PACK_FILES.community, "community") as PackData["community"],
+      mapFeatures: rowsOf(files, PACK_FILES.mapFeatures, "mapFeatures") as PackData["mapFeatures"],
+      terrain: rowsOf(files, PACK_FILES.terrain, "terrain") as PackData["terrain"],
       associations: rowsOf(files, PACK_FILES.associations, "associations") as PackData["associations"],
       rules: rowsOf(files, PACK_FILES.rules, "rules") as PackData["rules"],
       commodities: rowsOf(files, PACK_FILES.commodities, "commodities") as PackData["commodities"],
@@ -51,6 +53,7 @@ export function readPack(files: Record<string, string>): LoadedPack {
 export function emptyPackData(): PackData {
   return {
     geology: [], occurrences: [], knowledge: [], structures: [], community: [],
+    mapFeatures: [], terrain: [],
     associations: [], rules: [], commodities: [], assemblages: [],
   };
 }

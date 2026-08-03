@@ -19,6 +19,8 @@ import type { ConfidenceBand, EvidenceItem, GeoContext } from "../../../shared/g
 import { cellCentre, cellFor, kRing } from "./h3.ts";
 import { DEFAULT_CONTEXT_RADIUS_M, type OfflineGeoContextService } from "./offlineGeoContext.ts";
 import type { LocalEvidenceSource } from "../exploration/localEvidence.ts";
+import { featuresNear, intersectionsOf } from "./terrainProviders.ts";
+import type { PackData } from "../../../shared/geo-core/pack/types.ts";
 
 export interface ExplorationTarget {
   cell: string;
@@ -85,8 +87,33 @@ function prospectivityEvidence(
   ctx: GeoContext,
   radiusM: number,
   local?: LocalEvidenceSource,
+  pack?: PackData,
 ): EvidenceItem[] {
   const items: EvidenceItem[] = [];
+
+  // Structure is a real targeting signal, not just context: faults and contacts
+  // are where fluids moved and where units meet. An intersection of the two is
+  // stronger than either alone and is scored as its own item (§7.7).
+  if (pack && pack.mapFeatures.length > 0) {
+    const near = featuresNear(pack.mapFeatures, ctx.location.lat, ctx.location.lng, radiusM);
+    for (const f of near.slice(0, 4)) {
+      if (f.kind !== "fault" && f.kind !== "contact") continue;
+      const proximity = Math.max(0, 1 - f.distanceM / Math.max(radiusM, 1));
+      items.push({
+        statement: `${f.kind === "fault" ? "Fault" : "Contact"} ${Math.round(f.distanceM)} m away`,
+        weight: (f.kind === "fault" ? 0.6 : 0.55) * proximity,
+        tier: "mapped",
+      });
+    }
+    const crossing = intersectionsOf(near);
+    if (crossing) {
+      items.push({
+        statement: `Fault and contact intersect within ${Math.round(crossing.distanceM)} m`,
+        weight: 0.75,
+        tier: "mapped",
+      });
+    }
+  }
 
   // The geologist's own observations (step 7): what they just found changes
   // where they should go next. This is the feedback that makes the loop a loop.
@@ -169,6 +196,8 @@ export class TargetingEngine {
   constructor(
     private readonly geo: OfflineGeoContextService,
     private readonly local?: LocalEvidenceSource,
+    /** Pack access for the structural signals; omitted, targeting simply has fewer inputs. */
+    private readonly pack?: () => PackData,
   ) {}
 
   /**
@@ -182,7 +211,7 @@ export class TargetingEngine {
     const radiusM = opts.radiusM ?? DEFAULT_CONTEXT_RADIUS_M;
     const currentResult = await this.geo.contextAt(lat, lng, { radiusM });
     const currentScore = computeConfidence(
-      prospectivityEvidence(currentResult.context, radiusM, this.local),
+      prospectivityEvidence(currentResult.context, radiusM, this.local, this.pack?.()),
     ).score;
 
     const candidates = kRing(here, o.rings).filter((c) => c !== here);
@@ -194,7 +223,7 @@ export class TargetingEngine {
       if (distanceM > o.maxDistanceM) continue;
 
       const { context } = await this.geo.contextAt(centre.lat, centre.lng, { radiusM });
-      const evidence = prospectivityEvidence(context, radiusM, this.local);
+      const evidence = prospectivityEvidence(context, radiusM, this.local, this.pack?.());
       // Same shared noisy-OR the server uses — no new confidence maths here.
       const score = computeConfidence(evidence).score;
       if (score < o.minScore) continue; // nothing indicating mineralisation ⇒ not a target

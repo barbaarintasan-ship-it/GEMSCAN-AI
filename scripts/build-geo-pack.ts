@@ -17,7 +17,8 @@ import { H3_RESOLUTION } from "../supabase/functions/_shared/geocontext/h3.ts";
 import type {
   PackAssemblageRule, PackAssociation, PackCommodityProfile, PackCommunityCell,
   PackData, PackDatasetRef, PackGeologyUnit, PackKnowledgeItem, PackKnowledgeRule,
-  PackOccurrence, PackStructuralFeature, PolygonRings, Position,
+  PackMapFeature, MapFeatureKind, PackOccurrence, PackStructuralFeature,
+  PackTerrainCell, PolygonRings, Position,
 } from "../shared/geo-core/pack/types.ts";
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
@@ -81,6 +82,28 @@ function bboxOfRings(rings: PolygonRings): [number, number, number, number] {
 
 const cellFor = (lat: number, lng: number): string => latLngToCell(lat, lng, H3_RESOLUTION);
 
+/** LineString/MultiLineString → polylines. Anything else has no lines. */
+function linesOf(g: GeoJson): Position[][] {
+  const toLine = (raw: number[][]): Position[] => raw.map((p) => [p[0], p[1]] as Position);
+  if (g.type === "LineString") return [toLine(g.coordinates as number[][])];
+  if (g.type === "MultiLineString") return (g.coordinates as number[][][]).map(toLine);
+  return [];
+}
+
+function bboxOfLines(lines: Position[][]): [number, number, number, number] {
+  return bboxOfRings(lines);
+}
+
+/** geo.geological_layer.kind → the pack's map-feature vocabulary. */
+function mapKindOf(kind: string): MapFeatureKind {
+  const k = (kind ?? "").toLowerCase();
+  if (k.includes("fault") || k.includes("shear")) return "fault";
+  if (k.includes("contact")) return "contact";
+  if (k.includes("lineament")) return "lineament";
+  if (k.includes("drainage") || k.includes("stream") || k.includes("river")) return "drainage";
+  return "other";
+}
+
 // ── Extraction ──────────────────────────────────────────────────────────────
 async function extract(client: Client): Promise<{ data: PackData; datasets: PackDatasetRef[] }> {
   const q = async <T>(sql: string): Promise<T[]> =>
@@ -103,6 +126,42 @@ async function extract(client: Client): Promise<{ data: PackData; datasets: Pack
       rings, isPolygon, bbox: bboxOfRings(rings),
     };
   });
+
+  // Map layers (§7.7) — the LINE features from the same table: faults,
+  // contacts, lineaments, drainage. Polygons became `geology` above; these are
+  // what a geologist reads as structure.
+  const mapFeatures: PackMapFeature[] = [];
+  for (const r of geologyRows) {
+    const lines = linesOf(JSON.parse(r.gj) as GeoJson);
+    if (lines.length === 0) continue; // polygons already became `geology`
+    mapFeatures.push({
+      id: r.id,
+      kind: mapKindOf(r.kind),
+      name: r.name,
+      source: r.source,
+      attributes: r.attributes ?? null,
+      lines,
+      bbox: bboxOfLines(lines),
+    });
+  }
+
+  // Terrain (§7.7) — DORMANT. There is no DEM in the database yet, so this
+  // reads a table that may not exist and yields nothing rather than
+  // fabricating a landform. Once a DEM is ingested into geo.terrain_cell the
+  // pack fills automatically, with no code change here.
+  let terrain: PackTerrainCell[] = [];
+  try {
+    terrain = await q<PackTerrainCell>(`
+      select h3 as cell,
+             extensions.st_y(extensions.st_centroid(geom)) as lat,
+             extensions.st_x(extensions.st_centroid(geom)) as lng,
+             elevation_m as "elevationM", slope_deg as "slopeDeg", aspect_deg as "aspectDeg",
+             relief_m as "reliefM", morphology, drainage_dist_m as "drainageDistM"
+      from geo.terrain_cell
+    `);
+  } catch {
+    console.log("  (no geo.terrain_cell — terrain provider stays dormant)");
+  }
 
   // Occurrences — points.
   const occRows = await q<{
@@ -220,7 +279,7 @@ async function extract(client: Client): Promise<{ data: PackData; datasets: Pack
 
   return {
     data: {
-      geology, occurrences, knowledge, structures, community,
+      geology, occurrences, knowledge, structures, community, mapFeatures, terrain,
       associations: associations.map((a) => ({ ...a, weight: a.weight == null ? null : Number(a.weight) })),
       rules: rules.map((r) => ({ ...r, weight: r.weight == null ? null : Number(r.weight) })),
       commodities,

@@ -84,6 +84,58 @@ export function bboxPadding(lat: number, metres: number): { dLat: number; dLng: 
 }
 
 /**
+ * Shortest distance from a point to a polyline, in metres.
+ *
+ * §7.3's three predicates assume points and polygons, but a fault, contact or
+ * lineament is a LINE — and "how far am I from the nearest fault" is a first-
+ * class exploration signal, not a nicety. This is the only new geometry the
+ * terrain/map-layer extension needs.
+ *
+ * Works in a local planar approximation: degrees are converted to metres about
+ * the query point (longitude scaled by cos(lat)) before the segment maths, then
+ * the result is already in metres. Over the few kilometres a traverse spans the
+ * error is far below the ~0.5% geodesy divergence already accepted in §7.4, and
+ * doing it this way keeps the projection out of the caller's hands.
+ */
+export function pointToSegmentM(p: LatLng, a: LatLng, b: LatLng): number {
+  // Derived from the SAME sphere haversineM uses, not the WGS84 meridian
+  // constant. Mixing the two disagrees by ~0.056%, and since both functions
+  // feed the same evidence weights, they have to measure the same planet.
+  const mPerDegLat = (EARTH_RADIUS_M * Math.PI) / 180;
+  const mPerDegLng = mPerDegLat * Math.cos(toRad(p.lat));
+  const px = 0;
+  const py = 0;
+  const ax = (a.lng - p.lng) * mPerDegLng;
+  const ay = (a.lat - p.lat) * mPerDegLat;
+  const bx = (b.lng - p.lng) * mPerDegLng;
+  const by = (b.lat - p.lat) * mPerDegLat;
+
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(ax - px, ay - py); // degenerate segment
+
+  // Projection of the point onto the segment, clamped to its ends.
+  let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(ax + t * dx - px, ay + t * dy - py);
+}
+
+/** Shortest distance from a point to any segment of a polyline. */
+export function pointToPolylineM(p: LatLng, line: Position[]): number {
+  if (line.length === 0) return Infinity;
+  if (line.length === 1) return haversineM(p, { lng: line[0][0], lat: line[0][1] });
+  let best = Infinity;
+  for (let i = 1; i < line.length; i++) {
+    const a = { lng: line[i - 1][0], lat: line[i - 1][1] };
+    const b = { lng: line[i][0], lat: line[i][1] };
+    const d = pointToSegmentM(p, a, b);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+/**
  * Ray-casting point-in-polygon over ALL rings at once (even-odd rule).
  *
  * The pack flattens a MultiPolygon's rings into one list, which is safe

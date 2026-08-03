@@ -1,6 +1,9 @@
 // Spatial predicates (Stage E2) — the three PostGIS operations, in TypeScript.
 import { assertAlmostEquals, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { bboxContains, bboxPadding, haversineM, pointInRings, withinM, type Ring } from "./spatial.ts";
+import {
+  bboxContains, bboxPadding, haversineM, pointInRings, pointToPolylineM,
+  pointToSegmentM, withinM, type Position, type Ring,
+} from "./spatial.ts";
 
 // ── Distance ────────────────────────────────────────────────────────────────
 Deno.test("haversine: identical points are zero", () => {
@@ -111,4 +114,52 @@ Deno.test("bboxPadding does not explode at the pole", () => {
   const atPole = bboxPadding(90, 10_000);
   assertEquals(Number.isFinite(atPole.dLng), true);
   assertEquals(atPole.dLng, 180);
+});
+
+// ── Distance to a line (faults, contacts, lineaments) ───────────────────────
+Deno.test("pointToSegment: a point on the segment is zero", () => {
+  const a = { lat: 2.0, lng: 45.0 };
+  const b = { lat: 2.0, lng: 45.1 };
+  assertAlmostEquals(pointToSegmentM({ lat: 2.0, lng: 45.05 }, a, b), 0, 0.5);
+});
+
+Deno.test("pointToSegment: perpendicular offset is the true distance", () => {
+  const a = { lat: 2.0, lng: 45.0 };
+  const b = { lat: 2.0, lng: 45.1 };
+  // 0.001 deg of latitude north of the line ~ 111 m.
+  assertAlmostEquals(pointToSegmentM({ lat: 2.001, lng: 45.05 }, a, b), 111.1, 2);
+});
+
+Deno.test("pointToSegment: beyond an end, distance is to the ENDPOINT not the infinite line", () => {
+  const a = { lat: 2.0, lng: 45.0 };
+  const b = { lat: 2.0, lng: 45.1 };
+  // Due west of `a`, past the end of the segment.
+  const d = pointToSegmentM({ lat: 2.0, lng: 44.99 }, a, b);
+  assertAlmostEquals(d, haversineM({ lat: 2.0, lng: 44.99 }, a), 2);
+});
+
+Deno.test("pointToSegment: a degenerate segment is treated as a point", () => {
+  const a = { lat: 2.0, lng: 45.0 };
+  const d = pointToSegmentM({ lat: 2.001, lng: 45.0 }, a, a);
+  assertAlmostEquals(d, 111.1, 2);
+});
+
+Deno.test("pointToPolyline: takes the nearest segment of a bent line", () => {
+  // An L: west-to-east then north.
+  const line: Position[] = [[45.0, 2.0], [45.1, 2.0], [45.1, 2.1]];
+  // Near the vertical limb, far from the horizontal one.
+  const d = pointToPolylineM({ lat: 2.05, lng: 45.101 }, line);
+  assertAlmostEquals(d, 111.1, 3);
+});
+
+Deno.test("pointToPolyline: empty and single-point lines are handled, not crashed on", () => {
+  assertEquals(pointToPolylineM({ lat: 2, lng: 45 }, []), Infinity);
+  const one: Position[] = [[45.0, 2.0]];
+  assertAlmostEquals(pointToPolylineM({ lat: 2.001, lng: 45.0 }, one), 111.2, 1);
+});
+
+Deno.test("pointToPolyline agrees with haversine for a point off one end", () => {
+  const line: Position[] = [[45.0, 2.0], [45.05, 2.0]];
+  const p = { lat: 2.0, lng: 44.95 };
+  assertAlmostEquals(pointToPolylineM(p, line), haversineM(p, { lat: 2.0, lng: 45.0 }), 3);
 });

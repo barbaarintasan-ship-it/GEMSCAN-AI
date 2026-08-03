@@ -60,6 +60,8 @@ function computeBbox(data: PackData): [number, number, number, number] | null {
   for (const k of data.knowledge) point(k.lng, k.lat);
   for (const s of data.structures) point(s.lng, s.lat);
   for (const c of data.community) point(c.lng, c.lat);
+  for (const t of data.terrain) point(t.lng, t.lat);
+  for (const f of data.mapFeatures) { point(f.bbox[0], f.bbox[1]); point(f.bbox[2], f.bbox[3]); }
   return Number.isFinite(minLng) ? [minLng, minLat, maxLng, maxLat] : null;
 }
 
@@ -74,6 +76,8 @@ export function buildPack(data: PackData, opts: BuildPackOptions): BuiltPack {
     knowledge: byId(data.knowledge),
     structures: byId(data.structures),
     community: byKey(data.community, (c) => c.cell),
+    mapFeatures: byId(data.mapFeatures),
+    terrain: byKey(data.terrain, (t) => t.cell),
     associations: byKey(data.associations, (a) => `${a.commodity_code}|${a.host_rock_code}`),
     rules: byId(data.rules),
     commodities: byKey(data.commodities, (c) => c.code),
@@ -86,6 +90,8 @@ export function buildPack(data: PackData, opts: BuildPackOptions): BuiltPack {
     [PACK_FILES.knowledge]: fileBody("knowledge", sorted.knowledge),
     [PACK_FILES.structures]: fileBody("structures", sorted.structures),
     [PACK_FILES.community]: fileBody("community", sorted.community),
+    [PACK_FILES.mapFeatures]: fileBody("mapFeatures", sorted.mapFeatures),
+    [PACK_FILES.terrain]: fileBody("terrain", sorted.terrain),
     [PACK_FILES.associations]: fileBody("associations", sorted.associations),
     [PACK_FILES.rules]: fileBody("rules", sorted.rules),
     [PACK_FILES.commodities]: fileBody("commodities", sorted.commodities),
@@ -111,6 +117,8 @@ export function buildPack(data: PackData, opts: BuildPackOptions): BuiltPack {
       knowledge: sorted.knowledge.length,
       structures: sorted.structures.length,
       community: sorted.community.length,
+      mapFeatures: sorted.mapFeatures.length,
+      terrain: sorted.terrain.length,
       associations: sorted.associations.length,
       rules: sorted.rules.length,
       commodities: sorted.commodities.length,

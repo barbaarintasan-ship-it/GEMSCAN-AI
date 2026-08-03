@@ -13,6 +13,7 @@ import { buildProviders } from "../../../supabase/functions/_shared/geocontext/p
 import { cellFor, H3_RESOLUTION } from "./h3.ts";
 import type { GeoContext, GeoContextProvider, GeoQuery } from "../../../shared/geo-core/types.ts";
 import { makePackGateway } from "./packGateway.ts";
+import { makeMapLayerProvider, makeTerrainProvider } from "./terrainProviders.ts";
 import type { PackStore } from "./packStore.ts";
 
 /** Default search radius for "what is around me", matching the server's usage. */
@@ -60,8 +61,17 @@ export class OfflineGeoContextService {
     await this.packs.load();
 
     const gateway = makePackGateway(this.packs.getData());
+    // Map layers and terrain read the pack directly rather than through the
+    // gateway: the gateway mirrors the server's 9 SQL functions, and inventing
+    // two more would put the device ahead of the contract E3 compares against.
+    const packData = () => this.packs.getData();
     const engine = new GeoContextEngine({
-      providers: [...buildProviders(gateway), ...this.extraProviders],
+      providers: [
+        ...buildProviders(gateway),
+        makeMapLayerProvider(packData),
+        makeTerrainProvider(packData),
+        ...this.extraProviders,
+      ],
       engineVersion: this.engineVersion,
     });
 

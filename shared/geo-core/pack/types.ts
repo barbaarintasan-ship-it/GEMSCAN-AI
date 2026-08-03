@@ -116,6 +116,44 @@ export interface PackCommunityCell {
   sample_count: number;
 }
 
+// ── Map layers (Architecture §7.7) ──────────────────────────────────────────
+/** What a mapped line represents. Mirrors geo.geological_layer.kind. */
+export type MapFeatureKind = "fault" | "contact" | "lineament" | "drainage" | "other";
+
+export interface PackMapFeature {
+  id: string;
+  kind: MapFeatureKind;
+  name: string | null;
+  source: string | null;
+  attributes: Record<string, unknown> | null;
+  /** Polyline(s). A fault is a LINE, so proximity uses pointToPolylineM. */
+  lines: Position[][];
+  bbox: [number, number, number, number];
+}
+
+// ── Terrain (Architecture §7.7) ─────────────────────────────────────────────
+/** Landform class at a cell. Derived from a DEM, never from imagery. */
+export type TerrainMorphology = "ridge" | "slope" | "valley" | "flat";
+
+/**
+ * DEM derivatives per H3 cell rather than a raster: the engine asks "what is
+ * the ground like HERE", not "render me a surface", which keeps the pack small
+ * and the lookup O(1).
+ */
+export interface PackTerrainCell {
+  cell: string;
+  lat: number;
+  lng: number;
+  elevationM: number;
+  slopeDeg: number;
+  aspectDeg: number | null;
+  /** Local relief — max minus min elevation in the neighbourhood. */
+  reliefM: number;
+  morphology: TerrainMorphology;
+  /** Distance to the nearest mapped drainage, when drainage is in the pack. */
+  drainageDistM: number | null;
+}
+
 export interface PackAssociation {
   commodity_code: string;
   host_rock_code: string;
@@ -167,6 +205,8 @@ export interface PackData {
   knowledge: PackKnowledgeItem[];
   structures: PackStructuralFeature[];
   community: PackCommunityCell[];
+  mapFeatures: PackMapFeature[];
+  terrain: PackTerrainCell[];
   associations: PackAssociation[];
   rules: PackKnowledgeRule[];
   commodities: PackCommodityProfile[];
@@ -186,6 +226,8 @@ export const PACK_FILES = {
   knowledge: "knowledge.json",
   structures: "structures.json",
   community: "community.json",
+  mapFeatures: "maplayers.json",
+  terrain: "terrain.json",
   associations: "associations.json",
   rules: "rules.json",
   commodities: "commodities.json",

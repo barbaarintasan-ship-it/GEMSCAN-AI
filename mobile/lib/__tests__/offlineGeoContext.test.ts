@@ -40,6 +40,7 @@ function packData(): PackData {
     }],
     structures: [],
     community: [{ cell: "c1", lat: 2.0470, lng: 45.3180, verified_scans: 3, sample_count: 11 }],
+    mapFeatures: [], terrain: [],
     associations: [
       { commodity_code: "gold", host_rock_code: "greenstone", weight: 0.8 },
       { commodity_code: "copper", host_rock_code: "basalt", weight: 0.4 },

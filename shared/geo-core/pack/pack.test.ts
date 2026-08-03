@@ -99,6 +99,7 @@ function sampleData(): PackData {
     knowledge: [],
     structures: [],
     community: [{ cell: "87a1b2c3d", lat: 2.3, lng: 45.1, verified_scans: 4, sample_count: 9 }],
+    mapFeatures: [], terrain: [],
     associations: [
       { commodity_code: "gold", host_rock_code: "greenstone", weight: 0.8 },
       { commodity_code: "copper", host_rock_code: "basalt", weight: 0.5 },
@@ -162,7 +163,7 @@ Deno.test("manifest records counts, bbox and dataset provenance", () => {
 
 Deno.test("an empty pack is valid and reports a null bbox rather than a fake one", () => {
   const empty: PackData = {
-    geology: [], occurrences: [], knowledge: [], structures: [], community: [],
+    geology: [], occurrences: [], knowledge: [], structures: [], community: [], mapFeatures: [], terrain: [],
     associations: [], rules: [], commodities: [], assemblages: [],
   };
   const built = buildPack(empty, OPTS);

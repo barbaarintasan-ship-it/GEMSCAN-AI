@@ -33,7 +33,7 @@ function packWithNeCluster(): PackData {
       rings: [[[45.0, 1.8], [45.8, 1.8], [45.8, 2.6], [45.0, 2.6], [45.0, 1.8]]],
       bbox: [45.0, 1.8, 45.8, 2.6], isPolygon: true,
     }],
-    occurrences: [], knowledge: [], structures: [], community: [],
+    occurrences: [], knowledge: [], structures: [], community: [], mapFeatures: [], terrain: [],
     associations: [], rules: [], commodities: [], assemblages: [],
   };
   for (let i = 0; i < 4; i++) {

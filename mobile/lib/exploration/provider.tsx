@@ -52,7 +52,7 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
     ]);
     ref.current = new ExplorationOrchestrator({
       field,
-      targeting: new TargetingEngine(geo, localEvidence),
+      targeting: new TargetingEngine(geo, localEvidence, () => packs.getData()),
       packs,
       waypoints,
     });

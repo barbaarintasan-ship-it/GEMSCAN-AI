@@ -301,6 +301,20 @@ describe("DiagnosticsRecorder", () => {
     expect(audit.pass).toBe(false);
   });
 
+  test("records by default — a disabled-by-default recorder froze every metric", () => {
+    const rec = new DiagnosticsRecorder();
+    expect(rec.enabled).toBe(true);
+    rec.sessionStarted();
+    rec.fix({ lat: 0, lng: 0, accuracy: 5, altitude: null, speed: null, timestamp: 1, provisional: false });
+    rec.dispatch();
+    rec.transition("idle", "START", "requestingPermissions");
+    rec.log("hello");
+    expect(rec.getCounters().fixesTotal).toBe(1);
+    expect(rec.getCounters().dispatches).toBe(1);
+    expect(rec.getTransitions()).toHaveLength(1);
+    expect(rec.getLifecycle()).toHaveLength(1);
+  });
+
   test("clean stop audits pass", () => {
     let now = 1000;
     const rec = new DiagnosticsRecorder(true, () => now);
@@ -431,6 +445,31 @@ describe("FieldSessionController", () => {
     expect(controller.getSnapshot().machine.state).toBe("idle");
     const ignored = recorder.getLifecycle().filter((l) => l.ignored);
     expect(ignored.length).toBeGreaterThanOrEqual(4);
+  });
+
+  test("diagnostics report carries live counters/logs and survives JSON export", async () => {
+    const { controller, locApi, headApi } = makeController();
+    controller.start();
+    await flush();
+    locApi.watchCbs.forEach((cb) => cb(rawFix(2.06, 45.33, 12)));
+    headApi.cbs.forEach((cb) => cb({ trueHeading: 90, magHeading: 90, accuracy: 3 }));
+
+    const report = controller.diagnosticsReport({ os: "test", version: "1" });
+    expect(report.recorderEnabled).toBe(true);
+    expect(report.session.state).toBe("active");
+    expect(report.counters.fixesTotal).toBeGreaterThan(0);
+    expect(report.counters.fixesTotal).toBeGreaterThanOrEqual(report.session.fixCount);
+    expect(report.counters.dispatches).toBeGreaterThan(0);
+    expect(report.transitions.length).toBeGreaterThan(0);
+    expect(report.lifecycle.length).toBeGreaterThan(0);
+    // Heading counts come from the service, so screen row and JSON agree.
+    expect(report.counters.headingRaw).toBe(controller.heading.counts().raw);
+    expect(report.counters.headingEmitted).toBe(controller.heading.counts().emitted);
+    expect(report.services.subscriptions).toEqual({ position: 1, heading: 1, appState: 1 });
+
+    // The export is exactly the rendered object — nothing added, nothing lost.
+    expect(JSON.parse(JSON.stringify(report))).toEqual(report);
+    controller.stop();
   });
 
   test("error state: RETRY re-runs the flow to active", async () => {
