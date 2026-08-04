@@ -97,7 +97,7 @@
       "reasoning": "Waxaan ku cusboonaysiinayaa waxa aad heshay…",
       "arrived": "Waad timid",
       "guiding": "Waa lagu hagayaa",
-      "noTarget": "Meel lagu socdo halkan ma jirto"
+      "noTarget": "Bartilmaameed lug lagu tago ma jiro — eeg hoose"
     },
     "here": {
       "label": "MEESHA AAD JOOGTO",
@@ -117,7 +117,18 @@
       "turnRight": "U leexo midig {{deg}}°",
       "otherOptions": "DOORASHOOYIN KALE",
       "headTo": "U soco {{distance}} {{compass}}",
-      "pill": "Bartilmaameed: {{distance}} {{compass}}"
+      "pill": "Bartilmaameed: {{distance}} {{compass}}",
+      "travelTime": "Waqtiga safarka",
+      "transportLabel": "Gaadiid",
+      "elevationDiff": "Farqiga dhererka",
+      "elevationUp": "{{m}} mitir kaa sarreeya",
+      "elevationDown": "{{m}} mitir kaa hooseeya",
+      "elevationSame": "Isku dheer ayaad tihiin",
+      "elevationUnknown": "Xog dherer oo labada barood daboolaysa ma jirto",
+      "save": "Kaydi bartilmaameedka",
+      "saved": "Waxaa loo kaydiyay meel",
+      "actions": "FALALKA",
+      "navigate": "U soco"
     },
     "none": {
       "noStronger": "Dhul ka fiican lama helin",
@@ -205,7 +216,7 @@
       "farTitle": "WAXA UGU DHOW EE LA OGYAHAY, OO FOG",
       "farOccurrence": "Macdan {{commodity}} ah — {{distance}} xagga {{compass}}",
       "farFault": "Jeex la khariidadeeyay — {{distance}} xagga {{compass}}",
-      "farHint": "Way ka fog tahay in lagu lugeeyo. Waxaa loo muujiyay inaad ogaato dhinaca ay dhulka la yaqaan ku taallo.",
+      "farHint": "Waa ka fog tahay socod hal mar ah. Waxay ku qoran tahay Halkudhegyada gobolka, halkaas oo aad ka bilaabi karto socodka.",
       "unit": "Dhagaxa halkan: {{name}}",
       "faultDir": "Jeex: {{distance}} {{compass}}",
       "occurrenceDir": "Macdan {{commodity}} ah: {{distance}} {{compass}}"
@@ -233,7 +244,11 @@
       "terrain": "Dhulka / DEM",
       "faults": "Jeexyada",
       "occurrences": "Macdanta MRDS",
-      "target": "Bartilmaameedka"
+      "target": "Bartilmaameedka",
+      "accuracy": "Goobada saxnaanta GPS",
+      "compass": "Kombaas / jihada",
+      "grid": "Shabag",
+      "frame": "Muuji bartilmaameedka"
     },
     "sheet": {
       "distance": "Masaafada",
@@ -248,11 +263,13 @@
       "addNote": "Ku dar qoraal",
       "recalculate": "Dib u xisaabi",
       "walkToward": "U soco {{distance}} xagga {{compass}}. {{reason}}",
-      "nothingHereFar": "Halkan wax lagu socdo ma jiraan. Dhulka ugu dhow ee la yaqaan waa {{distance}} xagga {{compass}}.",
+      "nothingHereFar": "Bartilmaameed lug lagu gaadho ma jiro. Dhulka khariidadaysan ee ugu dhow waa {{distance}} xagga {{compass}} — {{transport}}, qiyaastii {{travel}}.",
       "youAreOn": "Waxaad saaran tahay {{unit}}.",
       "unitUnknown": "Barta aad joogto qayb khariidadaysan ma haysato.",
       "faultAhead": "Jeex la khariidadeeyay ayaa {{distance}} kaa jira, taasoo macdanta kulmin karta.",
-      "walked": "Waxaad socotay {{distance}}"
+      "walked": "Waxaad socotay {{distance}}",
+      "travelLine": "{{band}} · {{transport}} · qiyaastii {{travel}}",
+      "regionalLead": "Halka ugu dhow ee la khariidadeeyay: {{distance}} xagga {{compass}}. {{transport}}, qiyaastii {{travel}}."
     },
     "arrived": {
       "title": "Waad gaadhay bartilmaameedka",
@@ -269,6 +286,110 @@
       "fault": "Jeex",
       "contact": "Xidhiidh dhagax",
       "intersection": "Isgoys qaab-dhismeed"
+    },
+    "bandDistance": {
+      "immediate": "Bartilmaameed dhow",
+      "local": "Bartilmaameed deegaan",
+      "regional": "Bartilmaameed gobol",
+      "expedition": "Bartilmaameed safar dheer"
+    },
+    "transport": {
+      "walk": "lug",
+      "walk_or_drive": "lug ama gaadhi",
+      "vehicle": "gaadhi ayaa lagula talinayaa",
+      "expedition": "safar fog"
+    },
+    "transportShort": {
+      "walk": "Lug",
+      "walk_or_drive": "Lug / gaadhi",
+      "vehicle": "Gaadhi",
+      "expedition": "Safar"
+    },
+    "travel": {
+      "minutes": "{{value}} daqiiqo",
+      "hours": "{{value}} saac",
+      "hoursMinutes": "{{h}} saac {{m}} daqiiqo",
+      "days": "{{value}} maalmood",
+      "unknown": "lama garanayo"
+    },
+    "regional": {
+      "title": "HALKUDHEGYADA GOBOLKA",
+      "hint": "Waxyaabaha la khariidadeeyay ee ku jira xirmada aqoonta, masaafo kasta. Masaafadu waa kala-saarid, ma aha diidmo.",
+      "occurrence": "Macdanta {{commodity}}",
+      "occurrenceUnnamed": "Meel macdan leh",
+      "fault": "Jeex la khariidadeeyay",
+      "faultNamed": "Jeexa: {{name}}",
+      "navigate": "U soco",
+      "stop": "Jooji socodka",
+      "none": "Xirmada aqoonta wax la khariidadeeyay kama hayso meelna halkan ka jirta.",
+      "computing": "Waxaa la akhrinayaa xirmada aqoonta…",
+      "priority": "Mudnaanta {{value}}%",
+      "navigatingTo": "Waxaad u socotaa {{label}}"
+    },
+    "gps": {
+      "title": "GPS",
+      "accuracy": "±{{m}} mitir",
+      "accuracyUnknown": "saxnaanta lama sheegin",
+      "updatedJustNow": "hadda la cusboonaysiiyay",
+      "updatedSeconds": "{{s}} il-biriqsi ka hor",
+      "updatedMinutes": "{{m}} daqiiqo ka hor",
+      "gradeGood": "Xaalad wanaagsan",
+      "gradeUsable": "Xaalad la isticmaali karo",
+      "gradePoor": "Xaalad liidata",
+      "gradeStale": "Xogtu waa duugoobtay",
+      "gradeNone": "Meel lama hayo",
+      "warnPoor": "GPS-ku halkan wuxuu saxan yahay qiyaastii ±{{m}} mitir. Masaafada iyo imaanshaha intaas ayay le'eg yihiin.",
+      "warnStale": "{{s}} il-biriqsi meel cusub lama helin. Waxa la muujinayo waxaa laga yaabaa inay tahay meeshii aad joogtay.",
+      "warnNone": "GPS weli lama helin. Masaafada iyo jihada waa la sugayaa, lama qiyaasayo.",
+      "calibrate": "Kombaaska waa in la habeeyaa — taleefanka u dhaqaaji sida sideed.",
+      "altitude": "Dhererka {{m}} mitir"
+    },
+    "track": {
+      "title": "SOCDAALKAN",
+      "distance": "Masaafada",
+      "duration": "Waqtiga",
+      "moving": "Socod",
+      "avgSpeed": "Celceliska",
+      "maxSpeed": "Ugu badnaan",
+      "ascent": "Kor u kac",
+      "descent": "Hoos u dhac",
+      "samples": "Muunado",
+      "waypoints": "Meelo",
+      "targets": "Bartilmaameedyo",
+      "speed": "{{value}} km/s",
+      "none": "—"
+    },
+    "export": {
+      "title": "SOO SAAR DIIWAANKA GOOBTA",
+      "hint": "{{count}} meel oo goob leh. GPX gacan-qabsi, CSV xisaab, GeoJSON QGIS.",
+      "gpx": "GPX",
+      "csv": "CSV",
+      "geojson": "GeoJSON",
+      "done": "Waxaa la soo saaray {{count}} meel: {{filename}}",
+      "empty": "Meelna weli goob ma haysato — wax la soo saaro ma jiro.",
+      "unavailable": "Qalabkan wadaagid ma taageero.",
+      "failed": "Soo saaridda way fashilantay."
+    },
+    "diag": {
+      "title": "BAADHITAANKA SAHAMINTA",
+      "pack": "Xirmada aqoonta",
+      "packVersion": "Nooca xirmada",
+      "packAge": "Da'da xirmada",
+      "units": "Qaybaha juqraafiga",
+      "faults": "Jeexyada",
+      "terrain": "Unugyada dhulka",
+      "occurrences": "Macdanta MRDS",
+      "online": "Xiriirka",
+      "gps": "GPS",
+      "satellite": "Sawirka dayax-gacmeedka",
+      "tiles": "Kaydka tiles",
+      "navigation": "Socodka",
+      "navigationActive": "Firfircoon",
+      "navigationIdle": "Nasasho",
+      "satelliteOn": "{{count}} tiles la muujiyay",
+      "satelliteOff": "Damin",
+      "days": "{{days}} maalmood",
+      "none": "—"
     }
   },
   "camera": {

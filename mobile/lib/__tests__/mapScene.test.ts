@@ -50,7 +50,7 @@ function pack(overrides: Partial<PackData> = {}): PackData {
       { cell: "t1", lat: HERE.lat, lng: HERE.lng, elevationM: 500, slopeDeg: 4, aspectDeg: null, reliefM: 20, morphology: "slope", drainageDistM: null },
       { cell: "t2", lat: HERE.lat + 0.01, lng: HERE.lng, elevationM: 900, slopeDeg: 9, aspectDeg: null, reliefM: 40, morphology: "ridge", drainageDistM: null },
     ],
-    associations: [], rules: [], commodities: [], assemblages: [],
+    associations: [], rules: [], commodities: [], assemblages: [], land: [],
     ...overrides,
   };
 }
@@ -136,7 +136,7 @@ describe("sceneCovers", () => {
 describe("an empty pack produces an empty scene, not a broken one", () => {
   const empty: PackData = {
     geology: [], occurrences: [], knowledge: [], structures: [], community: [],
-    mapFeatures: [], terrain: [], associations: [], rules: [], commodities: [], assemblages: [],
+    mapFeatures: [], terrain: [], associations: [], rules: [], commodities: [], assemblages: [], land: [],
   };
   const scene = buildScene(empty, HERE, 2_000);
 

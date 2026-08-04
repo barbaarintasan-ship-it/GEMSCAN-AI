@@ -34,7 +34,7 @@ function packWithNeCluster(): PackData {
       bbox: [45.0, 1.8, 45.8, 2.6], isPolygon: true,
     }],
     occurrences: [], knowledge: [], structures: [], community: [], mapFeatures: [], terrain: [],
-    associations: [], rules: [], commodities: [], assemblages: [],
+    associations: [], rules: [], commodities: [], assemblages: [], land: [],
   };
   for (let i = 0; i < 4; i++) {
     d.occurrences.push({
@@ -105,10 +105,14 @@ const settle = () => new Promise<void>((r) => setTimeout(r, 0));
 
 // ── Pure helpers ────────────────────────────────────────────────────────────
 describe("guidance geometry", () => {
-  test("arrival radius widens with GPS accuracy so it cannot flap", () => {
-    expect(arrivalRadiusM(5)).toBe(50);   // floor
-    expect(arrivalRadiusM(40)).toBe(80);  // 2x accuracy
-    expect(arrivalRadiusM(null)).toBe(50);
+  // The orchestrator no longer carries its own copy of this rule; it re-exports
+  // the one in geo/fixQuality, so a tight fix earns a tight arrival instead of
+  // being told it has arrived from a flat 50 m away.
+  test("arrival radius scales with GPS accuracy so it cannot flap", () => {
+    expect(arrivalRadiusM(5)).toBe(25);    // floor — a good fix arrives close
+    expect(arrivalRadiusM(40)).toBe(100);  // 2.5x accuracy
+    expect(arrivalRadiusM(400)).toBe(150); // ceiling — never a whole village
+    expect(arrivalRadiusM(null)).toBe(50); // unreported accuracy: assume 20 m
   });
 
   test("relative bearing is a signed turn, shortest way round", () => {
@@ -337,7 +341,12 @@ describe("ExplorationOrchestrator", () => {
     field.emitFix(MOG.lat, MOG.lng, 12);
     await settle();
     const s = orch.getSnapshot();
-    expect(s.position).toEqual({ lat: MOG.lat, lng: MOG.lng, accuracyM: 12 });
+    // Altitude and timestamp ride along with the fix now: the screen grades how
+    // OLD a position is, and the track recorder needs a real altitude to
+    // accumulate any relief at all.
+    expect(s.position).toEqual({
+      lat: MOG.lat, lng: MOG.lng, accuracyM: 12, altitudeM: null, timestamp: NOW,
+    });
     expect(s.inspecting).toBeNull();
     orch.stop();
   });
@@ -354,7 +363,9 @@ describe("ExplorationOrchestrator", () => {
     const s = orch.getSnapshot();
     expect(s.inspecting).toEqual({ lat: 9.56, lng: 44.065 });
     // The real position is still reported — a lookup never overwrites it.
-    expect(s.position).toEqual({ lat: MOG.lat, lng: MOG.lng, accuracyM: 8 });
+    expect(s.position).toEqual({
+      lat: MOG.lat, lng: MOG.lng, accuracyM: 8, altitudeM: null, timestamp: NOW,
+    });
     // No bearing or distance from a position you are not at.
     expect(s.distanceToTargetM).toBeNull();
     expect(s.relativeBearingDeg).toBeNull();
@@ -386,6 +397,91 @@ describe("ExplorationOrchestrator", () => {
     orch.clearInspect();
     await settle();
     expect(orch.getSnapshot().inspecting).toBeNull();
+    orch.stop();
+  });
+
+  // The upgrade's core behaviour at the engine level: a mapped feature further
+  // away than one leg of a traverse is still somewhere you can be sent.
+  test("navigates to a mapped feature at expedition range", async () => {
+    const { orch, field } = harness();
+    orch.start();
+    field.emitFix(MOG.lat, MOG.lng);
+    await settle();
+
+    // Hargeisa-ish: roughly 900 km north-west of Mogadishu. Far beyond the
+    // 15 km the targeting engine will recommend a walk to, and that is the point.
+    const lead = {
+      id: "occ:far-gold", kind: "occurrence" as const, label: "Gold showing",
+      commodity: "Gold", lat: 9.56, lng: 44.065,
+      distanceM: 900_000, bearingDeg: 315, compass: "NW",
+      distanceClass: { band: "expedition" as const, transport: "expedition" as const, travelMinutes: 1_543 },
+      priority: 0.2,
+      reason: { kind: "known_occurrence" as const, commodity: "Gold" },
+    };
+    orch.navigateToRegional(lead);
+
+    const s = orch.getSnapshot();
+    expect(s.destination).toEqual({ lat: 9.56, lng: 44.065 });
+    // The pack record travels WITH the destination, so the screen can say what
+    // it is rather than presenting a bare coordinate.
+    expect(s.selectedRegional?.id).toBe("occ:far-gold");
+    // Measured from the real fix, and actually measured — not refused for range.
+    expect(s.destinationDistanceM).toBeGreaterThan(800_000);
+    expect(s.destinationBearingDeg).not.toBeNull();
+    orch.stop();
+  });
+
+  test("clearing the destination also clears the record it came from", async () => {
+    const { orch, field } = harness();
+    orch.start();
+    field.emitFix(MOG.lat, MOG.lng);
+    await settle();
+
+    orch.navigateTo(9.56, 44.065);
+    expect(orch.getSnapshot().destination).not.toBeNull();
+    orch.clearDestination();
+
+    const s = orch.getSnapshot();
+    expect(s.destination).toBeNull();
+    expect(s.selectedRegional).toBeNull();
+    expect(s.destinationDistanceM).toBeNull();
+    orch.stop();
+  });
+
+  // A hand-typed coordinate is not a pack record, and must not inherit one from
+  // whatever regional lead was being followed before it.
+  test("a typed destination does not inherit the previous lead's identity", async () => {
+    const { orch, field } = harness();
+    orch.start();
+    field.emitFix(MOG.lat, MOG.lng);
+    await settle();
+
+    orch.navigateToRegional({
+      id: "occ:x", kind: "occurrence", label: "x", commodity: null,
+      lat: 3, lng: 45, distanceM: 100_000, bearingDeg: 0, compass: "N",
+      distanceClass: { band: "expedition", transport: "expedition", travelMinutes: 171 },
+      priority: 0.1, reason: { kind: "known_occurrence", commodity: null },
+    });
+    orch.navigateTo(4, 46);
+
+    expect(orch.getSnapshot().selectedRegional).toBeNull();
+    expect(orch.getSnapshot().destination).toEqual({ lat: 4, lng: 46 });
+    orch.stop();
+  });
+
+  test("reaching a target counts towards the traverse summary", async () => {
+    const { orch, field } = harness();
+    orch.start();
+    field.emitFix(MOG.lat, MOG.lng);
+    await settle();
+    expect(orch.getSnapshot().targetsInvestigated).toBe(0);
+
+    const target = orch.getSnapshot().activeTarget!;
+    field.emitFix(target.centre.lat, target.centre.lng);
+    await settle();
+
+    expect(orch.getSnapshot().state).toBe("awaitingEvidence");
+    expect(orch.getSnapshot().targetsInvestigated).toBe(1);
     orch.stop();
   });
 

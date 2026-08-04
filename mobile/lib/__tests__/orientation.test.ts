@@ -34,7 +34,7 @@ function remotePack(): PackData {
       cell: "t1", lat: HERE.lat - 0.8, lng: HERE.lng, elevationM: 506, slopeDeg: 5,
       aspectDeg: null, reliefM: 147, morphology: "ridge", drainageDistM: null,
     }],
-    associations: [], rules: [], commodities: [], assemblages: [],
+    associations: [], rules: [], commodities: [], assemblages: [], land: [],
   };
 }
 
@@ -100,7 +100,7 @@ describe("when features ARE close", () => {
 describe("an empty pack yields nulls, never zeros", () => {
   const empty: PackData = {
     geology: [], occurrences: [], knowledge: [], structures: [], community: [],
-    mapFeatures: [], terrain: [], associations: [], rules: [], commodities: [], assemblages: [],
+    mapFeatures: [], terrain: [], associations: [], rules: [], commodities: [], assemblages: [], land: [],
   };
   const o = orientationAt(empty, HERE);
 
@@ -147,7 +147,7 @@ describe("the map view is widened to contain something", () => {
   test("an empty pack keeps the default rather than zooming to nothing", () => {
     const empty: PackData = {
       geology: [], occurrences: [], knowledge: [], structures: [], community: [],
-      mapFeatures: [], terrain: [], associations: [], rules: [], commodities: [], assemblages: [],
+      mapFeatures: [], terrain: [], associations: [], rules: [], commodities: [], assemblages: [], land: [],
     };
     expect(fittingRadiusM(orientationAt(empty, HERE), DEFAULT)).toBe(DEFAULT);
   });

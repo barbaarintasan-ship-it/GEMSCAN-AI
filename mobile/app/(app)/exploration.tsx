@@ -33,12 +33,19 @@ import { useTranslation } from "react-i18next";
 import { colors, radius, spacing } from "../../lib/theme";
 import { ExplorationProvider, useExploration } from "../../lib/exploration/provider";
 import type { TargetReason } from "../../lib/geo/targeting.ts";
-import { WAYPOINT_TYPES, waypointTypeLabelKey, type WaypointType } from "../../lib/field/waypointTypes";
+import { DEFAULT_TARGETING } from "../../lib/geo/targeting.ts";
+import {
+  WAYPOINT_TYPES, waypointTypeLabelKey, type Waypoint, type WaypointType,
+} from "../../lib/field/waypointTypes";
 import { compassPoint as compassPointOf } from "../../../shared/geo-core/geo/spatial.ts";
 import { buildScene, sceneCovers, type MapScene } from "../../lib/geo/mapScene";
 import {
-  orientationAt, fittingRadiusM, NEARBY_FAULT_M, NEARBY_OCCURRENCE_M, type Orientation,
+  fittingRadiusM, elevationAt, NEARBY_FAULT_M, NEARBY_OCCURRENCE_M, type Orientation,
 } from "../../lib/geo/orientation";
+import { useGeoReadout } from "../../lib/geo/useGeoReadout";
+import { classifyDistance, type RegionalTarget } from "../../lib/geo/expedition";
+import { gradeFix, type FixQuality } from "../../lib/geo/fixQuality";
+import { loadLayers, saveLayers } from "../../lib/geo/layerPrefs";
 import {
   ExplorationMap, DEFAULT_LAYERS, type MapHandle, type MapLayers, type MapLive,
 } from "../../components/ExplorationMap";
@@ -48,11 +55,26 @@ import { useWalkingTrack } from "../../lib/exploration/useWalkingTrack";
 import { useSatelliteTiles } from "../../lib/geo/useSatelliteTiles";
 import { ATTRIBUTION } from "../../lib/geo/tileCache";
 import { useIsOnline } from "../../lib/network";
-
-type TFunc = (k: string, o?: Record<string, unknown>) => string;
+import { shareWaypoints, exportableCount } from "../../lib/field/waypointShare";
+import type { ExportFormat } from "../../lib/field/waypointExport";
+import {
+  compassKey, confidenceBandKey, describeClass, distanceBandKey, formatDistance,
+  formatDuration, formatElevationDelta, formatFixAge, formatSpeed, formatTravel,
+  transportKey, transportShortKey, type TFunc,
+} from "../../lib/exploration/format";
 
 /** Half-width of the first view. 2 km is a walkable neighbourhood. */
 const INITIAL_RADIUS_M = 2_000;
+
+/**
+ * How often the GPS readout re-renders while nothing else changes.
+ *
+ * A fix does not get less accurate when you look at it — it gets less accurate
+ * as it AGES, and "updated 40 s ago" is only true if something redraws it. Five
+ * seconds is fine enough to notice a receiver going quiet and coarse enough not
+ * to be a per-second re-render of the whole screen.
+ */
+const FIX_TICK_MS = 5_000;
 
 export default function ExplorationRoute() {
   return (
@@ -65,7 +87,7 @@ export default function ExplorationRoute() {
 
 function ExplorationScreen() {
   const { t } = useTranslation();
-  const { snapshot: s, actions, packs, waypoints } = useExploration();
+  const { snapshot: s, actions, packs, waypoints, waypointRecords } = useExploration();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const isOnline = useIsOnline();
@@ -78,15 +100,32 @@ function ExplorationScreen() {
   const [expanded, setExpanded] = React.useState(false);
   const [camera, setCamera] = React.useState({ rotationDeg: 0, metresPerPx: 1 });
 
+  // A layer set is a working preference, not a session detail. Loaded once and
+  // written back on every change, so the geologist who turns satellite off to
+  // read the geology does not have to do it again tomorrow.
+  const layersLoaded = React.useRef(false);
+  React.useEffect(() => {
+    void loadLayers(DEFAULT_LAYERS).then((stored) => {
+      setLayers(stored);
+      layersLoaded.current = true;
+    });
+  }, []);
+  React.useEffect(() => {
+    // Guarded, so the defaults rendered before the read completes are never
+    // written back over what the user actually chose.
+    if (layersLoaded.current) void saveLayers(layers);
+  }, [layers]);
+
   // The point every readout is about: a looked-up place, else the real fix.
   const at = s.inspecting ?? (s.position ? { lat: s.position.lat, lng: s.position.lng } : null);
   const data = packs.getData();
   const ready = packs.isReady();
 
-  const orientation = React.useMemo(
-    () => (at && ready ? orientationAt(data, at) : null),
-    [at?.lat, at?.lng, ready, data], // eslint-disable-line react-hooks/exhaustive-deps
-  );
+  // Orientation and the regional leads come from one movement-gated scan, off
+  // the gesture path — see lib/geo/useGeoReadout. Leads start where the local
+  // targeting engine stops, so the same feature is never offered twice.
+  const readout = useGeoReadout(data, ready, at, DEFAULT_TARGETING.maxDistanceM);
+  const orientation = readout.orientation;
 
   // The scene is rebuilt only when the viewer leaves the prepared ground, never
   // on every fix: a rebuild remounts the map surface, and doing that while
@@ -103,6 +142,34 @@ function ExplorationScreen() {
   const { tiles, downloading } = useSatelliteTiles(
     scene?.bbox ?? null, INITIAL_RADIUS_M, layers.satellite, isOnline,
   );
+
+  // Fix quality is graded on a clock, not on fixes: a receiver that has stopped
+  // reporting produces no re-render at all, and that silence is exactly the
+  // thing the geologist needs to be told about.
+  const [tick, setTick] = React.useState(0);
+  React.useEffect(() => {
+    if (!running) return;
+    const id = setInterval(() => setTick((v) => v + 1), FIX_TICK_MS);
+    return () => clearInterval(id);
+  }, [running]);
+  const fix: FixQuality = React.useMemo(
+    () => gradeFix(s.position ? { accuracyM: s.position.accuracyM, timestamp: s.position.timestamp } : null),
+    [s.position, tick],  // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // Elevation difference to whatever is being navigated to. Both readings come
+  // from the same DEM, and either being absent makes the answer null rather
+  // than zero — "no data" and "level ground" are not the same statement.
+  const destPoint = s.activeTarget
+    ? { lat: s.activeTarget.centre.lat, lng: s.activeTarget.centre.lng }
+    : s.destination;
+  const elevationDeltaM = React.useMemo(() => {
+    if (!ready || !destPoint || !s.position) return null;
+    const there = elevationAt(data, destPoint);
+    const here = elevationAt(data, { lat: s.position.lat, lng: s.position.lng });
+    if (!there || !here) return null;
+    return there.elevationM - here.elevationM;
+  }, [ready, data, destPoint?.lat, destPoint?.lng, s.position?.lat, s.position?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const live: MapLive = React.useMemo(() => ({
     position: s.position,
@@ -173,13 +240,23 @@ function ExplorationScreen() {
         )}
 
         <View style={styles.pillWrap} pointerEvents="box-none">
-          <GuidancePill snapshot={s} t={t} />
+          {/* Tapping the pill opens the sheet — the reasoning behind whatever it
+              is saying is always one thumb away from the claim itself. */}
+          <GuidancePill
+            snapshot={s}
+            nearest={readout.regional[0] ?? null}
+            onPress={() => setExpanded(true)}
+            t={t}
+          />
         </View>
 
         <MapRail
           items={[
             { icon: "layers", label: t("field.map.layers"), active: layersOpen, onPress: () => setLayersOpen((v) => !v) },
             { icon: "locate", label: t("field.map.centre"), onPress: () => map.current?.centre() },
+            // Once a destination can be 90 km away, centring on the viewer no
+            // longer shows where they are being sent. This pulls back to hold both.
+            { icon: "scan", label: t("field.map.frame"), onPress: () => map.current?.frameTarget() },
             { icon: "analytics", label: t("field.map.track"), active: layers.track, onPress: () => setLayers((l) => ({ ...l, track: !l.track })) },
             { icon: "location", label: t("field.map.waypoints"), active: layers.waypoints, onPress: () => setLayers((l) => ({ ...l, waypoints: !l.waypoints })) },
           ]}
@@ -223,6 +300,9 @@ function ExplorationScreen() {
               { key: "waypoints", label: t("field.map.waypoints"), icon: "location", color: "#3B82F6" },
               { key: "track", label: t("field.map.track"), icon: "analytics", color: "#F5C518" },
               { key: "target", label: t("field.map.target"), icon: "navigate", color: "#F5C518" },
+              { key: "accuracy", label: t("field.map.accuracy"), icon: "radio-button-on", color: "#3B82F6" },
+              { key: "compass", label: t("field.map.compass"), icon: "compass", color: "#3B82F6" },
+              { key: "grid", label: t("field.map.grid"), icon: "grid", color: "#8A8A8E" },
             ]}
           />
         ) : null}
@@ -236,6 +316,7 @@ function ExplorationScreen() {
           <CollapsedHeader
             snapshot={s}
             orientation={orientation}
+            nearest={readout.regional[0] ?? null}
             expanded={expanded}
             onToggle={() => setExpanded((v) => !v)}
             t={t}
@@ -251,6 +332,14 @@ function ExplorationScreen() {
           />
         ) : null}
 
+        <GpsBlock
+          fix={fix}
+          position={s.position}
+          needsCalibration={s.headingNeedsCalibration}
+          headingDeg={s.headingDeg}
+          t={t}
+        />
+
         <SheetSection title={t("field.sheet.interpretation")}>
           <Text style={styles.body}>{interpretation(s, orientation, t)}</Text>
         </SheetSection>
@@ -259,16 +348,49 @@ function ExplorationScreen() {
           <EvidenceLines orientation={orientation} unit={unitOf(s.context)} t={t} />
         </SheetSection>
 
-        {s.activeTarget ? (
+        {s.activeTarget || s.destination ? (
           <SheetSection title={t("field.target.why")}>
-            {s.activeTarget.reasons.map((r, i) => (
+            {/* Everything a journey needs, whether it is 400 m or 90 km: how far,
+                which way, how long, by what means, and how high. Distance
+                classifies the trip; it never cancels it. */}
+            <JourneyLines
+              distanceM={s.activeTarget ? s.distanceToTargetM ?? s.activeTarget.distanceM : s.destinationDistanceM}
+              bearingDeg={s.activeTarget ? s.activeTarget.bearingDeg : s.destinationBearingDeg}
+              elevationDeltaM={elevationDeltaM}
+              t={t}
+            />
+            {s.selectedRegional ? (
+              <Text style={styles.reason}>
+                {"•"} {regionalLabel(s.selectedRegional, t)}
+              </Text>
+            ) : null}
+            {(s.activeTarget?.reasons ?? []).map((r, i) => (
               <Text key={reasonKey(r, i)} style={styles.reason}>{"•"} {renderReason(r, t)}</Text>
             ))}
-            {s.activeTarget.commodities.length > 0 ? (
+            {s.activeTarget && s.activeTarget.commodities.length > 0 ? (
               <Text style={styles.faint}>
                 {t("field.target.lookingFor", { commodities: s.activeTarget.commodities.join(", ") })}
               </Text>
             ) : null}
+            <View style={styles.actionRow}>
+              <SheetAction
+                icon={<Ionicons name="scan" size={20} color={colors.text} />}
+                label={t("field.map.frame")}
+                onPress={() => map.current?.frameTarget()}
+              />
+              <SheetAction
+                icon={<Ionicons name="bookmark" size={20} color={colors.text} />}
+                label={t("field.target.save")}
+                onPress={() => void actions.captureObservation("other")}
+              />
+              {s.destination ? (
+                <SheetAction
+                  icon={<Ionicons name="close-circle" size={20} color={colors.text} />}
+                  label={t("field.destination.stop")}
+                  onPress={actions.clearDestination}
+                />
+              ) : null}
+            </View>
           </SheetSection>
         ) : null}
 
@@ -318,10 +440,38 @@ function ExplorationScreen() {
                   <Text style={styles.otherReason} numberOfLines={2}>
                     {x.reasons[0] ? renderReason(x.reasons[0], t) : ""}
                   </Text>
+                  <Text style={styles.faint}>{describeClass(t, classifyDistance(x.distanceM))}</Text>
                 </Pressable>
               ))}
           </SheetSection>
         ) : null}
+
+        {/* The answer to "nothing to walk to". Everything the pack holds, at any
+            distance, classified rather than filtered. */}
+        <SheetSection title={t("field.regional.title")}>
+          <RegionalBlock
+            leads={readout.regional}
+            computing={readout.computing}
+            selectedId={s.selectedRegional?.id ?? null}
+            onNavigate={actions.navigateToRegional}
+            onStop={actions.clearDestination}
+            t={t}
+          />
+        </SheetSection>
+
+        <SheetSection title={t("field.track.title")}>
+          <TraverseBlock
+            track={track}
+            evidenceCount={s.evidenceCount}
+            waypointCount={waypoints.length}
+            targetsInvestigated={s.targetsInvestigated}
+            t={t}
+          />
+        </SheetSection>
+
+        <SheetSection title={t("field.export.title")}>
+          <ExportBlock records={waypointRecords} t={t} />
+        </SheetSection>
 
         <SheetSection title={t("field.location.lookupTitle")}>
           <LookupBlock
@@ -393,7 +543,9 @@ function Header({
 
 type Snap = ReturnType<typeof useExploration>["snapshot"];
 
-function GuidancePill({ snapshot: s, t }: { snapshot: Snap; t: TFunc }) {
+function GuidancePill({
+  snapshot: s, nearest, onPress, t,
+}: { snapshot: Snap; nearest: RegionalTarget | null; onPress: () => void; t: TFunc }) {
   // Invariant 4: while looking somewhere else, no distance and no direction —
   // both would be measured from a place the reader is not standing.
   if (s.inspecting) {
@@ -407,19 +559,40 @@ function GuidancePill({ snapshot: s, t }: { snapshot: Snap; t: TFunc }) {
     );
   }
   if (s.destination && s.destinationDistanceM != null && s.destinationBearingDeg != null) {
+    // A chosen destination now carries its band and transport, because at this
+    // point it may be a two-day drive and "1.4 km" and "94 km" cannot read the
+    // same way on a pill someone glances at while walking.
+    const cls = classifyDistance(s.destinationDistanceM);
     return (
       <TargetPill
         title={t("field.destination.headTo", {
           distance: formatDistance(t, s.destinationDistanceM),
           compass: t(compassKey(compassPointOf(s.destinationBearingDeg))),
         })}
-        subtitle={t("field.destination.label")}
+        subtitle={`${t(transportShortKey(cls.transport))} · ${formatTravel(t, cls.travelMinutes)}`}
         tone="warn"
+        onPress={onPress}
       />
     );
   }
   if (!s.activeTarget) {
-    return <TargetPill title={t("field.status.noTarget")} tone="plain" />;
+    // The old dead end. There is no target within one leg of a traverse, which
+    // is not the same as there being nothing to go to — so the pill names the
+    // nearest thing the pack actually holds and offers to navigate to it.
+    if (nearest) {
+      return (
+        <TargetPill
+          title={t("field.destination.headTo", {
+            distance: formatDistance(t, nearest.distanceM),
+            compass: t(compassKey(nearest.compass)),
+          })}
+          subtitle={`${t(distanceBandKey(nearest.distanceClass.band))} · ${regionalLabel(nearest, t)}`}
+          tone="plain"
+          onPress={onPress}
+        />
+      );
+    }
+    return <TargetPill title={t("field.status.noTarget")} tone="plain" onPress={onPress} />;
   }
   return (
     <TargetPill
@@ -427,52 +600,83 @@ function GuidancePill({ snapshot: s, t }: { snapshot: Snap; t: TFunc }) {
         distance: formatDistance(t, s.distanceToTargetM ?? s.activeTarget.distanceM),
         compass: t(compassKey(s.activeTarget.compass)),
       })}
-      subtitle={t("field.target.confidence", { band: t(bandKey(s.activeTarget.band)) })}
+      subtitle={t("field.target.confidence", { band: t(confidenceBandKey(s.activeTarget.band)) })}
       tone={s.activeTarget.band === "High" ? "good" : "warn"}
+      onPress={onPress}
     />
   );
 }
 
 function CollapsedHeader({
-  snapshot: s, orientation, expanded, onToggle, t,
+  snapshot: s, orientation, nearest, expanded, onToggle, t,
 }: {
-  snapshot: Snap; orientation: Orientation | null;
+  snapshot: Snap; orientation: Orientation | null; nearest: RegionalTarget | null;
   expanded: boolean; onToggle: () => void; t: TFunc;
 }) {
   const target = s.activeTarget;
   const suppressed = !!s.inspecting;
-  const distance = s.distanceToTargetM ?? target?.distanceM ?? null;
+
+  // What the four-up readout is ABOUT, in order of precedence: the engine's
+  // recommendation, then a chosen destination, then the nearest thing the pack
+  // holds. The last of those is why the row no longer reads "— — — —" over most
+  // of the country while the pack sits on a mapped occurrence 90 km away.
+  const journey =
+    target
+      ? { distanceM: s.distanceToTargetM ?? target.distanceM, bearingDeg: target.bearingDeg, compass: target.compass }
+      : s.destination && s.destinationDistanceM != null && s.destinationBearingDeg != null
+        ? {
+            distanceM: s.destinationDistanceM,
+            bearingDeg: s.destinationBearingDeg,
+            compass: compassPointOf(s.destinationBearingDeg),
+          }
+        : nearest
+          ? { distanceM: nearest.distanceM, bearingDeg: nearest.bearingDeg, compass: nearest.compass }
+          : null;
+
+  const cls = journey ? classifyDistance(journey.distanceM) : null;
 
   return (
     <View>
       <SheetStats
         items={[
           {
-            value: suppressed || distance == null ? "—" : formatDistance(t, distance),
+            value: suppressed || !journey ? "—" : formatDistance(t, journey.distanceM),
             label: t("field.sheet.distance"),
             icon: <Ionicons name="navigate" size={16} color={colors.gold} />,
           },
           {
-            value: suppressed || !target ? "—" : t("field.sheet.directionValue", {
-              compass: t(compassKey(target.compass)), deg: Math.round(target.bearingDeg),
+            value: suppressed || !journey ? "—" : t("field.sheet.directionValue", {
+              compass: t(compassKey(journey.compass)), deg: Math.round(journey.bearingDeg),
             }),
             label: t("field.sheet.direction"),
           },
-          {
-            value: target ? t(bandKey(target.band)) : "—",
-            label: t("field.sheet.confidence"),
-            tone: target?.band === "High" ? "good" : undefined,
-          },
-          {
-            value: target?.reasons[0] ? shortReason(target.reasons[0], t) : "—",
-            label: t("field.sheet.reason"),
-            tone: "plain",
-          },
+          // Confidence is the ENGINE's, and only the engine's. A regional lead
+          // is a real map record but not an assessment of the ground, so it
+          // reports how to get there instead of borrowing a confidence band it
+          // was never given.
+          target
+            ? {
+                value: t(confidenceBandKey(target.band)),
+                label: t("field.sheet.confidence"),
+                tone: target.band === "High" ? ("good" as const) : undefined,
+              }
+            : {
+                value: cls ? t(transportShortKey(cls.transport)) : "—",
+                label: t("field.target.transportLabel"),
+                tone: "plain" as const,
+              },
+          target?.reasons[0]
+            ? { value: shortReason(target.reasons[0], t), label: t("field.sheet.reason"), tone: "plain" as const }
+            : {
+                value: cls ? formatTravel(t, cls.travelMinutes) : "—",
+                label: t("field.target.travelTime"),
+                tone: "plain" as const,
+              },
         ]}
       />
       <View style={styles.collapsedBody}>
         <Text style={styles.collapsedText} numberOfLines={expanded ? undefined : 3}>
-          {recommendation(s, orientation, t)}
+          {recommendation(s, orientation, nearest, t)}
         </Text>
         <Pressable onPress={onToggle} style={styles.chevron} hitSlop={8}>
           <Ionicons name={expanded ? "chevron-down" : "chevron-up"} size={22} color={colors.text} />
@@ -513,6 +717,240 @@ function ArrivedBlock({
         <Ionicons name="sync" size={18} color={colors.text} />
         <Text style={styles.wideBtnText}>{t("field.arrived.recalculate")}</Text>
       </Pressable>
+    </View>
+  );
+}
+
+/**
+ * What the receiver is actually reporting.
+ *
+ * Never a claim of precision the platform did not make. The band, the age and
+ * the warning all come from geo/fixQuality reading the raw fix — nothing here
+ * smooths, averages or improves a position, and a fix that has gone quiet says
+ * so rather than continuing to draw a confident dot.
+ */
+function GpsBlock({
+  fix, position, needsCalibration, headingDeg, t,
+}: {
+  fix: FixQuality;
+  position: Snap["position"];
+  needsCalibration: boolean;
+  headingDeg: number | null;
+  t: TFunc;
+}) {
+  const gradeLabel = t("field.gps.grade" + fix.grade[0].toUpperCase() + fix.grade.slice(1));
+  const accuracy = fix.accuracyM == null
+    ? t("field.gps.accuracyUnknown")
+    : t("field.gps.accuracy", { m: Math.round(fix.accuracyM) });
+
+  const warning =
+    fix.grade === "none" ? t("field.gps.warnNone")
+    : fix.grade === "stale" ? t("field.gps.warnStale", { s: Math.round((fix.ageMs ?? 0) / 1000) })
+    : fix.grade === "poor" ? t("field.gps.warnPoor", { m: Math.round(fix.accuracyM ?? 0) })
+    : null;
+
+  return (
+    <View style={[styles.gpsBox, warning ? styles.gpsBoxWarn : null]}>
+      <View style={styles.gpsHead}>
+        <Ionicons
+          name={fix.warn ? "warning" : "location"}
+          size={16}
+          color={fix.warn ? colors.gold : "#22C55E"}
+        />
+        <Text style={styles.gpsGrade}>{gradeLabel}</Text>
+        <Text style={styles.faint}>
+          {accuracy}
+          {fix.ageMs != null ? `  ·  ${formatFixAge(t, fix.ageMs)}` : ""}
+        </Text>
+      </View>
+      {warning ? <Text style={styles.gpsWarn}>{warning}</Text> : null}
+      <Text style={styles.faint}>
+        {position?.altitudeM != null ? t("field.gps.altitude", { m: Math.round(position.altitudeM) }) : ""}
+        {position?.altitudeM != null && headingDeg != null ? "  ·  " : ""}
+        {headingDeg != null ? t("field.target.bearing", { deg: Math.round(headingDeg) }) : ""}
+      </Text>
+      {needsCalibration ? <Text style={styles.gpsWarn}>{t("field.gps.calibrate")}</Text> : null}
+    </View>
+  );
+}
+
+/** Distance, direction, band, transport, travel time and relief — one journey. */
+function JourneyLines({
+  distanceM, bearingDeg, elevationDeltaM, t,
+}: {
+  distanceM: number | null;
+  bearingDeg: number | null;
+  elevationDeltaM: number | null;
+  t: TFunc;
+}) {
+  if (distanceM == null || bearingDeg == null) {
+    return <Text style={styles.body}>{t("field.destination.waitingFix")}</Text>;
+  }
+  const cls = classifyDistance(distanceM);
+  return (
+    <View style={styles.journey}>
+      <Text style={styles.journeyHead}>
+        {formatDistance(t, distanceM)}
+        {"  "}
+        {t(compassKey(compassPointOf(bearingDeg)))}
+        {"  "}
+        <Text style={styles.faint}>{Math.round(bearingDeg)}°</Text>
+      </Text>
+      <Text style={styles.reason}>{describeClass(t, cls)}</Text>
+      <Text style={styles.faint}>{formatElevationDelta(t, elevationDeltaM)}</Text>
+    </View>
+  );
+}
+
+/**
+ * Every mapped feature the pack holds, at any distance, best first.
+ *
+ * This list is the whole answer to "nothing to walk to". It is never filtered by
+ * distance — a 94 km occurrence is a day's drive, which is guidance, and hiding
+ * it was the app claiming ignorance it did not have. Each row is a REAL record:
+ * a mapped occurrence or a mapped fault, with a measured distance and bearing.
+ */
+function RegionalBlock({
+  leads, computing, selectedId, onNavigate, onStop, t,
+}: {
+  leads: RegionalTarget[];
+  computing: boolean;
+  selectedId: string | null;
+  onNavigate: (r: RegionalTarget) => void;
+  onStop: () => void;
+  t: TFunc;
+}) {
+  if (computing && leads.length === 0) {
+    return <Text style={styles.body}>{t("field.regional.computing")}</Text>;
+  }
+  if (leads.length === 0) {
+    // The pack genuinely holds nothing. That is a measurement, not a shrug, and
+    // it is the ONE case where there is nothing further to offer.
+    return <Text style={styles.body}>{t("field.regional.none")}</Text>;
+  }
+
+  return (
+    <View>
+      <Text style={styles.faint}>{t("field.regional.hint")}</Text>
+      {leads.map((r) => {
+        const active = r.id === selectedId;
+        return (
+          <Pressable
+            key={r.id}
+            style={[styles.leadRow, active && styles.leadRowActive]}
+            onPress={() => (active ? onStop() : onNavigate(r))}
+          >
+            <View style={styles.leadText}>
+              <Text style={styles.otherTitle}>{regionalLabel(r, t)}</Text>
+              <Text style={styles.otherReason}>
+                {formatDistance(t, r.distanceM)}
+                {"  "}
+                {t(compassKey(r.compass))}
+                {"  ·  "}
+                {t(distanceBandKey(r.distanceClass.band))}
+              </Text>
+              <Text style={styles.faint}>
+                {t(transportShortKey(r.distanceClass.transport))}
+                {"  ·  "}
+                {formatTravel(t, r.distanceClass.travelMinutes)}
+                {"  ·  "}
+                {t("field.regional.priority", { value: Math.round(r.priority * 100) })}
+              </Text>
+            </View>
+            <Ionicons
+              name={active ? "close-circle" : "navigate"}
+              size={20}
+              color={active ? colors.danger : colors.gold}
+            />
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/** What this traverse has actually covered, from the recorder's own numbers. */
+function TraverseBlock({
+  track, evidenceCount, waypointCount, targetsInvestigated, t,
+}: {
+  track: ReturnType<typeof useWalkingTrack>;
+  evidenceCount: number;
+  waypointCount: number;
+  targetsInvestigated: number;
+  t: TFunc;
+}) {
+  const st = track.stats;
+  const rows: [string, string][] = [
+    [t("field.track.distance"), formatDistance(t, st.distanceM)],
+    [t("field.track.duration"), formatDuration(t, st.durationMs)],
+    [t("field.track.moving"), formatDuration(t, st.movingMs)],
+    [t("field.track.avgSpeed"), formatSpeed(t, track.averageSpeedMps)],
+    [t("field.track.maxSpeed"), formatSpeed(t, track.maxSpeedMps)],
+    // Relief comes from GPS altitude, which many fixes omit entirely; zero here
+    // means "nothing reported", so it is shown as measured rather than dressed up.
+    [t("field.track.ascent"), st.ascentM > 0 ? formatDistance(t, st.ascentM) : t("field.track.none")],
+    [t("field.track.descent"), st.descentM > 0 ? formatDistance(t, st.descentM) : t("field.track.none")],
+    [t("field.track.samples"), String(evidenceCount)],
+    [t("field.track.waypoints"), String(waypointCount)],
+    [t("field.track.targets"), String(targetsInvestigated)],
+  ];
+
+  return (
+    <View style={styles.statGrid}>
+      {rows.map(([k, v]) => (
+        <View key={k} style={styles.statCell}>
+          <Text style={styles.statCellValue}>{v}</Text>
+          <Text style={styles.faint}>{k}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/**
+ * The notebook, out of the phone.
+ *
+ * Writes and shares through the OS. Nothing is uploaded and no account is
+ * involved: these are the geologist's own observations, and they must come out
+ * with no signal.
+ */
+function ExportBlock({ records, t }: { records: readonly Waypoint[]; t: TFunc }) {
+  const [busy, setBusy] = React.useState<ExportFormat | null>(null);
+  const [note, setNote] = React.useState<string | null>(null);
+  const count = exportableCount(records);
+
+  const run = async (format: ExportFormat) => {
+    setBusy(format);
+    setNote(null);
+    const r = await shareWaypoints(records, format);
+    setBusy(null);
+    setNote(
+      r.ok
+        ? t("field.export.done", { count: r.count, filename: r.filename })
+        : r.reason === "empty" ? t("field.export.empty")
+        : r.reason === "unavailable" ? t("field.export.unavailable")
+        : t("field.export.failed"),
+    );
+  };
+
+  return (
+    <View>
+      <Text style={styles.faint}>{t("field.export.hint", { count })}</Text>
+      <View style={styles.row}>
+        {(["gpx", "csv", "geojson"] as const).map((f) => (
+          <Pressable
+            key={f}
+            style={[styles.btn, count > 0 ? styles.btnGhost : styles.btnDisabled]}
+            disabled={count === 0 || busy != null}
+            onPress={() => void run(f)}
+          >
+            {busy === f
+              ? <ActivityIndicator color={colors.text} />
+              : <Text style={styles.btnGhostText}>{t(`field.export.${f}`)}</Text>}
+          </Pressable>
+        ))}
+      </View>
+      {note ? <Text style={styles.faint}>{note}</Text> : null}
     </View>
   );
 }
@@ -680,8 +1118,18 @@ function StartCard({ onStart }: { onStart: () => void }) {
 
 // ── Wording ─────────────────────────────────────────────────────────────────
 
-/** One sentence for the collapsed sheet: what to do now, and why. */
-function recommendation(s: Snap, o: Orientation | null, t: TFunc): string {
+/**
+ * One sentence for the collapsed sheet: what to do now, and why.
+ *
+ * The one thing it must never do is end the workflow. Every branch below either
+ * gives a direction or explains what is being waited for — and where the engine
+ * has no recommendation, the nearest MEASURED feature in the pack is offered
+ * with the means and time to reach it, rather than the sentence this screen used
+ * to finish on: "nothing to walk to here".
+ */
+function recommendation(
+  s: Snap, o: Orientation | null, nearest: RegionalTarget | null, t: TFunc,
+): string {
   if (s.suspendedBy) {
     return s.suspendedBy === "no-fix" ? t("field.status.waitingGps")
       : s.suspendedBy === "paused" ? t("field.status.paused")
@@ -689,7 +1137,6 @@ function recommendation(s: Snap, o: Orientation | null, t: TFunc): string {
   }
   if (s.inspecting) return t("field.location.lookupHint");
   if (s.state === "awaitingEvidence") return t("field.arrived.body");
-  if (s.state === "orienting") return t("field.status.orienting");
   if (s.activeTarget) {
     const first = s.activeTarget.reasons[0];
     return t("field.sheet.walkToward", {
@@ -698,14 +1145,31 @@ function recommendation(s: Snap, o: Orientation | null, t: TFunc): string {
       reason: first ? renderReason(first, t) : "",
     });
   }
-  // No target is a real answer, not a hang — and where the nearest known ground
-  // lies is the useful thing left to say.
-  if (o?.nothingNearby && o.occurrence) {
-    return t("field.sheet.nothingHereFar", {
-      distance: formatDistance(t, o.occurrence.distanceM),
-      compass: t(compassKey(compassPointOf(o.occurrence.bearingDeg))),
+  // A chosen destination outranks a suggestion: the user already decided.
+  if (s.destination && s.destinationDistanceM != null && s.destinationBearingDeg != null) {
+    const cls = classifyDistance(s.destinationDistanceM);
+    return t("field.sheet.regionalLead", {
+      distance: formatDistance(t, s.destinationDistanceM),
+      compass: t(compassKey(compassPointOf(s.destinationBearingDeg))),
+      transport: t(transportKey(cls.transport)),
+      travel: formatTravel(t, cls.travelMinutes),
     });
   }
+  // No target within one leg. Not a dead end — a classification. The pack knows
+  // where the nearest mapped ground is; say so, and say how to get to it.
+  if (nearest) {
+    return t("field.sheet.nothingHereFar", {
+      distance: formatDistance(t, nearest.distanceM),
+      compass: t(compassKey(nearest.compass)),
+      transport: t(transportKey(nearest.distanceClass.transport)),
+      travel: formatTravel(t, nearest.distanceClass.travelMinutes),
+    });
+  }
+  // The scan has not finished yet — a pause, not a conclusion.
+  if (s.state === "orienting") return t("field.status.orienting");
+  // Only now, with the whole pack read and genuinely nothing in it, is silence
+  // the honest answer. Unknown stays Unknown.
+  if (o?.nothingNearby) return t("field.regional.none");
   return t("field.none.noStrongerBody");
 }
 
@@ -741,18 +1205,18 @@ function unitOf(ctx: { geology?: { unit?: string } } | null): string | null {
   return ctx?.geology?.unit ?? null;
 }
 
-const compassKey = (c: string): string => "field.compass." + c;
-const bandKey = (b: string): string => "field.band." + b;
 const reasonKey = (r: TargetReason, i: number): string => r.kind + "-" + String(i);
 
-/**
- * Distances go through i18n so the UNIT WORD is translatable: "m" is not
- * "mitir", and a Somali reader should never meet an English abbreviation.
- */
-function formatDistance(t: TFunc, m: number): string {
-  return m >= 1000
-    ? t("field.distance.km", { value: (m / 1000).toFixed(1) })
-    : t("field.distance.m", { value: Math.round(m) });
+/** What a regional lead IS, in one phrase — never more than the pack recorded. */
+function regionalLabel(r: RegionalTarget, t: TFunc): string {
+  if (r.reason.kind === "known_occurrence") {
+    return r.reason.commodity
+      ? t("field.regional.occurrence", { commodity: r.reason.commodity })
+      : t("field.regional.occurrenceUnnamed");
+  }
+  return r.reason.name
+    ? t("field.regional.faultNamed", { name: r.reason.name })
+    : t("field.regional.fault");
 }
 
 /**
@@ -879,6 +1343,29 @@ const styles = StyleSheet.create({
   otherRow: { paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
   otherTitle: { color: colors.text, fontSize: 14, fontWeight: "600" },
   otherReason: { color: colors.textFaint, fontSize: 12 },
+
+  gpsBox: {
+    borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg,
+    padding: spacing.md, gap: 4, marginBottom: spacing.lg, backgroundColor: colors.bg,
+  },
+  gpsBoxWarn: { borderColor: colors.goldBorder, backgroundColor: colors.goldSoft },
+  gpsHead: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexWrap: "wrap" },
+  gpsGrade: { color: colors.text, fontSize: 14, fontWeight: "700" },
+  gpsWarn: { color: colors.gold, fontSize: 12, lineHeight: 18 },
+
+  journey: { gap: 2, marginBottom: spacing.sm },
+  journeyHead: { color: colors.text, fontSize: 20, fontWeight: "800" },
+
+  leadRow: {
+    flexDirection: "row", alignItems: "center", gap: spacing.md,
+    paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  leadRowActive: { backgroundColor: colors.goldSoft, borderRadius: radius.md, paddingHorizontal: spacing.sm },
+  leadText: { flex: 1, gap: 1 },
+
+  statGrid: { flexDirection: "row", flexWrap: "wrap" },
+  statCell: { width: "33.33%", paddingVertical: spacing.sm, paddingRight: spacing.sm },
+  statCellValue: { color: colors.text, fontSize: 15, fontWeight: "700" },
 
   row: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
   input: {

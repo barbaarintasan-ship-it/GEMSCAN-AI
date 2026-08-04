@@ -211,6 +211,20 @@ export interface PackData {
   rules: PackKnowledgeRule[];
   commodities: PackCommodityProfile[];
   assemblages: PackAssemblageRule[];
+  /**
+   * Coastline, as land polygons.
+   *
+   * OPTIONAL, and every reader must treat it so: packs built before this layer
+   * existed are still valid, and the app must keep working with them rather
+   * than refusing a pack for lacking a file it was never built with.
+   *
+   * It answers exactly one question — land or sea. The map drew both as the
+   * same black background, so a target on unmapped ground was indistinguishable
+   * from one in the Gulf of Aden. Geology is not a substitute: 37% of the
+   * pack's extent has no mapped unit, and that is a mixture of ocean and real
+   * Somali ground.
+   */
+  land: PackGeologyUnit[];
 }
 
 /** A built pack: the exact file bytes plus the manifest describing them. */
@@ -232,6 +246,7 @@ export const PACK_FILES = {
   rules: "rules.json",
   commodities: "commodities.json",
   assemblages: "assemblages.json",
+  land: "land.json",
 } as const;
 
 export const MANIFEST_FILE = "manifest.json";

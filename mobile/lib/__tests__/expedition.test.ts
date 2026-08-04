@@ -82,7 +82,7 @@ function pack(): PackData {
       lines: [[[HERE.lng + 0.5, HERE.lat - 0.2], [HERE.lng + 0.5, HERE.lat + 0.2]]],
       bbox: [HERE.lng + 0.5, HERE.lat - 0.2, HERE.lng + 0.5, HERE.lat + 0.2],
     }],
-    terrain: [], associations: [], rules: [], commodities: [], assemblages: [],
+    terrain: [], associations: [], rules: [], commodities: [], assemblages: [], land: [],
   };
 }
 
@@ -154,7 +154,7 @@ describe("regionalTargets", () => {
   test("an empty pack yields an empty list, not a fabricated one", () => {
     const empty: PackData = {
       geology: [], occurrences: [], knowledge: [], structures: [], community: [],
-      mapFeatures: [], terrain: [], associations: [], rules: [], commodities: [], assemblages: [],
+      mapFeatures: [], terrain: [], associations: [], rules: [], commodities: [], assemblages: [], land: [],
     };
     expect(regionalTargets(empty, HERE)).toEqual([]);
   });

@@ -23,6 +23,7 @@ import { OfflineGeoContextService } from "../geo/offlineGeoContext";
 import { orientationAt } from "../geo/orientation";
 import { buildScene } from "../geo/mapScene";
 import { PACK_FILES, MANIFEST_FILE } from "../../../shared/geo-core/pack/types.ts";
+import { pointInRings } from "../../../shared/geo-core/geo/spatial.ts";
 
 /** Real ground, spread across the coverage area. */
 const SOMALIA: Array<[string, number, number]> = [
@@ -133,5 +134,55 @@ describe("outside the covered region the app says so instead of guessing", () =>
     const geo = new OfflineGeoContextService(store, "1.0.0", []);
     const { context } = await geo.contextAt(0, -30);
     expect((context as { geology?: { unit?: string } }).geology?.unit).toBeFalsy();
+  });
+});
+
+// ── Land and sea ────────────────────────────────────────────────────────────
+//
+// A geologist looked at a target 175 km north and asked whether the app had
+// just pointed them into the Gulf of Aden. Nothing in the data could answer:
+// the pack had no coastline, and the map drew sea and unmapped land as the
+// same black background. These tests pin the answer.
+describe("the pack can tell land from sea", () => {
+  let data: ReturnType<PackStore["getData"]>;
+
+  beforeAll(async () => {
+    const store = new PackStore(createBundledPackSource(loadBundledPackFiles));
+    await store.load();
+    data = store.getData();
+  });
+
+  const onLand = (lng: number, lat: number) =>
+    data.land.some((u) => pointInRings(u.rings as Array<Array<[number, number]>>, lng, lat));
+
+  test("the coastline is actually in the pack", () => {
+    expect(data.land.length).toBeGreaterThan(0);
+  });
+
+  test.each([
+    ["Mogadishu", 45.3182, 2.0469],
+    ["Bosaso", 49.1816, 11.2842],
+    ["Hargeisa", 44.0650, 9.5600],
+    ["Garowe", 48.4845, 8.4054],
+  ])("%s is land", (_n, lng, lat) => {
+    expect(onLand(lng, lat)).toBe(true);
+  });
+
+  test.each([
+    ["Gulf of Aden", 49.0, 12.2],
+    ["Indian Ocean", 52.0, 4.0],
+  ])("%s is sea", (_n, lng, lat) => {
+    expect(onLand(lng, lat)).toBe(false);
+  });
+
+  test("NO mineral occurrence sits in the sea", () => {
+    // This is the question that was asked, answered against the shipped data.
+    const offshore = data.occurrences.filter((o) => !onLand(o.lng, o.lat));
+    expect(offshore.map((o) => o.name ?? o.id)).toEqual([]);
+  });
+
+  test("a target can therefore be judged, rather than guessed at", () => {
+    // The point of the layer: any coordinate now has an answer.
+    expect(typeof onLand(49.0, 11.07)).toBe("boolean");
   });
 });

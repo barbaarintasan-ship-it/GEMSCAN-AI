@@ -97,7 +97,7 @@
       "reasoning": "Updating from what you found…",
       "arrived": "You have arrived",
       "guiding": "Guiding",
-      "noTarget": "Nothing to walk to here"
+      "noTarget": "No walk-in target — regional leads below"
     },
     "here": {
       "label": "WHERE YOU ARE",
@@ -117,7 +117,18 @@
       "turnRight": "Turn right {{deg}}°",
       "otherOptions": "OTHER OPTIONS",
       "headTo": "Head {{distance}} {{compass}}",
-      "pill": "Target: {{distance}} {{compass}}"
+      "pill": "Target: {{distance}} {{compass}}",
+      "travelTime": "Travel time",
+      "transportLabel": "Transport",
+      "elevationDiff": "Elevation difference",
+      "elevationUp": "{{m}} m above you",
+      "elevationDown": "{{m}} m below you",
+      "elevationSame": "About the same height as you",
+      "elevationUnknown": "No elevation data covers both points",
+      "save": "Save target",
+      "saved": "Saved as a waypoint",
+      "actions": "ACTIONS",
+      "navigate": "Navigate"
     },
     "none": {
       "noStronger": "No stronger ground nearby",
@@ -205,7 +216,7 @@
       "farTitle": "NEAREST KNOWN, FURTHER AWAY",
       "farOccurrence": "{{commodity}} occurrence — {{distance}} to the {{compass}}",
       "farFault": "Mapped fault — {{distance}} to the {{compass}}",
-      "farHint": "Too far to walk to. Shown so you know which way the known ground lies.",
+      "farHint": "Beyond one leg of a traverse. Listed under Regional leads, where you can navigate to it.",
       "unit": "Current geology: {{name}}",
       "faultDir": "Fault: {{distance}} {{compass}}",
       "occurrenceDir": "{{commodity}} occurrence: {{distance}} {{compass}}"
@@ -233,7 +244,11 @@
       "terrain": "Terrain / DEM",
       "faults": "Faults",
       "occurrences": "MRDS occurrences",
-      "target": "Target"
+      "target": "Target",
+      "accuracy": "GPS accuracy circle",
+      "compass": "Compass / heading",
+      "grid": "Grid",
+      "frame": "Frame target"
     },
     "sheet": {
       "distance": "Distance",
@@ -248,11 +263,13 @@
       "addNote": "Add note",
       "recalculate": "Recalculate",
       "walkToward": "Walk {{distance}} {{compass}}. {{reason}}",
-      "nothingHereFar": "Nothing to walk to here. The nearest known ground is {{distance}} to the {{compass}}.",
+      "nothingHereFar": "No target within walking range. The nearest mapped ground is {{distance}} to the {{compass}} — {{transport}}, about {{travel}}.",
       "youAreOn": "You are on {{unit}}.",
       "unitUnknown": "No mapped unit covers this point.",
       "faultAhead": "A mapped fault lies {{distance}} away, which can concentrate minerals.",
-      "walked": "Walked {{distance}}"
+      "walked": "Walked {{distance}}",
+      "travelLine": "{{band}} · {{transport}} · about {{travel}}",
+      "regionalLead": "Nearest mapped lead: {{distance}} to the {{compass}}. {{transport}}, about {{travel}}."
     },
     "arrived": {
       "title": "You reached the target",
@@ -269,6 +286,110 @@
       "fault": "Fault",
       "contact": "Contact",
       "intersection": "Structure crossing"
+    },
+    "bandDistance": {
+      "immediate": "Immediate target",
+      "local": "Local target",
+      "regional": "Regional target",
+      "expedition": "Expedition target"
+    },
+    "transport": {
+      "walk": "on foot",
+      "walk_or_drive": "on foot or by vehicle",
+      "vehicle": "vehicle recommended",
+      "expedition": "long-distance expedition"
+    },
+    "transportShort": {
+      "walk": "Walk",
+      "walk_or_drive": "Walk / drive",
+      "vehicle": "Vehicle",
+      "expedition": "Expedition"
+    },
+    "travel": {
+      "minutes": "{{value}} min",
+      "hours": "{{value}} h",
+      "hoursMinutes": "{{h}} h {{m}} min",
+      "days": "{{value}} days",
+      "unknown": "unknown"
+    },
+    "regional": {
+      "title": "REGIONAL LEADS",
+      "hint": "Mapped features in the knowledge pack, at any distance. Distance classifies a target; it never rules one out.",
+      "occurrence": "{{commodity}} occurrence",
+      "occurrenceUnnamed": "Mineral occurrence",
+      "fault": "Mapped fault",
+      "faultNamed": "Fault: {{name}}",
+      "navigate": "Navigate",
+      "stop": "Stop navigating",
+      "none": "The knowledge pack holds no mapped feature at any distance from here.",
+      "computing": "Reading the knowledge pack…",
+      "priority": "Priority {{value}}%",
+      "navigatingTo": "Navigating to {{label}}"
+    },
+    "gps": {
+      "title": "GPS",
+      "accuracy": "±{{m}} m",
+      "accuracyUnknown": "accuracy not reported",
+      "updatedJustNow": "updated just now",
+      "updatedSeconds": "updated {{s}} s ago",
+      "updatedMinutes": "updated {{m}} min ago",
+      "gradeGood": "Good fix",
+      "gradeUsable": "Usable fix",
+      "gradePoor": "Poor fix",
+      "gradeStale": "Stale fix",
+      "gradeNone": "No fix",
+      "warnPoor": "GPS is accurate to about ±{{m}} m here. Distance and arrival are only good to about that.",
+      "warnStale": "No new position for {{s}} s. What is shown may be where you were, not where you are.",
+      "warnNone": "No GPS fix yet. Distance and direction wait for one rather than guessing.",
+      "calibrate": "Compass needs calibrating — move the phone in a figure of eight.",
+      "altitude": "Altitude {{m}} m"
+    },
+    "track": {
+      "title": "THIS TRAVERSE",
+      "distance": "Distance",
+      "duration": "Time",
+      "moving": "Moving",
+      "avgSpeed": "Avg speed",
+      "maxSpeed": "Max speed",
+      "ascent": "Ascent",
+      "descent": "Descent",
+      "samples": "Samples",
+      "waypoints": "Waypoints",
+      "targets": "Targets",
+      "speed": "{{value}} km/h",
+      "none": "—"
+    },
+    "export": {
+      "title": "EXPORT FIELD RECORDS",
+      "hint": "{{count}} waypoint(s) with a position. GPX for handhelds, CSV for spreadsheets, GeoJSON for QGIS.",
+      "gpx": "GPX",
+      "csv": "CSV",
+      "geojson": "GeoJSON",
+      "done": "Exported {{count}} waypoint(s) as {{filename}}",
+      "empty": "No waypoint has a position yet — there is nothing to export.",
+      "unavailable": "Sharing is not available on this device.",
+      "failed": "Export failed."
+    },
+    "diag": {
+      "title": "EXPLORATION DIAGNOSTICS",
+      "pack": "Knowledge pack",
+      "packVersion": "Pack version",
+      "packAge": "Pack age",
+      "units": "Geological units",
+      "faults": "Faults",
+      "terrain": "Terrain cells",
+      "occurrences": "MRDS occurrences",
+      "online": "Connectivity",
+      "gps": "GPS",
+      "satellite": "Satellite imagery",
+      "tiles": "Tile cache",
+      "navigation": "Navigation",
+      "navigationActive": "Active",
+      "navigationIdle": "Idle",
+      "satelliteOn": "{{count}} tiles shown",
+      "satelliteOff": "Off",
+      "days": "{{days}} days",
+      "none": "—"
     }
   },
   "camera": {

@@ -13,6 +13,8 @@ import type { PackStore } from "../geo/packStore.ts";
 import type { WaypointService } from "../field/waypointService";
 import type { WaypointType } from "../field/waypointTypes";
 import { cellFor } from "../geo/h3.ts";
+import { arrivalRadiusFor } from "../geo/fixQuality.ts";
+import type { RegionalTarget } from "../geo/expedition.ts";
 import type { GeoContext } from "../../../shared/geo-core/types.ts";
 
 export type ExplorationState =
@@ -37,8 +39,20 @@ export interface ExplorationSnapshot {
 
   /** Where the geologist is, and what is under their feet (step 2). */
   currentCell: string | null;
-  /** The GPS fix itself, so the screen can show real coordinates and accuracy. */
-  position: { lat: number; lng: number; accuracyM: number | null } | null;
+  /**
+   * The GPS fix itself, so the screen can show real coordinates and accuracy.
+   *
+   * `timestamp` and `altitudeM` are carried through unchanged from the receiver.
+   * The screen grades the fix from them (see geo/fixQuality) rather than the
+   * orchestrator doing it once: a fix does not get worse when it is read, it
+   * gets worse as it AGES, and only something re-rendering on a clock can say so.
+   */
+  position: {
+    lat: number; lng: number;
+    accuracyM: number | null;
+    altitudeM: number | null;
+    timestamp: number;
+  } | null;
   /**
    * A place the user asked to look at instead of where they are standing.
    *
@@ -63,6 +77,17 @@ export interface ExplorationSnapshot {
   destinationBearingDeg: number | null;
   /** Degrees to turn to face the destination; null without a heading. */
   destinationRelativeBearingDeg: number | null;
+  /**
+   * The pack record the destination came from, when it came from one.
+   *
+   * A regional target is neither of the two things above: not the engine's
+   * recommendation for the next leg of a traverse, and not a coordinate somebody
+   * typed. It is a REAL, MAPPED feature — an occurrence or a fault the pack
+   * holds — that simply happens to be further away than one leg. Keeping it here
+   * lets the screen name what it is and why it is on the list, without dressing
+   * a map pin up as an assessment by forcing it into an ExplorationTarget.
+   */
+  selectedRegional: RegionalTarget | null;
   context: GeoContext | null;
 
   /** Ranked targets and the one being walked to (step 3). */
@@ -77,6 +102,15 @@ export interface ExplorationSnapshot {
    * `relativeBearingDeg` below, computed from this exactly as before.
    */
   headingDeg: number | null;
+  /**
+   * How much the compass itself is to be trusted, straight from the platform.
+   *
+   * Reported, never smoothed. A phone beside a vehicle or a magnetite outcrop
+   * will hand back a confident heading that is thirty degrees wrong, and the
+   * only honest thing to do with that is say the compass wants calibrating.
+   */
+  headingAccuracy: number | null;
+  headingNeedsCalibration: boolean;
   /**
    * Degrees the geologist must turn, relative to where they are facing.
    * Null when heading is unavailable — the bearing is still shown absolutely.
@@ -96,6 +130,8 @@ export interface ExplorationSnapshot {
   evidenceCount: number;
   /** Cells re-targeted at, in order — the traverse's decision history. */
   visitedCells: string[];
+  /** Targets actually reached this session, for the traverse summary. */
+  targetsInvestigated: number;
 }
 
 export interface OrchestratorDeps {
@@ -116,10 +152,16 @@ export interface FieldSessionPort {
   stop(): void;
 }
 
-/** Arrival threshold widens with GPS accuracy, so a ±40 m fix cannot flap (§3.5). */
-export function arrivalRadiusM(accuracyM: number | null): number {
-  return Math.max(50, (accuracyM ?? 0) * 2);
-}
+/**
+ * Arrival threshold, widened by how uncertain the fix is, so a ±40 m fix cannot
+ * flap (§3.5).
+ *
+ * Delegates to geo/fixQuality rather than carrying its own formula. There was a
+ * second copy here with a flat 50 m floor, which announced arrival while the
+ * geologist was still half a minute's walk away on a fix good enough to do far
+ * better. One rule, and it is the one that reads the fix.
+ */
+export { arrivalRadiusFor as arrivalRadiusM } from "../geo/fixQuality.ts";
 
 /**
  * Signed turn from where you face to where you should go, in [-180, 180).
@@ -238,7 +280,26 @@ export class ExplorationOrchestrator {
   navigateTo(lat: number, lng: number): void {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
-    this.patch({ destination: { lat, lng } });
+    this.patch({ destination: { lat, lng }, selectedRegional: null });
+    this.updateGuidance();
+  }
+
+  /**
+   * Walk — or drive — to a mapped feature the pack holds, at ANY distance.
+   *
+   * The engine's own targeting stops at one leg of a traverse, and that is
+   * right: recommending a 94 km walk is not a recommendation. But refusing to
+   * recommend was being rendered as "nothing to walk to here", which is a
+   * different and false claim — the pack knew exactly where the nearest gold
+   * occurrence was. This navigates to it and lets the screen say how far, how
+   * long, and by what means, which is guidance rather than a dead end.
+   */
+  navigateToRegional(target: RegionalTarget): void {
+    if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
+    this.patch({
+      destination: { lat: target.lat, lng: target.lng },
+      selectedRegional: target,
+    });
     this.updateGuidance();
   }
 
@@ -250,6 +311,7 @@ export class ExplorationOrchestrator {
       destinationDistanceM: null,
       destinationBearingDeg: null,
       destinationRelativeBearingDeg: null,
+      selectedRegional: null,
     });
   }
 
@@ -309,7 +371,14 @@ export class ExplorationOrchestrator {
 
     // Always publish the real fix, even while inspecting elsewhere: the user
     // should be able to see where they actually are at all times.
-    this.patch({ position: { lat: fix.lat, lng: fix.lng, accuracyM: fix.accuracy } });
+    this.patch({
+      position: {
+        lat: fix.lat, lng: fix.lng,
+        accuracyM: fix.accuracy,
+        altitudeM: fix.altitude,
+        timestamp: fix.timestamp,
+      },
+    });
 
     // While inspecting, GPS movement must not silently re-target to the user's
     // own position — that would swap the answer under them without a word.
@@ -376,7 +445,15 @@ export class ExplorationOrchestrator {
     const target = this.snap.activeTarget;
 
     const headingDeg = f.lastHeading?.trueHeading ?? null;
-    if (headingDeg !== this.snap.headingDeg) this.patch({ headingDeg });
+    const headingAccuracy = f.lastHeading?.accuracy ?? null;
+    const headingNeedsCalibration = f.lastHeading?.needsCalibration ?? false;
+    if (
+      headingDeg !== this.snap.headingDeg ||
+      headingAccuracy !== this.snap.headingAccuracy ||
+      headingNeedsCalibration !== this.snap.headingNeedsCalibration
+    ) {
+      this.patch({ headingDeg, headingAccuracy, headingNeedsCalibration });
+    }
 
     // A chosen destination is navigation, not a recommendation, so it is
     // computed first and independently: it must keep working while the user is
@@ -410,14 +487,19 @@ export class ExplorationOrchestrator {
     const relativeBearingDeg = heading == null ? null : relativeBearing(target.bearingDeg, heading);
 
     const arrived =
-      distanceToTargetM <= arrivalRadiusM(fix.accuracy) &&
+      distanceToTargetM <= arrivalRadiusFor(fix.accuracy) &&
       this.snap.state === "guiding" &&
       !this.snap.suspendedBy;
 
     this.patch({
       distanceToTargetM,
       relativeBearingDeg,
-      ...(arrived ? { state: "awaitingEvidence" as ExplorationState } : {}),
+      ...(arrived
+        ? {
+            state: "awaitingEvidence" as ExplorationState,
+            targetsInvestigated: this.snap.targetsInvestigated + 1,
+          }
+        : {}),
     });
   }
 
@@ -482,12 +564,15 @@ function emptySnapshot(): ExplorationSnapshot {
     destinationDistanceM: null,
     destinationBearingDeg: null,
     destinationRelativeBearingDeg: null,
+    selectedRegional: null,
     inspecting: null,
     context: null,
     targets: [],
     activeTarget: null,
     distanceToTargetM: null,
     headingDeg: null,
+    headingAccuracy: null,
+    headingNeedsCalibration: false,
     relativeBearingDeg: null,
     bestIsHere: false,
     hasKnowledge: false,
@@ -496,5 +581,6 @@ function emptySnapshot(): ExplorationSnapshot {
     suspendedBy: null,
     evidenceCount: 0,
     visitedCells: [],
+    targetsInvestigated: 0,
   };
 }

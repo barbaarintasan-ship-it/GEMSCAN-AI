@@ -32,6 +32,7 @@ function tryRequireAll(): Record<string, unknown> | null {
       [PACK_FILES.rules]: require("../../assets/geo-pack/rules.json"),
       [PACK_FILES.commodities]: require("../../assets/geo-pack/commodities.json"),
       [PACK_FILES.assemblages]: require("../../assets/geo-pack/assemblages.json"),
+      [PACK_FILES.land]: require("../../assets/geo-pack/land.json"),
     };
     /* eslint-enable @typescript-eslint/no-var-requires */
   } catch {

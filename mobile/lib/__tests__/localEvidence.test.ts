@@ -24,7 +24,7 @@ const BUILD_OPTS = {
 function emptyData(): PackData {
   return {
     geology: [], occurrences: [], knowledge: [], structures: [], community: [], mapFeatures: [], terrain: [],
-    associations: [], rules: [], commodities: [], assemblages: [],
+    associations: [], rules: [], commodities: [], assemblages: [], land: [],
   };
 }
 

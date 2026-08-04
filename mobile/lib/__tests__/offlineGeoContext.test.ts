@@ -67,6 +67,7 @@ function packData(): PackData {
       id: "a1", minerals: ["pyrite", "quartz"], interpretation: "epithermal system",
       commodity_code: "gold", likelihood: "common", relationship: "indicates", weight: 0.6,
     }],
+    land: [],
   };
 }
 

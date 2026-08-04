@@ -45,6 +45,13 @@ export function readPack(files: Record<string, string>): LoadedPack {
       rules: rowsOf(files, PACK_FILES.rules, "rules") as PackData["rules"],
       commodities: rowsOf(files, PACK_FILES.commodities, "commodities") as PackData["commodities"],
       assemblages: rowsOf(files, PACK_FILES.assemblages, "assemblages") as PackData["assemblages"],
+      // OPTIONAL. A pack built before the coastline existed is still a valid
+      // pack, and must load rather than be refused for lacking a file it was
+      // never built with. Absent means "cannot tell land from sea", which the
+      // callers already handle, not "everything is sea".
+      land: files[PACK_FILES.land] === undefined
+        ? []
+        : rowsOf(files, PACK_FILES.land, "land") as PackData["land"],
     },
   };
 }
@@ -54,6 +61,6 @@ export function emptyPackData(): PackData {
   return {
     geology: [], occurrences: [], knowledge: [], structures: [], community: [],
     mapFeatures: [], terrain: [],
-    associations: [], rules: [], commodities: [], assemblages: [],
+    associations: [], rules: [], commodities: [], assemblages: [], land: [],
   };
 }

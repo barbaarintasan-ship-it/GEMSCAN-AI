@@ -13,6 +13,7 @@ import { OfflineGeoContextService } from "../geo/offlineGeoContext.ts";
 import { TargetingEngine } from "../geo/targeting.ts";
 import { ExplorationOrchestrator, type ExplorationSnapshot } from "./orchestrator.ts";
 import type { Waypoint, WaypointType } from "../field/waypointTypes";
+import type { RegionalTarget } from "../geo/expedition.ts";
 import { loadBundledPackFiles } from "../geo/bundledPack.ts";
 import { WaypointStore } from "../field/waypointStore";
 import { WaypointService } from "../field/waypointService";
@@ -32,6 +33,14 @@ export interface ExplorationApi {
    * system to move data it does not need.
    */
   waypoints: Array<{ lng: number; lat: number; type: string }>;
+  /**
+   * The full waypoint records, for export.
+   *
+   * The map needs three fields per pin; a GPX file needs every one of them —
+   * time, notes, altitude, photo count. Exporting from the trimmed pin list
+   * would silently drop the parts of a field record that make it a record.
+   */
+  waypointRecords: readonly Waypoint[];
   actions: {
     start: () => void;
     stop: () => void;
@@ -42,6 +51,8 @@ export interface ExplorationApi {
     inspectAt: (lat: number, lng: number) => void;
     clearInspect: () => void;
     navigateTo: (lat: number, lng: number) => void;
+    /** Navigate to a mapped pack feature at any distance — see orchestrator. */
+    navigateToRegional: (target: RegionalTarget) => void;
     clearDestination: () => void;
   };
 }
@@ -110,6 +121,7 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
     orchestrator,
     packs: packsRef.current!,
     waypoints: waypointPins,
+    waypointRecords: waypoints,
     actions: {
       start: () => orchestrator.start(),
       stop: () => orchestrator.stop(),
@@ -120,6 +132,7 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
       inspectAt: (lat, lng) => orchestrator.inspectAt(lat, lng),
       clearInspect: () => orchestrator.clearInspect(),
       navigateTo: (lat, lng) => orchestrator.navigateTo(lat, lng),
+      navigateToRegional: (target) => orchestrator.navigateToRegional(target),
       clearDestination: () => orchestrator.clearDestination(),
     },
   };

@@ -33,6 +33,12 @@ export interface MapLayers {
   waypoints: boolean;
   track: boolean;
   target: boolean;
+  /** The ±accuracy disc around the viewer, drawn to scale. */
+  accuracy: boolean;
+  /** The heading cone — which way the phone is pointing. */
+  compass: boolean;
+  /** Distance rings around the viewer and a north-aligned metric graticule. */
+  grid: boolean;
 }
 
 export const DEFAULT_LAYERS: MapLayers = {
@@ -44,6 +50,9 @@ export const DEFAULT_LAYERS: MapLayers = {
   waypoints: true,
   track: true,
   target: true,
+  accuracy: true,
+  compass: true,
+  grid: true,
 };
 
 export interface MapLive {
@@ -68,6 +77,8 @@ export interface MapHandle {
   /** Recentre on the viewer and reset rotation to north-up. */
   centre(): void;
   setRotation(deg: number): void;
+  /** Zoom out until both the viewer and the current target are on screen. */
+  frameTarget(): void;
 }
 
 /** Reported back so the native overlay can draw the compass and the scale bar. */
@@ -147,12 +158,20 @@ function ringPath(ring){
   }
 }
 
+// How many tiles actually PAINTED on the last frame. Not how many were handed
+// in: a tile still decoding, or one that failed to load, covers no ground. The
+// geology layer reads this to decide how opaque to be, so imagery that never
+// arrived can never leave the geologist looking at a washed-out black rectangle.
+var tilesPainted = 0;
+
 function drawTiles(){
+  tilesPainted = 0;
   if (!LAYERS.satellite) return;
   for (var i=0;i<LIVE.tiles.length;i++){
     var t = LIVE.tiles[i];
     var img = tileImg(t.uri);
     if (!img || !img.complete || !img.naturalWidth) continue;
+    tilesPainted++;
     // Tiles are axis-aligned in geography, so under rotation they must be drawn
     // through the same transform as everything else rather than blitted.
     var a = sxy(t.w, t.n), ax=a[0], ay=a[1];
@@ -179,8 +198,11 @@ function tileImg(uri){
 function drawGeology(){
   if (!LAYERS.geology) return;
   // Translucent over satellite so the imagery stays readable underneath — the
-  // geologist needs both the rock unit and the ground it sits on.
-  var alpha = LAYERS.satellite ? 0.42 : 0.85;
+  // geologist needs both the rock unit and the ground it sits on. But that only
+  // holds where imagery actually landed; with the layer on and no tiles yet the
+  // old rule faded the geology to 42% over bare black, which is the closest this
+  // map ever came to showing a blank screen. Nothing to see through, full colour.
+  var alpha = tilesPainted > 0 ? 0.42 : 0.85;
   for (var i=0;i<SCENE.polygons.length;i++){
     var g = SCENE.polygons[i];
     ctx.globalAlpha = alpha;
@@ -289,22 +311,54 @@ function drawTarget(){
   ctx.beginPath(); ctx.arc(tx,ty,3.5,0,6.2832); ctx.fill();
 }
 
-function drawRings(){
-  if (!LIVE.position) return;
-  var p = sxy(LIVE.position.lng, LIVE.position.lat);
-  // Rings at a round distance chosen for the current zoom, so there is always a
-  // usable sense of scale around the viewer without clutter.
+/**
+ * The round distance to step the grid and the range rings by, for this zoom.
+ * Snapped to 1/2/5 × a power of ten so every ring is a number a person can use.
+ */
+function gridStepM(){
   var target = 120 / cam.scale;             // ~120 px in metres
   var pow = Math.pow(10, Math.floor(Math.log(target)/Math.LN10));
-  var step = pow;
-  if (target/pow >= 5) step = pow*5; else if (target/pow >= 2) step = pow*2;
-  ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1;
+  if (target/pow >= 5) return pow*5;
+  if (target/pow >= 2) return pow*2;
+  return pow;
+}
+
+function drawGrid(){
+  var step = gridStepM();
+  window.__ringStep = step;
+  if (!LAYERS.grid) return;
+
+  // A north-aligned metric graticule, drawn in WORLD metres about the scene
+  // centre so the lines stay true north even when the map has been twisted. It
+  // is what lets someone read a distance off the map in a direction other than
+  // the one they happen to be facing.
+  ctx.strokeStyle = "rgba(255,255,255,0.09)"; ctx.lineWidth = 1;
+  // Corners of the screen in world metres, so the grid covers a rotated view.
+  var half = Math.hypot(W, H) / 2 / cam.scale;
+  var x0 = Math.floor((cam.x - half)/step)*step, x1 = cam.x + half;
+  var y0 = Math.floor((cam.y - half)/step)*step, y1 = cam.y + half;
+  // Bounded: at a silly zoom this could otherwise ask for thousands of lines.
+  if ((x1-x0)/step <= 80 && (y1-y0)/step <= 80){
+    var a = [0,0], b = [0,0];
+    for (var gx=x0; gx<=x1; gx+=step){
+      toScreen(gx, y0, a); toScreen(gx, y1, b);
+      ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
+    }
+    for (var gy=y0; gy<=y1; gy+=step){
+      toScreen(x0, gy, a); toScreen(x1, gy, b);
+      ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
+    }
+  }
+
+  // Range rings around the viewer: how far away things are, at a glance.
+  if (!LIVE.position) return;
+  var p = sxy(LIVE.position.lng, LIVE.position.lat);
+  ctx.strokeStyle = "rgba(255,255,255,0.16)";
   for (var i=1;i<=3;i++){
     var r = step*i*cam.scale;
     if (r < 22 || r > Math.max(W,H)) continue;
     ctx.beginPath(); ctx.arc(p[0],p[1],r,0,6.2832); ctx.stroke();
   }
-  window.__ringStep = step;
 }
 
 function drawMe(){
@@ -314,7 +368,7 @@ function drawMe(){
 
   // Accuracy is drawn to SCALE. A confident-looking dot over a 100 m fix is a
   // lie the geologist would act on.
-  if (LIVE.position.accuracyM != null){
+  if (LAYERS.accuracy && LIVE.position.accuracyM != null){
     var ar = LIVE.position.accuracyM * cam.scale;
     if (ar > 6){
       ctx.fillStyle = "rgba(59,130,246,0.18)";
@@ -322,7 +376,7 @@ function drawMe(){
       ctx.beginPath(); ctx.arc(px,py,ar,0,6.2832); ctx.fill(); ctx.stroke();
     }
   }
-  if (LIVE.headingDeg != null){
+  if (LAYERS.compass && LIVE.headingDeg != null){
     // The cone follows the map's rotation, so it points where the phone points.
     var a = (LIVE.headingDeg * Math.PI/180) + cam.rot - Math.PI/2;
     var spread = 0.42;
@@ -351,7 +405,7 @@ function draw(){
     drawTerrain();
     drawFaults();
     drawOccurrences();
-    drawRings();
+    drawGrid();
     drawTrack();
     drawTarget();
     drawWaypoints();
@@ -467,6 +521,25 @@ window.__fit = function(metres){
   cam.scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, (Math.min(W,H)*0.42)/metres));
   draw();
 };
+/**
+ * Frame the viewer AND the target together.
+ *
+ * Once a destination can be 90 km away, "centre on me" is no longer enough to
+ * see where you are being sent — the crosshair sits off the edge of a map zoomed
+ * for walking, and the guidance line points into nothing. This pulls back far
+ * enough to hold both, which is the only way a regional target is legible at all.
+ */
+window.__frame = function(){
+  if (!LIVE.position || !LIVE.target) return;
+  var ax = wx(LIVE.position.lng), ay = wy(LIVE.position.lat);
+  var bx = wx(LIVE.target.lng), by = wy(LIVE.target.lat);
+  cam.x = (ax+bx)/2; cam.y = (ay+by)/2;
+  cam.rot = 0;
+  var span = Math.max(Math.abs(bx-ax), Math.abs(by-ay), 200);
+  cam.scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, (Math.min(W,H)*0.78)/span));
+  followMe = false;  // holding the frame is the whole point; do not snap back
+  draw();
+};
 
 resize();
 })();
@@ -498,6 +571,7 @@ export const ExplorationMap = React.forwardRef<MapHandle, {
     zoomBy: (f) => run(`window.__zoom(${f});`),
     centre: () => run("window.__centre();"),
     setRotation: (d) => run(`window.__setRotation(${d});`),
+    frameTarget: () => run("window.__frame();"),
   }), [run]);
 
   React.useEffect(() => {

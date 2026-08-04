@@ -78,6 +78,8 @@ export function buildPack(data: PackData, opts: BuildPackOptions): BuiltPack {
     community: byKey(data.community, (c) => c.cell),
     mapFeatures: byId(data.mapFeatures),
     terrain: byKey(data.terrain, (t) => t.cell),
+    // Optional layer: a pack built without a coastline is still a valid pack.
+    land: byId(data.land ?? []),
     associations: byKey(data.associations, (a) => `${a.commodity_code}|${a.host_rock_code}`),
     rules: byId(data.rules),
     commodities: byKey(data.commodities, (c) => c.code),
@@ -96,6 +98,7 @@ export function buildPack(data: PackData, opts: BuildPackOptions): BuiltPack {
     [PACK_FILES.rules]: fileBody("rules", sorted.rules),
     [PACK_FILES.commodities]: fileBody("commodities", sorted.commodities),
     [PACK_FILES.assemblages]: fileBody("assemblages", sorted.assemblages),
+    [PACK_FILES.land]: fileBody("land", sorted.land),
   };
 
   const fileHashes: Record<string, string> = {};

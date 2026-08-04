@@ -9,6 +9,11 @@ import { diag, type GpuState } from "../../lib/diagnostics";
 import { FieldSessionProvider, useFieldSession } from "../../lib/field/provider";
 import { WALKING_PROFILE } from "../../lib/field/types";
 import { runPackSelfCheck, type PackSelfCheck } from "../../lib/geo/packSelfCheck";
+import { PackStore, createBundledPackSource } from "../../lib/geo/packStore";
+import { loadBundledPackFiles } from "../../lib/geo/bundledPack";
+import { ATTRIBUTION, cacheSize } from "../../lib/geo/tileCache";
+import { useIsOnline } from "../../lib/network";
+import type { PackManifest } from "../../../shared/geo-core/pack/types.ts";
 
 const GPU_COLOR: Record<GpuState, string> = {
   unknown: "#C9A227",
@@ -99,6 +104,8 @@ export default function DebugScreen() {
         )}
       </View>
 
+      <ExplorationDiagnosticsSection />
+
       <Text style={styles.section}>Device / pipeline</Text>
       <View style={styles.card}>
         {rows.map(([k, v]) => (
@@ -144,6 +151,66 @@ export default function DebugScreen() {
 // ── Field Engine (P1) dev section ───────────────────────────────────────────
 // Every row below is read from ONE report object, and Export serialises that
 // same object — the screen and the JSON cannot drift apart.
+/**
+ * The exploration side of the diagnostics: the things that decide whether the
+ * map can draw and whether guidance can be given, as opposed to whether a scan
+ * can run.
+ *
+ * Everything here is READ. Nothing is repaired, retried or cleared — a
+ * diagnostics screen that changes state cannot be trusted to report it. The one
+ * exception is the tile cache, whose size is a number the user may reasonably
+ * want to act on, and even that only reports.
+ */
+function ExplorationDiagnosticsSection() {
+  const isOnline = useIsOnline();
+  const [tiles, setTiles] = useState<{ bytes: number } | null>(null);
+  const [manifest, setManifest] = useState<PackManifest | null>(null);
+  const [provenance, setProvenance] =
+    useState<{ packVersion: string; builtAt: string; ageDays: number; stale: boolean } | null>(null);
+
+  useEffect(() => {
+    void cacheSize().then((bytes) => setTiles({ bytes }));
+    // A store of its own rather than the exploration provider's: this screen is
+    // reachable without ever opening exploration, and reading the pack twice is
+    // cheaper than making a diagnostics screen depend on a session.
+    const store = new PackStore(createBundledPackSource(loadBundledPackFiles));
+    void store.load().then(() => {
+      setManifest(store.getManifest());
+      setProvenance(store.provenance());
+    });
+  }, []);
+
+  const rows: [string, string][] = [
+    ["Online", isOnline ? "yes — satellite, routing and sync available" : "no — offline pack in use"],
+    ["Pack version", provenance?.packVersion ?? "—"],
+    ["Pack built", provenance?.builtAt ?? "—"],
+    ["Pack age", provenance ? `${provenance.ageDays} days${provenance.stale ? " — STALE" : ""}` : "—"],
+    // The whole-pack hash, so a build in the field can be matched against the
+    // one that was verified on a desk.
+    ["Pack SHA256", manifest?.sha256 ?? "—"],
+    ["Satellite imagery", isOnline ? "online tiles + disk cache" : "disk cache only"],
+    [
+      "Tile cache",
+      tiles ? `${(tiles.bytes / 1_048_576).toFixed(1)} MB on disk` : "reading…",
+    ],
+    ["Attribution", ATTRIBUTION],
+  ];
+
+  return (
+    <>
+      <Text style={styles.section}>Exploration engine</Text>
+      <View style={styles.card}>
+        {rows.map(([k, v]) => (
+          <View style={styles.row} key={k}>
+            <Text style={styles.k}>{k}</Text>
+            <Text style={styles.v}>{v}</Text>
+          </View>
+        ))}
+      </View>
+    </>
+  );
+}
+
 function FieldEngineSection() {
   const { snapshot: s, controller, actions } = useFieldSession();
   const rec = controller.recorder;
