@@ -127,8 +127,8 @@ android {
         applicationId 'com.gemscan.ai'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 62
-        versionName "1.6.0"
+        versionCode 63
+        versionName "1.6.1"
     }
     signingConfigs {
         debug {
@@ -221,21 +221,25 @@ if (rnVersion < versionToNumber(0, 75, 0)) {
 
 // ── expo-constants: force the app config to be regenerated every build ───────
 //
-// expo-constants' get-app-config-android.gradle registers `createExpoConfig`
-// with `outputs.dir` but declares NO INPUTS. Gradle therefore treats the task
-// as up to date for as long as the output directory exists, and never re-runs
-// it when app.json changes.
+// expo-constants registers `createExpoConfig` with `outputs.dir` and NO INPUTS,
+// so Gradle holds it up to date for as long as the output directory exists and
+// never re-runs it when app.json changes.
 //
-// The result shipped: an APK whose native versionCode was 61 while the bundled
-// assets/app.config still said 1.2.0 / 58 from an old build. The Settings
-// screen reads its version name from that asset, so the phone reported
-// "1.2.0 (61)" — a version this repo had never built, and a number no amount of
-// editing app.json could correct.
+// The result shipped: an APK whose native versionCode was 62 while the bundled
+// assets/app.config still said 1.2.0 / 58 from an old build. Settings reads its
+// version name from that asset, so the phone reported "1.2.0 (61)" — a version
+// this repo had never built, and a number no amount of editing app.json could
+// correct.
 //
-// Marking it never-up-to-date costs one node invocation per build, which is
-// about a second, and buys a version string that is actually true.
-afterEvaluate {
-    tasks.findAll { it.name == "createExpoConfig" }.each { t ->
-        t.outputs.upToDateWhen { false }
+// The task lives on the :expo-constants project, NOT on :app. A first attempt
+// at this hook searched :app's own task list, found nothing, and silently did
+// nothing at all — which is why the same stale version shipped twice.
+// `projectsEvaluated` runs after every project has registered its tasks, and
+// `matching {}.configureEach` copes with the task being created later still.
+gradle.projectsEvaluated {
+    rootProject.allprojects.each { p ->
+        p.tasks.matching { it.name == "createExpoConfig" }.configureEach { t ->
+            t.outputs.upToDateWhen { false }
+        }
     }
 }
