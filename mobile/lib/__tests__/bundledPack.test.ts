@@ -123,22 +123,82 @@ describe("bundled Somalia knowledge pack", () => {
     expect(d.mapFeatures.length).toBeGreaterThan(50);
     const sources = new Set(d.mapFeatures.map((f) => f.source));
     expect(sources.has("macrostrat_lines")).toBe(true);
-    // Every line traces to a published source; none is derived from polygons.
+    // Every line traces to a source, and a DERIVED line says so in its own row.
     expect(d.mapFeatures.every((f) => f.source && f.source.length > 0)).toBe(true);
-    expect(d.mapFeatures.every((f) => f.kind === "fault")).toBe(true);
     expect(d.mapFeatures.every((f) => f.lines.length > 0)).toBe(true);
-    // Still NO contacts or lineaments: neither has an authoritative source.
-    expect(d.mapFeatures.some((f) => f.kind === "contact")).toBe(false);
+
+    // Three kinds, and the distinctions are the point: faults are PUBLISHED
+    // (Macrostrat map lines, GEM active faults); drainage is DERIVED from the
+    // Copernicus DEM by this repo's own hydrology; contacts are EXTRACTED from a
+    // published map's own polygon topology. A derived channel is not a surveyed
+    // river, so every one carries the algorithm, its version, the DEM it came
+    // from, the sampling resolution and the contributing-area threshold that
+    // decided it was a channel.
+    const kinds = new Set(d.mapFeatures.map((f) => f.kind));
+    expect([...kinds].sort()).toEqual(["contact", "drainage", "fault"]);
+
+    // Contacts: boundaries between two named units of the Geological Map of
+    // Somalia (Abbate et al., 1:1,500,000), digitized by UNESCO IHP-WINS. The
+    // scale is carried on every feature because ±750 m is what a 0.5 mm line at
+    // 1:1,500,000 can justify — these are reconnaissance positions, and nothing
+    // downstream may read one as a surveyed contact.
+    const contacts = d.mapFeatures.filter((f) => f.kind === "contact");
+    expect(contacts.length).toBeGreaterThan(1000);
+    for (const f of contacts.slice(0, 20)) {
+      expect(f.source).toBe("Abbate et al. Geological Map of Somalia");
+      const a = f.attributes as Record<string, unknown>;
+      expect(a.scale).toBe("1:1,500,000");
+      expect(a.dataset).toBe("UNESCO IHP-WINS digitized vector");
+      expect(a.positional_accuracy_m).toBe(750);
+      // Two named units, or it is not a contact between anything.
+      expect((a.unit_names as string[]).length).toBe(2);
+      expect(typeof a.algorithm).toBe("string");
+      expect(typeof a.algorithm_version).toBe("string");
+    }
+
+    const drainage = d.mapFeatures.filter((f) => f.kind === "drainage");
+    expect(drainage.length).toBeGreaterThan(1000);
+    for (const f of drainage.slice(0, 20)) {
+      expect(f.source).toBe("derived:dem-hydrology");
+      const a = f.attributes as Record<string, unknown>;
+      expect(typeof a.algorithm).toBe("string");
+      expect(typeof a.algorithm_version).toBe("string");
+      expect(typeof a.dem_source).toBe("string");
+      expect(typeof a.sampling_m).toBe("number");
+      expect(typeof a.threshold_km2).toBe("number");
+    }
+    // A published fault must NOT be dressed as derived, or the other way round.
+    for (const f of d.mapFeatures.filter((x) => x.kind === "fault").slice(0, 20)) {
+      expect(f.source).not.toContain("derived:");
+    }
+
+    // Contacts arrived, and the history is worth keeping. Deriving them from the
+    // old Macrostrat load was tried once, produced 165 lines sitting on 0.25-degree
+    // coordinates because those "polygons" were ST_MakeEnvelope sampling rectangles,
+    // and was deleted rather than shipped. "Absent until a real vector map exists"
+    // was the honest state for as long as it lasted. The Abbate map is that vector
+    // map: 82.8% of its edges are shared by exactly two polygons, so a contact is
+    // lifted out of the cartographer's own topology rather than inferred.
+    //
+    // Present in the pack is NOT the same as feeding the score — see
+    // prospectivityBaseline: contacts leak 3.5x and are held in ROLES_NOT_SCORED.
+    expect(d.mapFeatures.some((f) => f.kind === "contact")).toBe(true);
+    // Lineaments still have no source, and none is invented to fill the gap.
     expect(d.mapFeatures.some((f) => f.kind === "lineament")).toBe(false);
-    // Terrain IS present now — SRTM 30 m sampled around known occurrences.
-    expect(d.terrain.length).toBeGreaterThan(1000);
+    // Terrain is country-wide now — Copernicus GLO-30, H3 resolution 6. The old
+    // SRTM sampling was a k-ring around each known occurrence, which made its
+    // coverage a 150x proxy for "somebody already found something here".
+    expect(d.terrain.length).toBeGreaterThan(20_000);
     for (const t of d.terrain.slice(0, 50)) {
       expect(t.elevationM).toBeGreaterThanOrEqual(0);
       expect(t.slopeDeg).toBeGreaterThanOrEqual(0);
       expect(t.slopeDeg).toBeLessThanOrEqual(90);
       expect(["ridge", "slope", "valley", "flat"]).toContain(t.morphology);
-      // Drainage is NOT derivable from point sampling and must stay null.
-      expect(t.drainageDistM).toBeNull();
+      // Drainage distance is REAL now. It stayed null for as long as there was no
+      // drainage network to measure against — "never a guess", as the column
+      // comment says — and it is filled from the derived network, not estimated.
+      expect(typeof t.drainageDistM).toBe("number");
+      expect(t.drainageDistM!).toBeGreaterThanOrEqual(0);
     }
   });
 

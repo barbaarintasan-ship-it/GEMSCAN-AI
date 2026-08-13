@@ -5,7 +5,9 @@
     "cancel": "Cancel",
     "loading": "Loading…",
     "retry": "Retry",
-    "close": "Close"
+    "close": "Close",
+    "yes": "Yes",
+    "no": "No"
   },
   "home": {
     "subtitle": "Identify gemstones, minerals and more with expert analysis.",
@@ -128,7 +130,16 @@
       "save": "Save target",
       "saved": "Saved as a waypoint",
       "actions": "ACTIONS",
-      "navigate": "Navigate"
+      "navigate": "Navigate",
+      "held": "You chose this destination, so it is held. Re-ranking updates the alternatives below, never where you are going. Tap Recalculate to ask again.",
+      "betterAvailable": "Higher-scoring ground {{distance}} {{compass}} — you are not being redirected to it.",
+      "switchToIt": "GO THERE INSTEAD",
+      "scoredFor": "This target was ranked for {{commodity}}.",
+      "scoredUniversal": "This target was ranked on geology alone, with no commodity assumed.",
+      "scoredStale": "This target was ranked BEFORE {{commodity}} was selected — it is not a {{commodity}}-specific target. Tap Recalculate to rank for {{commodity}}.",
+      "makeTarget": "MAKE THIS MY TARGET",
+      "makeTargetHint": "Any distance. The engine still reports what it knows about the ground — it does not decide whether you may go.",
+      "nothingThere": "That ground has nothing recorded at all, so it cannot be offered as a target. You can still navigate to it."
     },
     "none": {
       "noStronger": "No stronger ground nearby",
@@ -167,7 +178,14 @@
     },
     "distance": {
       "m": "{{value}} m",
-      "km": "{{value}} km"
+      "km": "{{value}} km",
+      "straightOnly": "{{km}} km straight line",
+      "roadKm": "~{{road}} km",
+      "roadShort": "~{{road}} km by road",
+      "roadEstimate": "~{{road}} km by road (est ×{{factor}})",
+      "withRoad": "{{straight}} km straight · ~{{road}} km by road (est ×{{factor}})",
+      "estimatedBasis": "road estimate from your own traverses",
+      "defaultBasis": "road estimate ×{{factor}} — not yet measured here"
     },
     "reason": {
       "occurrence": "{{commodity}} occurrence {{distance}} away",
@@ -189,7 +207,8 @@
       "alteration": "Alteration",
       "fault": "Fault",
       "contact": "Contact",
-      "other": "Other"
+      "other": "Other",
+      "sample-location": "Sample location"
     },
     "location": {
       "coords": "{{lat}}, {{lng}}",
@@ -248,10 +267,33 @@
       "accuracy": "GPS accuracy circle",
       "compass": "Compass / heading",
       "grid": "Grid",
-      "frame": "Frame target"
+      "frame": "Frame target",
+      "hillshade": "Hillshade",
+      "roads": "Roads & tracks",
+      "labels": "Place names",
+      "land": "Coastline",
+      "geologyLabels": "Unit names",
+      "slope": "Slope",
+      "aspect": "Aspect",
+      "contacts": "Geological contacts",
+      "drainage": "Rivers & drainage",
+      "lineaments": "Lineaments",
+      "groupBackdrop": "Base map",
+      "groupGeology": "Geology",
+      "groupTerrain": "Terrain",
+      "groupSession": "This session",
+      "offlineLayer": "Offline — using cached tiles",
+      "sourceEsri": "Esri, cached for offline",
+      "sourceMacrostrat": "Macrostrat",
+      "sourceMrds": "USGS MRDS",
+      "sourceDem": "DEM (offline pack)",
+      "sourcePack": "Offline pack",
+      "sourceDevice": "This device",
+      "tapHint": "Tap the map to identify what is under your finger."
     },
     "sheet": {
       "distance": "Distance",
+      "distanceRoad": "Distance by road",
       "direction": "Direction",
       "directionValue": "{{compass}} ({{deg}}°)",
       "confidence": "Confidence",
@@ -263,13 +305,13 @@
       "addNote": "Add note",
       "recalculate": "Recalculate",
       "walkToward": "Walk {{distance}} {{compass}}. {{reason}}",
-      "nothingHereFar": "No target within walking range. The nearest mapped ground is {{distance}} to the {{compass}} — {{transport}}, about {{travel}}.",
+      "nothingHereFar": "No target within walking range. The nearest mapped ground is {{distance}} to the {{compass}}{{road}} — {{transport}}, about {{travel}}.",
       "youAreOn": "You are on {{unit}}.",
       "unitUnknown": "No mapped unit covers this point.",
       "faultAhead": "A mapped fault lies {{distance}} away, which can concentrate minerals.",
       "walked": "Walked {{distance}}",
-      "travelLine": "{{band}} · {{transport}} · about {{travel}}",
-      "regionalLead": "Nearest mapped lead: {{distance}} to the {{compass}}. {{transport}}, about {{travel}}."
+      "travelLine": "{{band}} · {{transport}}{{road}} · about {{travel}}",
+      "regionalLead": "Nearest mapped lead: {{distance}} to the {{compass}}{{road}}. {{transport}}, about {{travel}}."
     },
     "arrived": {
       "title": "You reached the target",
@@ -342,7 +384,16 @@
       "warnStale": "No new position for {{s}} s. What is shown may be where you were, not where you are.",
       "warnNone": "No GPS fix yet. Distance and direction wait for one rather than guessing.",
       "calibrate": "Compass needs calibrating — move the phone in a figure of eight.",
-      "altitude": "Altitude {{m}} m"
+      "altitude": "Altitude {{m}} m",
+      "accuracyValue": "±{{value}} m",
+      "headingLabel": "Heading",
+      "headingCalibrating": "compass calibrating",
+      "headingNone": "no heading",
+      "movement": "Movement",
+      "moving": "moving {{speed}}",
+      "stationary": "stationary",
+      "movementUnknown": "not reported",
+      "chipNoFix": "No fix"
     },
     "track": {
       "title": "THIS TRAVERSE",
@@ -371,7 +422,7 @@
       "failed": "Export failed."
     },
     "diag": {
-      "title": "EXPLORATION DIAGNOSTICS",
+      "title": "FIELD DIAGNOSTICS",
       "pack": "Knowledge pack",
       "packVersion": "Pack version",
       "packAge": "Pack age",
@@ -390,6 +441,217 @@
       "satelliteOff": "Off",
       "days": "{{days}} days",
       "none": "—"
+    },
+    "identify": {
+      "title": "ON THE MAP",
+      "unit": "Geological unit",
+      "occurrence": "Mineral occurrence",
+      "terrain": "Ground",
+      "fault": "Fault",
+      "contact": "Contact",
+      "drainageLine": "Drainage",
+      "lineament": "Lineament",
+      "line": "Mapped line",
+      "name": "Name",
+      "type": "Type",
+      "source": "Source",
+      "age": "Age",
+      "ageRange": "{{top}}–{{bottom}} Ma",
+      "lithology": "Lithology",
+      "description": "Description",
+      "commodity": "Commodity",
+      "depositType": "Deposit type",
+      "hostRocks": "Host rocks",
+      "reference": "Reference",
+      "distance": "Distance",
+      "bearing": "Direction",
+      "elevation": "Elevation",
+      "slope": "Slope",
+      "slopeValue": "{{deg}}°",
+      "aspect": "Aspect",
+      "morphology": "Landform",
+      "drainage": "Nearest drainage",
+      "associated": "Associated with",
+      "associatedNote": "Association recorded in the pack — not a finding at this point.",
+      "notRecorded": "not recorded",
+      "offset": "{{distance}} from where you tapped",
+      "nothingHere": "The pack has nothing mapped at this point.",
+      "recommended": "What to do",
+      "recommendedUnit": "Walk the boundaries of this unit and photograph any exposure.",
+      "recommendedOccurrence": "Navigate to the record and photograph what is actually there.",
+      "recommendedFault": "Follow the trace and look for quartz veining, shearing and alteration.",
+      "recommendedContact": "Walk along the contact — mineralisation often follows it.",
+      "recommendedDrainage": "Check gravel bars and sediment traps for heavy minerals.",
+      "recommendedTerrain": "Use the relief to find exposure: crests and steep ground show bedrock.",
+      "navigate": "Navigate",
+      "centre": "Center",
+      "waypoint": "Waypoint",
+      "capture": "Capture",
+      "close": "Close",
+      "latitude": "Latitude",
+      "longitude": "Longitude",
+      "fixAccuracy": "Your GPS accuracy",
+      "lastUpdated": "Dataset currency",
+      "packCurrency": "pack {{version}} · {{days}} days old",
+      "confidenceNotAssessed": "not assessed — a mapped record, not an assessment"
+    },
+    "advice": {
+      "title": "WHAT TO DO NEXT",
+      "none": "Nothing further to add until the pack has something to say about this ground.",
+      "continue_to_target": "Continue {{compass}} — {{distance}} to the target.",
+      "inspect_fault": "Inspect the mapped fault {{distance}} {{compass}}: look for quartz veining and alteration.",
+      "inspect_contact": "Cross the mapped contact {{distance}} {{compass}} and sample both sides.",
+      "drainage_trap": "Mapped drainage {{distance}} away — check gravel bars for heavy minerals.",
+      "steep_outcrop": "Steep ground ({{slope}}°) — bedrock is usually exposed here.",
+      "ridge_outcrop": "Ridge crest — outcrop is usually exposed along it.",
+      "valley_float": "Valley floor — look for float and gravel shed from upslope.",
+      "host_association": "You are on {{lithology}}; the pack associates it with {{commodities}}.",
+      "occurrence_ahead": "Mapped occurrence {{distance}} {{compass}} — worth reaching on this traverse.",
+      "capture_evidence": "No sample recorded within {{radius}} of here yet.",
+      "basis": {
+        "engine": "From the targeting engine",
+        "mappedFault": "Mapped fault (offline pack)",
+        "mappedContact": "Mapped contact (offline pack)",
+        "mappedOccurrence": "Mapped occurrence (offline pack)",
+        "dem": "DEM cell {{fromM}} m away",
+        "drainage": "Mapped drainage, DEM cell {{fromM}} m away",
+        "association": "Pack association table",
+        "noEvidence": "No observation within {{radiusM}} m"
+      }
+    },
+    "morphology": {
+      "ridge": "Ridge",
+      "slope": "Slope",
+      "valley": "Valley",
+      "flat": "Flat"
+    },
+    "sync": {
+      "syncing": "filing field records…",
+      "pending": "{{count}} to file",
+      "pendingOne": "1 to file",
+      "failing": "{{count}} could not be filed",
+      "done": "all field records filed",
+      "title": "FIELD RECORDS",
+      "held": "Held on this device",
+      "filed": "Filed with the server",
+      "note": "Nothing collected in the field is discarded. Records are held here until there is a connection."
+    },
+    "logout": {
+      "title": "An expedition is running",
+      "body": "Your records stay on this device — nothing is lost, and recording continues. Only filing to the server stops.",
+      "held": "{{count}} record(s) are waiting to be filed. Only {{who}} can file them.",
+      "cancel": "Cancel",
+      "handover": "Hand over to someone else",
+      "keepRecording": "Log out, keep recording",
+      "thisAccount": "this account"
+    },
+    "evidenceRole": {
+      "geology": "Mapped geology",
+      "structural": "Faults",
+      "contacts": "Rock contacts",
+      "lineaments": "Lineaments",
+      "occurrence": "Known occurrences",
+      "association": "Commodity–host rock",
+      "terrain": "Terrain (DEM)",
+      "drainage": "Drainage",
+      "field": "Your field observations",
+      "community": "Verified finds",
+      "geochemistry": "Geochemistry",
+      "geophysics": "Geophysics",
+      "remote_sensing": "Remote sensing (alteration)"
+    },
+    "coverage": {
+      "title": "EVIDENCE BASIS",
+      "count": "Evidence {{present}}/{{total}}",
+      "present": "Used",
+      "not_scored": "Data present — not scored",
+      "none_here": "None within range",
+      "empty_layer": "Layer empty — not yet loaded",
+      "no_source": "No data source",
+      "thin": "This score rests on {{present}} of {{total}} layers. What is missing was not looked for — it is not evidence of absence.",
+      "notScoredWhy": {
+        "drainage": "The channel network is real and country-wide, but measurement shows it carries no general signal — known occurrences sit with respect to drainage exactly as random ground does. It waits for a commodity profile (placer), rather than being given a weight the data does not support.",
+        "contacts": "The Abbate 1:1,500,000 contacts are real geology, and 1,538 of them are loaded. They are still not scored: known occurrences sit within 10 km of a contact 91% of the time against 26% of random ground, but stratified by rock type that gap almost vanishes — 1.17x inside metamorphic ground. The map is subdivided most finely where the basement is, and the basement is where the finds are, so scoring contacts would count the geology signal a second time."
+      }
+    },
+    "commodity": {
+      "title": "COMMODITY",
+      "current": "CURRENT COMMODITY: {{name}}",
+      "currentUniversal": "CURRENT COMMODITY: NONE (UNIVERSAL)",
+      "universal": "All commodities",
+      "universalNote": "Assessing the ground on its geology alone, with no commodity assumed. This is the validated default: it ranks known mineralised ground above random ground with an AUC of 0.90, and 0.84 with all knowledge of past finds removed.",
+      "none": "This pack contains no commodity profiles.",
+      "calibrated": "CALIBRATED",
+      "uncalibrated": "UNCALIBRATED",
+      "occurrences": "{{count}} mapped occurrence(s) of this commodity in the pack",
+      "notAProbability": "Prospectivity Score ranks this ground against other ground. It is not a probability of finding anything, and no odds of discovery can be given from this data."
+    },
+    "mission": {
+      "title": "FIELD INVESTIGATION",
+      "arrivedTitle": "You have reached the investigation area.",
+      "arrivedBody": "This is {{area}} of ground and none of it has been looked at yet. Start collecting evidence.",
+      "hotspot": "The part worth investigating is {{distance}} {{compass}} of you.",
+      "noHotspot": "No part of this area stands out above the rest — work it as an area.",
+      "begin": "START INVESTIGATION",
+      "investigating": "Investigating. {{count}} observation(s) recorded.",
+      "finish": "FINISH SECTION",
+      "completed": "Section finished. Evidence package built on this device.",
+      "waitingUpload": "Waiting to upload — {{observations}} observation(s), {{photos}} photo(s). It will send by itself when a network appears.",
+      "analysed": "Assessment received.",
+      "close": "CLOSE MISSION",
+      "closed": "Mission closed. The engine can recommend somewhere else now.",
+      "locked": "A new target will not be suggested until this mission is closed."
+    },
+    "sampleType": {
+      "rock": "Rock",
+      "soil": "Soil",
+      "sediment": "Sediment",
+      "mineral-specimen": "Mineral specimen",
+      "other": "Other"
+    },
+    "collectionMethod": {
+      "surface": "Surface",
+      "outcrop": "Outcrop",
+      "float": "Float",
+      "stream-sediment": "Stream sediment"
+    },
+    "addWaypoint": {
+      "title": "ADD WAYPOINT",
+      "gpsAutomatic": "Your position, accuracy, altitude and heading are recorded automatically from the live GPS fix. There is nothing to type — a position entered by hand is one nobody can check.",
+      "type": "WHAT IS IT?",
+      "hasSample": "DID YOU COLLECT A SAMPLE?",
+      "sampleId": "SAMPLE ID",
+      "sampleIdHint": "Generated for you, and editable — make it match the label on the bag.",
+      "sampleType": "SAMPLE TYPE",
+      "collectionMethod": "COLLECTED FROM",
+      "sampleDescription": "SAMPLE DESCRIPTION",
+      "sampleDescriptionPlaceholder": "e.g. White quartz vein with iron staining",
+      "observation": "WHAT DID YOU OBSERVE?",
+      "observationPlaceholder": "e.g. Quartz vein visible, green mineral crystals, sulphide staining",
+      "observationHint": "Recorded as YOUR OBSERVATION. The assessment treats it as something to be checked, never as an established fact.",
+      "photos": "PHOTOS ({{count}})",
+      "fieldCamera": "FIELD CAMERA",
+      "addPhoto": "ADD PHOTO",
+      "photoHint": "Saved on this device at once and queued for upload. They will send by themselves when a network appears — nothing is lost offline.",
+      "save": "SAVE WAYPOINT",
+      "reportedTitle": "WHO SAW THIS?",
+      "reportedNo": "I am here",
+      "reportedYes": "Reported to me",
+      "latitude": "Latitude",
+      "longitude": "Longitude",
+      "reportedOk": "Recorded at {{lat}}, {{lng}} — as reported, not observed here.",
+      "reportedNeedsCoords": "Enter the latitude and longitude you were sent."
+    },
+    "nearby": {
+      "title": "PREVIOUS FIELD EVIDENCE",
+      "within": "Previous field evidence within {{radius}}",
+      "none": "No previous field evidence recorded within {{radius}}.",
+      "summary": "{{count}} waypoint(s) · {{photos}} photo(s) · {{samples}} sample(s). Nearest {{nearest}}.",
+      "row": "{{type}} — {{distance}} away, {{date}}",
+      "rowPhotos": "{{count}} photo(s)",
+      "rowSample": "Sample {{id}} ({{type}})",
+      "rowNoSample": "No sample",
+      "contextOnly": "Your own earlier work, shown for context. It does not change the prospectivity score."
     }
   },
   "camera": {
@@ -417,6 +679,216 @@
       "vein_closeup": "Quartz vein close-up",
       "weathered": "Weathered surface",
       "mineral_closeup": "Mineral close-up"
+    }
+  },
+  "report": {
+    "title": "AI GEOLOGIST REPORT",
+    "pending": "Waiting for analysis. The evidence package is on this device and will be assessed once it reaches the server.",
+    "blockedPhotos": "Analysis is waiting for {{count}} photograph(s) to finish uploading. Nothing is lost — they will send by themselves.",
+    "failed": "The assessment could not be produced. Your evidence is untouched and it will be retried.",
+    "language": "Report language",
+    "section": {
+      "summary": "SUMMARY",
+      "score": "PROSPECTIVITY",
+      "interpretation": "POSSIBLE INTERPRETATION",
+      "evidence": "EVIDENCE FOUND",
+      "missing": "NOT LOOKED AT",
+      "actions": "RECOMMENDED NEXT STEPS",
+      "confidence": "CONFIDENCE",
+      "overview": "OVERVIEW",
+      "observations": "FIELD OBSERVATIONS",
+      "visual": "VISUAL EVIDENCE",
+      "context": "GEOLOGICAL CONTEXT",
+      "delivery": "DELIVERY"
+    },
+    "summary": {
+      "generated": "{{interest}} geological interest. {{found}} evidence layer(s) contributed; {{missing}} are absent. Confidence {{confidence}}."
+    },
+    "score": {
+      "value": "Prospectivity score {{score}}",
+      "notAProbability": "This ranks this ground against other ground. It is not a probability of finding a deposit, and no odds of discovery can be given from this data.",
+      "commodity": "Assessed for {{commodity}}.",
+      "universal": "Assessed on geology alone, with no commodity assumed."
+    },
+    "evidence": {
+      "row": "{{name}} — {{status}} · {{strength}} · {{reason}}",
+      "none": "No evidence was recorded or measured at this site."
+    },
+    "missing": {
+      "none": "Nothing further was identified as missing.",
+      "assay": "No assay result",
+      "geochemistry": "No geochemistry",
+      "geophysics": "No geophysics",
+      "remote_sensing": "No remote-sensing alteration mapping",
+      "alteration_mapping": "No alteration mapping",
+      "lineaments": "No lineament interpretation",
+      "drilling": "No drilling",
+      "trenching": "No trenching",
+      "vein_orientation": "Vein orientation not recorded",
+      "sample_collected": "No sample collected",
+      "confirmed_mineralization": "No confirmed mineralisation",
+      "grade_data": "No grade data",
+      "petrography": "No petrographic work",
+      "structural_measurement": "No structural measurements"
+    },
+    "action": {
+      "row": "{{n}}. {{action}}",
+      "none": "No further work is recommended from this evidence.",
+      "collect_rock_samples": "Collect representative rock samples",
+      "submit_for_assay": "Submit samples for assay",
+      "record_vein_orientation": "Record vein strike and dip",
+      "photograph_fresh_surfaces": "Photograph fresh fracture surfaces",
+      "map_strike_extent": "Map the strike extent of the vein",
+      "soil_geochemistry": "Run a soil geochemistry traverse",
+      "stream_sediment_sampling": "Sample stream sediments downstream",
+      "panning_test": "Pan the drainage for heavy minerals",
+      "trace_contact": "Walk out the geological contact",
+      "examine_alteration": "Examine and record alteration around the vein",
+      "revisit_with_gps": "Revisit with a better GPS fix",
+      "petrographic_analysis": "Submit a sample for petrographic analysis",
+      "check_fault_zone": "Inspect the fault zone for shearing and quartz"
+    },
+    "confidence": {
+      "value": "Confidence {{confidence}}",
+      "meaning": "Confidence describes how COMPLETE the evidence is. It is not a likelihood that a deposit exists.",
+      "capped": "The analysis initially reported {{claimed}}. It was reduced because the evidence does not support it.",
+      "high": "HIGH",
+      "medium": "MEDIUM",
+      "low": "LOW"
+    },
+    "interest": {
+      "notable": "Notable",
+      "moderate": "Moderate",
+      "limited": "Limited",
+      "none": "No"
+    },
+    "strength": {
+      "strong": "strong",
+      "moderate": "moderate",
+      "weak": "weak",
+      "absent": "absent"
+    },
+    "evidenceType": {
+      "quartz_vein": "Quartz vein",
+      "sulphides": "Sulphide minerals",
+      "gossan": "Gossan",
+      "alteration": "Alteration",
+      "malachite": "Malachite staining",
+      "iron_staining": "Iron staining",
+      "fault_proximity": "Proximity to a mapped fault",
+      "contact_proximity": "Proximity to a geological contact",
+      "lithology": "Mapped lithology",
+      "host_rock": "Host rock",
+      "terrain_morphology": "Landform",
+      "valley_landform": "Valley landform",
+      "ridge_landform": "Ridge landform",
+      "elevation": "Elevation",
+      "drainage_proximity": "Proximity to drainage",
+      "occurrence_cluster": "Nearby mapped occurrences",
+      "geochemistry": "Geochemistry",
+      "geophysics": "Geophysics",
+      "remote_sensing": "Remote-sensing alteration",
+      "field_observation": "Field observation",
+      "photograph": "Photograph",
+      "outcrop": "Outcrop",
+      "float": "Float / loose rock",
+      "shear_zone": "Shear zone"
+    },
+    "significance": {
+      "hydrothermal_indicator": "may occur in hydrothermal systems, but needs geochemical confirmation",
+      "fluid_pathway": "faults can act as pathways for mineralising fluids",
+      "favourable_host": "this rock type hosts this commodity elsewhere",
+      "structural_control": "many deposits of this style are structurally controlled",
+      "placer_potential": "drainage can concentrate heavy minerals",
+      "weathering_product": "may be a weathering product rather than primary mineralisation",
+      "oxidation_indicator": "indicates oxidation, which can overlie sulphides",
+      "not_available": "this was never measured, which is different from being measured and found absent",
+      "none_in_range": "the layer is loaded but none of it is near this site",
+      "unstated": "no reason was given",
+      "context_only": "context rather than an indicator on its own",
+      "requires_assay": "cannot be assessed without laboratory work"
+    },
+    "observations": {
+      "none": "Nothing was recorded on the ground for this section."
+    },
+    "visual": {
+      "none": "No photographs were read for this section.",
+      "photo": "[photo {{id}}]"
+    },
+    "context": {
+      "none": "The engine had no mapped reading for this ground."
+    },
+    "failedNote": "The evidence is safe on this device and on the server. Only the reading failed — it can be asked for again.",
+    "pdfFooter": "Produced by LuulScan from the evidence recorded for this mission. Interpretation, not assay.",
+    "reportedFlag": "{{n}} of the observations in this report were REPORTED to the geologist, not observed by them. The assessment treats them as evidence to be checked."
+  },
+  "reports": {
+    "title": "Exploration Reports",
+    "oneTitle": "Field Report",
+    "notFound": "This report is not on this device.",
+    "emptyTitle": "No sections finished yet",
+    "emptyBody": "Finish a section on the map and it will appear here, with its assessment once the evidence has uploaded.",
+    "universal": "Universal",
+    "observations": "{{n}} observations",
+    "photos": "{{n}} photos",
+    "collectedSummary": "{{obs}} observations · {{photos}} photographs · {{track}} track points",
+    "state": {
+      "analysed": "REPORT READY",
+      "uploading": "UPLOADING {{n}}",
+      "waiting": "AWAITING ANALYSIS",
+      "failed": "ANALYSIS FAILED",
+      "refused": "REFUSED {{n}}",
+      "retrying": "RETRYING {{n}}"
+    },
+    "field": {
+      "date": "Date",
+      "target": "Target cell",
+      "position": "Position",
+      "commodity": "Commodity",
+      "mission": "Mission",
+      "collected": "Collected",
+      "lastAnswer": "Last answer",
+      "photoStates": "Photographs"
+    },
+    "retrying": "Retrying…",
+    "retryPhotos": "Try {{n}} photograph(s) again",
+    "sharePdf": "Share the field report",
+    "exportPdf": "Export as PDF"
+  },
+  "fieldWork": {
+    "title": "Enterprise Field Work",
+    "start": {
+      "title": "Start Exploration",
+      "body": "Take a target, walk to it, record what is there. Works with no signal."
+    },
+    "reports": {
+      "title": "Exploration Reports",
+      "body": "Sections you have finished, and the AI geologist's reading of each."
+    },
+    "samples": {
+      "title": "My Samples",
+      "body": "Specimens you collected. Identified from the rock itself — no location assessment."
+    },
+    "footnote": "A sample is identified from the specimen. A report interprets the ground. The two are kept apart on purpose.",
+    "guide": {
+      "title": "HOW THIS WORKS",
+      "s1": {
+        "title": "Start Exploration",
+        "body": "The engine reads the ground under you and offers a target. Walk to it — the map keeps guiding with no signal."
+      },
+      "s2": {
+        "title": "Record what is there",
+        "body": "At the target, add a waypoint. Use FIELD CAMERA for the photographs — it has the zoom and the focus lock a hand specimen needs."
+      },
+      "s3": {
+        "title": "Finish Section",
+        "body": "Everything is written to this phone first. Nothing needs a network, and nothing is lost if there is none."
+      },
+      "s4": {
+        "title": "Read the report",
+        "body": "When a signal appears, the evidence uploads and the AI geologist reads it. The report waits for you under Exploration Reports."
+      },
+      "offline": "My Samples is a separate thing: a rock you picked up, identified from the specimen itself. It never assesses the ground it came from."
     }
   }
 }

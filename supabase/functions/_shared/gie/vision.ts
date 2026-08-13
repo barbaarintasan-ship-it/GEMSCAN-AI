@@ -10,6 +10,7 @@
 // visualEvidence stay pure and unit-testable without a key or network.
 import { encodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
 import type { EvidenceInput } from "./types.ts";
+import { fetchWithTimeout, BUDGET_MS } from "../timeout.ts";
 
 const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-flash-latest";
 
@@ -122,7 +123,22 @@ export function visualEvidence(obs: VisualObservation[], imageQuality = 1): Evid
  * The budget is on the ENCODED total, because that is what actually goes on the
  * wire. Images are taken highest-quality-first until it is spent.
  */
-export const MAX_VISION_BYTES = 12 * 1024 * 1024;
+// TUNABLE WITHOUT A DEPLOY, and much lower than it was.
+//
+// 12 MB was set to fit Gemini's inline-payload limit. That was the wrong
+// ceiling: the isolate dies long before the API complains. encodeBase64 is
+// SYNCHRONOUS, so encoding two 6 MB frames blocks the event loop outright —
+// and a blocked loop cannot fire the timeout that was meant to catch this,
+// which is why adding one changed nothing. Twelve samples were killed here
+// with no error recorded, because no code runs after a CPU/memory kill.
+//
+// Env-readable so a field emergency is a secret change, not a redeploy.
+const envBytes = (name: string, fallback: number): number => {
+  const n = Number(Deno.env.get(name));
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+export const MAX_VISION_BYTES = envBytes("GIE_VISION_MAX_BYTES", 4 * 1024 * 1024);
 
 /**
  * A single image larger than this is skipped rather than allowed to consume the
@@ -134,10 +150,10 @@ export const MAX_VISION_BYTES = 12 * 1024 * 1024;
  * gets no visual evidence, and its assessment rests on the geological providers
  * alone — degraded, which is the correct outcome, and never stranded.
  */
-export const MAX_SINGLE_IMAGE_BYTES = 8 * 1024 * 1024;
+export const MAX_SINGLE_IMAGE_BYTES = envBytes("GIE_VISION_MAX_SINGLE_BYTES", 2 * 1024 * 1024);
 
 /** A last guard on count, so a thousand thumbnails cannot each cost a round trip. */
-export const MAX_VISION_IMAGES = 8;
+export const MAX_VISION_IMAGES = envBytes("GIE_VISION_MAX_IMAGES", 3);
 
 export async function runVision(imageUrls: string[], deps: VisionDeps): Promise<VisualObservation[]> {
   if (imageUrls.length === 0) return [];
@@ -202,7 +218,7 @@ export async function runVision(imageUrls: string[], deps: VisionDeps): Promise<
 export const defaultVisionDeps: VisionDeps = {
   probeSizeBytes: async (url) => {
     try {
-      const res = await fetch(url, { method: "HEAD" });
+      const res = await fetchWithTimeout(url, { method: "HEAD" }, BUDGET_MS.imageProbe, "image size probe");
       if (!res.ok) return null;
       const len = res.headers.get("content-length");
       const n = len == null ? NaN : Number(len);
@@ -213,7 +229,7 @@ export const defaultVisionDeps: VisionDeps = {
     }
   },
   fetchImageBase64: async (url) => {
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url, {}, BUDGET_MS.imageFetch, "image download");
     if (!res.ok) throw new Error(`image fetch failed (${res.status})`);
     const mimeType = res.headers.get("content-type") ?? "image/jpeg";
     return { base64: encodeBase64(new Uint8Array(await res.arrayBuffer())), mimeType };
@@ -228,9 +244,11 @@ export const defaultVisionDeps: VisionDeps = {
       }],
       generationConfig: { temperature: 0.2, responseMimeType: "application/json" },
     };
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+      BUDGET_MS.visionGenerate,
+      "Gemini vision",
     );
     const raw = await res.json();
     if (!res.ok) throw new Error(raw?.error?.message ?? `Gemini API error (status ${res.status})`);

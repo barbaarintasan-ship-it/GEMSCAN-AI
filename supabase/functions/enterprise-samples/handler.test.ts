@@ -168,3 +168,63 @@ Deno.test("DELETE without an id is not a mass delete", async () => {
   assertEquals(called, false);
   assertEquals(r.status >= 400, true);
 });
+
+// ── "Re-analysis started" must mean it started ───────────────────────────────
+//
+// THE FIELD REPORT. A geologist pressed re-analyse on samples that had been stuck
+// at ai_processing since the previous day. The app said "Re-analysis started ·
+// refresh in a moment". They refreshed. Nothing had changed, and nothing ever
+// would have: `reanalyze` was
+//
+//     (_actor, id) => { triggerAnalysis(id, true); return Promise.resolve(); }
+//
+// and triggerAnalysis returned void — it returned EARLY AND SILENTLY when
+// SUPABASE_URL or SERVICE_ROLE_KEY was missing, and only logged a fetch
+// rejection. So the route answered 202 whether or not anything had been
+// dispatched. The 202 was not a report about the analysis; it was a report that
+// the request had been parsed.
+Deno.test("POST :id surfaces a dispatch failure instead of answering 202", async () => {
+  const r = await handleSamples(
+    req("POST", undefined, "https://x/enterprise-samples/s1"),
+    base({
+      reanalyze: () => {
+        throw new Error("re-analysis could not be started: analysis is not configured on the server");
+      },
+    }),
+  );
+  // Anything but a success. The geologist must not be sent away to wait.
+  assert(r.status >= 400, `expected an error status, got ${r.status}`);
+  const body = await r.json();
+  assert(
+    JSON.stringify(body).includes("could not be started"),
+    `the reason must reach the client, got: ${JSON.stringify(body)}`,
+  );
+});
+
+Deno.test("POST :id still answers 202 when the dispatch really did go out", async () => {
+  let reran = "";
+  const r = await handleSamples(
+    req("POST", undefined, "https://x/enterprise-samples/s1"),
+    base({ reanalyze: async (_a, id) => { reran = id; } }),
+  );
+  assertEquals(r.status, 202);
+  assertEquals(reran, "s1");
+});
+
+Deno.test("reanalyze is AWAITED — the route cannot answer before the dispatch resolves", async () => {
+  // The old implementation returned Promise.resolve() immediately and let the
+  // fetch float. A route that answers first and dispatches later can never
+  // report a dispatch failure, whatever the dispatch code does.
+  let settled = false;
+  const r = await handleSamples(
+    req("POST", undefined, "https://x/enterprise-samples/s1"),
+    base({
+      reanalyze: async () => {
+        await new Promise((res) => setTimeout(res, 10));
+        settled = true;
+      },
+    }),
+  );
+  assertEquals(r.status, 202);
+  assert(settled, "the response was produced before the dispatch finished");
+});

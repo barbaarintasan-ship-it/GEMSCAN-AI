@@ -17,7 +17,7 @@ const CLOSEUP_ROLES = ["surface_closeup", "texture_structure", "key_feature"]; /
 const GPS_SOURCES = ["gps", "fused", "network", "manual"];
 const H3_RES = 9; // ~174 m cells for sample points
 const LIST_COLS = "id,name,collected_at,status,completeness_status,completeness_score," +
-  "ai_confidence,geologist_confidence,confidence_score,area_id,created_at";
+  "ai_confidence,geologist_confidence,confidence_score,area_id,created_at,origin";
 const DETAIL = "id,name,collected_at,status,completeness_status,completeness_score," +
   "ai_confidence,geologist_confidence,confidence_score,area_id,field_observations,created_at," +
   // Why the last run failed, so the app can say so instead of showing
@@ -34,7 +34,7 @@ export interface Deps {
   requireEnterprise: (actor: Actor) => Promise<void>;
   createSample: (actor: Actor, payload: Record<string, unknown>) => Promise<unknown>;
   editSample: (actor: Actor, id: string, payload: Record<string, unknown>) => Promise<unknown>;
-  listSamples: (req: Request, actor: Actor) => Promise<unknown>;
+  listSamples: (req: Request, actor: Actor, origin?: string) => Promise<unknown>;
   getSample: (req: Request, actor: Actor, id: string) => Promise<unknown | null>;
   reanalyze: (actor: Actor, id: string) => Promise<void>;
   deleteSample: (actor: Actor, id: string) => Promise<void>;
@@ -45,16 +45,62 @@ export const defaultDeps: Deps = {
   requireEnterprise: (a) => realRequireEnterprise(a, serviceClient()),
   createSample: async (actor, payload) => {
     const svc = serviceClient();
-    const { data, error } = await svc.rpc("submit_sample", { p_actor: actor.userId, p_payload: payload });
+
+    /**
+     * IDEMPOTENT when the device supplies its own id (0096).
+     *
+     * A field submission carries megabytes of photographs over a link that
+     * routinely dies mid-request, so the device cannot know whether the record
+     * arrived, and retries. Without this, that is how the same outcrop ends up in
+     * the collection four times — each with its own analysis, each costing an
+     * inference.
+     *
+     * Look first, insert second, then claim the id. The claim is what closes the
+     * race: if two retries arrive together, the unique index rejects the second,
+     * and `claim_sample_client_id` returns the winner and soft-deletes the loser.
+     * Callers that send no id behave exactly as before.
+     */
+    const clientLocalId = typeof payload.client_local_id === "string" && payload.client_local_id.length > 0
+      ? payload.client_local_id.slice(0, 120)
+      : null;
+
+    if (clientLocalId) {
+      const { data: existing } = await svc.rpc("find_sample_by_client_id", {
+        p_actor: actor.userId,
+        p_client_local_id: clientLocalId,
+      });
+      if (existing) {
+        // Already filed. Return it unchanged — and do NOT re-run the analysis,
+        // which is the expensive half of accepting a duplicate.
+        const { data: detail } = await svc.from("sample").select(DETAIL).eq("id", existing).maybeSingle();
+        return { sample_id: existing as string, sample: detail, deduplicated: true };
+      }
+    }
+
+    // submit_sample validates its own payload and does not know this column.
+    const { client_local_id: _unused, ...submitPayload } = payload as Record<string, unknown>;
+    const { data, error } = await svc.rpc("submit_sample", { p_actor: actor.userId, p_payload: submitPayload });
     // The RPC raises 'validation: …' for a bad request — surface that as a 400.
     if (error) {
       if (/validation:/i.test(error.message)) throw new BadRequestError(error.message.replace(/^.*validation:\s*/i, ""));
       throw new Error(`submit_sample: ${error.message}`);
     }
-    const id = (data as { sample_id: string }).sample_id;
+    let id = (data as { sample_id: string }).sample_id;
+
+    if (clientLocalId) {
+      const { data: claimed, error: claimError } = await svc.rpc("claim_sample_client_id", {
+        p_actor: actor.userId,
+        p_sample: id,
+        p_client_local_id: clientLocalId,
+      });
+      // A failed claim leaves the sample filed but unkeyed: better a sample the
+      // device may re-send than a sample nobody has.
+      if (!claimError && typeof claimed === "string") id = claimed;
+    }
+
     triggerAnalysis(id); // auto-run the Geological Intelligence Engine (non-blocking, §6)
     const { data: detail } = await svc.from("sample").select(DETAIL).eq("id", id).maybeSingle();
-    return { ...(data as object), sample: detail };
+    return { ...(data as object), sample_id: id, sample: detail };
   },
   editSample: async (actor, id, payload) => {
     const svc = serviceClient();
@@ -74,14 +120,30 @@ export const defaultDeps: Deps = {
     const { data: detail } = await svc.from("sample").select(DETAIL).eq("id", id).maybeSingle();
     return { ...(data as object), sample: detail };
   },
-  listSamples: async (req, actor) => {
-    const { data, error } = await userClient(req).from("sample")
+  listSamples: async (req, actor, origin) => {
+    let q = userClient(req).from("sample")
       .select(LIST_COLS)
-      .eq("collector_id", actor.userId).is("deleted_at", null).order("created_at", { ascending: false });
+      .eq("collector_id", actor.userId).is("deleted_at", null);
+    // My Samples asks for `personal` and gets ONLY personal. Filtered in the
+    // query rather than on the device: a screen that fetched both and hid one
+    // would still have downloaded a mission's evidence into a personal
+    // collection, and the next person to add a list would forget the hiding.
+    if (origin) q = q.eq("origin", origin);
+    const { data, error } = await q.order("created_at", { ascending: false });
     if (error) throw new Error(`list: ${error.message}`);
     return data ?? [];
   },
-  reanalyze: (_actor, id) => { triggerAnalysis(id, true); return Promise.resolve(); },
+  // AWAITED, unlike the auto-run on create. Someone pressed a button and is
+  // watching the screen; "started" has to mean started. A dispatch that failed
+  // is recorded on the sample AND thrown, so the app shows the real reason
+  // instead of "refresh in a moment" over an analysis that was never sent.
+  reanalyze: async (_actor, id) => {
+    const failure = await dispatchAnalysis(id, true);
+    if (failure) {
+      await recordDispatchFailure(id, failure.reason);
+      throw new Error(`re-analysis could not be started: ${failure.reason}`);
+    }
+  },
   deleteSample: async (actor, id) => {
     const svc = serviceClient();
     const { data, error } = await svc.rpc("delete_sample", { p_actor: actor.userId, p_sample: id });
@@ -130,29 +192,84 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-// Fire-and-forget: kick off analyze-sample right after a submit. Non-blocking so
-// the submit response stays fast; EdgeRuntime.waitUntil keeps it alive past the
-// response. analyze-sample is idempotent + daily-capped, so this is safe to retry.
-function triggerAnalysis(sampleId: string, force = false): void {
+/** Why a dispatch never happened. Null when analyze-sample was reached. */
+type DispatchFailure = { reason: string } | null;
+
+/**
+ * Send one sample to analyze-sample, and REPORT whether the send got through.
+ *
+ * WHAT WENT WRONG BEFORE. This returned `void`. A missing SUPABASE_URL or
+ * SERVICE_ROLE_KEY returned early with no log at all, and a fetch rejection was
+ * logged and dropped. `reanalyze` then answered 200 unconditionally, so the app
+ * told a geologist "Re-analysis started · refresh in a moment" when nothing had
+ * been dispatched — a claim the server had no basis for. They pressed it, waited,
+ * refreshed, and the collection was unchanged, because there had never been
+ * anything to wait for.
+ *
+ * Distinguish the two callers, because they want opposite things:
+ *
+ *   ON CREATE  a human is waiting for the SUBMIT to return, not for an analysis.
+ *              Non-blocking is right — but a dispatch that cannot happen is now
+ *              written to the sample, so the row says why instead of sitting at
+ *              a status nothing will ever move.
+ *
+ *   ON RETRY   a human pressed "re-analyse" and is watching. The outcome of the
+ *              dispatch is the answer to their question, so it is awaited and
+ *              returned.
+ */
+async function dispatchAnalysis(sampleId: string, force: boolean): Promise<DispatchFailure> {
   const url = Deno.env.get("SUPABASE_URL");
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!url || !key) return;
-  const p = fetch(`${url}/functions/v1/analyze-sample`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "content-type": "application/json" },
-    body: JSON.stringify({ sample_id: sampleId, force }),
-  })
-    // Swallowing this is what made a real outage invisible: analyze-sample was
-    // failing on samples with many photos, and because the rejection was
-    // discarded the sample simply sat at "submitted" with nothing recorded
-    // anywhere. Fire-and-forget must still REPORT — it just must not block.
-    .then(async (res) => {
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        console.error(`analyze-sample ${sampleId} -> HTTP ${res.status}: ${body.slice(0, 500)}`);
-      }
-    })
-    .catch((e) => console.error(`analyze-sample ${sampleId} -> request failed:`, e));
+  // A configuration fault, not a transient one. Silence here is what made the
+  // engine look like it was running when it could not even be called.
+  if (!url || !key) {
+    const reason = "analysis is not configured on the server (SUPABASE_URL or SERVICE_ROLE_KEY missing)";
+    console.error(`analyze-sample ${sampleId} -> NOT DISPATCHED: ${reason}`);
+    return { reason };
+  }
+  try {
+    const res = await fetch(`${url}/functions/v1/analyze-sample`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "content-type": "application/json" },
+      body: JSON.stringify({ sample_id: sampleId, force }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      const reason = `analyze-sample returned HTTP ${res.status}: ${body.slice(0, 300)}`;
+      console.error(`analyze-sample ${sampleId} -> ${reason}`);
+      return { reason };
+    }
+    return null;
+  } catch (e) {
+    const reason = `could not reach analyze-sample: ${e instanceof Error ? e.message : String(e)}`;
+    console.error(`analyze-sample ${sampleId} -> ${reason}`);
+    return { reason };
+  }
+}
+
+/**
+ * Record against the SAMPLE that its analysis could not even be started.
+ *
+ * Without this a failed dispatch left the row at whatever status it had, with no
+ * error and nothing to retry from — indistinguishable from an analysis quietly
+ * in progress. That ambiguity is the entire defect being closed here.
+ */
+async function recordDispatchFailure(sampleId: string, reason: string): Promise<void> {
+  try {
+    await serviceClient("geo").rpc("mark_analysis_failed", { p_sample: sampleId, p_reason: reason });
+  } catch (e) {
+    console.error(`mark_analysis_failed ${sampleId}:`, e);
+  }
+}
+
+/**
+ * The auto-run after a submit. Non-blocking, but no longer silent.
+ * EdgeRuntime.waitUntil keeps it alive past the response.
+ */
+function triggerAnalysis(sampleId: string, force = false): void {
+  const p = dispatchAnalysis(sampleId, force).then(async (failure) => {
+    if (failure) await recordDispatchFailure(sampleId, failure.reason);
+  });
   // deno-lint-ignore no-explicit-any
   const er = (globalThis as any).EdgeRuntime;
   if (er?.waitUntil) er.waitUntil(p);
@@ -252,7 +369,14 @@ export async function handleSamples(req: Request, deps: Deps = defaultDeps): Pro
       if (!s) throw new NotFoundError("sample not found");
       return json(s);
     }
-    if (req.method === "GET") return json({ samples: await deps.listSamples(req, actor) });
+    if (req.method === "GET") {
+      // ?origin=personal — what My Samples asks for. Validated against the enum
+      // rather than passed through: an unrecognised value must not silently
+      // become "no filter" and hand back a mission's evidence.
+      const raw = new URL(req.url).searchParams.get("origin");
+      const origin = raw === "personal" || raw === "exploration" ? raw : undefined;
+      return json({ samples: await deps.listSamples(req, actor, origin) });
+    }
     return json({ error: "method not allowed" }, 405);
   } catch (err) {
     return errorResponse(err);

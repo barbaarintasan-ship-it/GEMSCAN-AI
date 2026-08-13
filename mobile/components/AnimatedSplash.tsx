@@ -15,6 +15,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, StyleSheet } from "react-native";
 import { WebView } from "react-native-webview";
+import { markPhase } from "../lib/diagnostics/jsStall";
 
 // Dark blue-black backdrop — matches the HTML body background exactly so there
 // is never a colour seam between the RN container and the WebView content.
@@ -142,6 +143,15 @@ export function AnimatedSplash({ onFinish, duration = 3600 }: Props) {
   const opacity = useRef(new Animated.Value(1)).current;
   const [hidden, setHidden] = useState(false);
 
+  // MEASURED, because it is on the cold-start path and it is not cheap: this
+  // mounts a WebView and hands it a full HTML document with animated SVG, while
+  // the provider graph and the router are being built on the same thread. Ends
+  // when the splash goes away, so a startup stall lands inside a named phase
+  // instead of arriving as an unattributed four seconds.
+  const shown = useRef<null | (() => void)>(null);
+  if (shown.current === null && !hidden) shown.current = markPhase("app.splash");
+  useEffect(() => () => { shown.current?.(); shown.current = null; }, []);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       Animated.timing(opacity, {
@@ -157,7 +167,11 @@ export function AnimatedSplash({ onFinish, duration = 3600 }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (hidden) return null;
+  if (hidden) {
+    shown.current?.();
+    shown.current = null;
+    return null;
+  }
 
   return (
     <Animated.View style={[StyleSheet.absoluteFill, styles.container, { opacity }]} pointerEvents="none">

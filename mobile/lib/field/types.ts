@@ -95,16 +95,61 @@ export type LocationProfileName = "walking";
 
 export interface LocationProfileConfig {
   name: LocationProfileName;
-  accuracy: "balanced";     // maps to expo Location.Accuracy.Balanced in the adapter
+  /**
+   * "highest" maps to expo Location.Accuracy.BestForNavigation in the adapter.
+   *
+   * Balanced was costing the field session the receiver's best work: on Android
+   * it is a ~100 m fused-provider mode that will happily answer from wifi and
+   * cell towers, and a geologist recording where an outcrop is needs the GNSS
+   * chip asked properly. The cost is battery, which is the right trade for a
+   * session the user explicitly started and can see running.
+   */
+  accuracy: "highest";
+  /**
+   * Metres of movement before the OS delivers a fix. ZERO means "do not gate on
+   * distance at all" — deliver on the time interval alone.
+   *
+   * THE FIELD REPORT THIS FIXES, in the reporter's own words: press the power
+   * button, screen goes dark, double-tap to wake it — "GPS works immediately".
+   * Then, a minute later, it does not.
+   *
+   * It was 5, with the comment "still silent when still". On Android
+   * `watchPositionAsync` applies distance AND time together: a fix arrives only
+   * once three seconds have passed AND the device has moved five metres. Standing
+   * on an outcrop writing notes moves nobody five metres, so no fix ever arrived,
+   * and the app correctly reported the position as stale — 63 seconds, 300
+   * seconds, 703 seconds — while the geologist stood outside under a clear sky
+   * with a receiver that was working perfectly.
+   *
+   * Waking the screen jostles the phone, ±11 m of noise crosses the five-metre
+   * gate, one fix lands, and it looks fixed. Then it stops again. Exactly as
+   * reported.
+   *
+   * Three things depend on fixes continuing while stationary, and all three were
+   * broken by the gate:
+   *   • the staleness warning, which counts TIME and so contradicted a watch
+   *     gated on DISTANCE
+   *   • ARRIVAL, judged on each fix — you stop walking when you get there, which
+   *     is precisely when the fixes stopped
+   *   • the accuracy readout a geologist uses to decide whether a position is
+   *     worth recording
+   *
+   * The traverse is unaffected: TrackRecorder gates independently at
+   * `minDistanceM: 10` plus an accuracy factor, described there as the safety net
+   * for platforms that ignore the OS gate and burst. It never relied on this.
+   *
+   * The cost is battery, on a session the user explicitly started, on a screen
+   * this app already holds awake for the same reason.
+   */
   distanceIntervalM: number;
   timeIntervalMs: number;
 }
 
 export const WALKING_PROFILE: LocationProfileConfig = {
   name: "walking",
-  accuracy: "balanced",
-  distanceIntervalM: 15, // zero callbacks while standing still
-  timeIntervalMs: 5000,  // Android floor against fused-provider bursts
+  accuracy: "highest",
+  distanceIntervalM: 0,  // deliver on TIME alone — see the note above
+  timeIntervalMs: 3000,  // Android floor against fused-provider bursts
 };
 
 export const FIRST_FIX_TIMEOUT_MS = 30_000;

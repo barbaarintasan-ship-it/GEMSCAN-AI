@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../../../lib/supabase";
 import { colors, spacing, radius, type as t } from "../../../../lib/theme";
+import { STATUS_LABELS, isStalled } from "../../../../lib/samples/sampleStatus";
 import { Card } from "../../../../components/ui/Card";
 import { SectionLabel } from "../../../../components/ui/SectionLabel";
 import { deleteSample, getSample, reanalyzeSample, sampleIsEditable, type SampleDetail, type AssessmentEvidence, type MediaRole } from "../../../../lib/enterpriseSamples";
@@ -284,26 +285,10 @@ export default function SampleDetailScreen() {
   );
 }
 
-// Human-friendly status labels for the production lifecycle (§13).
-const STATUS_LABELS: Record<string, string> = {
-  draft: "Draft", ready: "Ready", uploading: "Uploading", ai_processing: "Processing",
-  ai_completed: "Analysis ready", awaiting_review: "Waiting for Geologist", verified: "Verified",
-  needs_more_data: "Needs More Data", rejected: "Rejected", submitted: "Submitted",
-  // A failed analysis has to LOOK failed. Left unlabelled it fell through to
-  // "ai failed" via the underscore replacement, which reads as a shrug.
-  ai_failed: "Analysis Failed",
-  community_confirmed: "Community Confirmed", expert_verified: "Expert Verified",
-  lab_verified: "Lab Verified", held: "Held",
-};
-/** A run older than this that has not finished is not running any more. */
-const STALLED_AFTER_MS = 10 * 60 * 1000;
-
-function isStalled(attemptedAt: string | null | undefined): boolean {
-  if (!attemptedAt) return false;
-  const t = Date.parse(attemptedAt);
-  return Number.isFinite(t) && Date.now() - t > STALLED_AFTER_MS;
-}
-
+// Labels, the stall threshold and isStalled now live in lib/samples/sampleStatus,
+// shared with the collection list. They were defined here alone, and the list
+// printed the raw column instead — so one row read "Analysis Failed" on this
+// screen and "Ai_processing" on the other. One vocabulary, one threshold.
 function statusLabel(s: string): string {
   return STATUS_LABELS[s] ?? s.replace(/_/g, " ");
 }

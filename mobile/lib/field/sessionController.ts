@@ -18,6 +18,7 @@ import {
 } from "./types";
 import { LocationService } from "./locationService";
 import { HeadingService } from "./headingService";
+import { markPhase } from "../diagnostics/jsStall";
 import {
   DiagnosticsRecorder,
   buildFieldDiagnosticsReport,
@@ -295,10 +296,13 @@ export class FieldSessionController {
   // ── Sensor event wiring ───────────────────────────────────────────────────
   private attachSensorListeners(): void {
     this.unsubFix ??= this.location.onFix((fix: FieldFix) => {
+      const measured = markPhase("field.fix");
+      try {
       const s = this.snap.machine.state;
       if (s !== "starting" && s !== "active") return;
       this.recorder.fix(fix);
       this.updateSnap({ lastFix: fix, fixCount: this.snap.fixCount + (fix.provisional ? 0 : 1) });
+      } finally { measured(); }
     });
     this.unsubHeading ??= this.heading.onHeading((h: FieldHeading) => {
       if (this.snap.machine.state !== "active") return;

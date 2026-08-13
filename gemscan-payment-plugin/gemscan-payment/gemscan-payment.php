@@ -3,7 +3,7 @@
  * Plugin Name: GemScan Payments
  * Plugin URI:  https://barbaarintasan.com/gemscanpayment
  * Description: GemScan landing + pricing + payment page, and the bridge that upgrades a member's account after payment. Adds the [gemscan_payment] shortcode. Configure everything under Settings → GemScan.
- * Version:     1.9.4
+ * Version:     1.9.6
  * Author:      GemScan
  * License:     GPL-2.0+
  * Text Domain: gemscan-payment
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
 }
 
 define('GEMSCAN_OPT', 'gemscan_payment_options');
-define('GEMSCAN_VER', '1.9.4');
+define('GEMSCAN_VER', '1.9.6');
 define('GEMSCAN_TPL', 'gemscan-fullpage.php'); // standalone page template slug
 define('GEMSCAN_URL', plugin_dir_url(__FILE__));
 define('GEMSCAN_DIR', plugin_dir_path(__FILE__));
@@ -168,7 +168,7 @@ function gemscan_activate($o, $email, $plan, $method = '', $reference = '') {
  * backend (action=add_credits → add_deep_scan_credits RPC). Returns
  * array('ok'=>bool, 'msg'=>string).
  * ---------------------------------------------------------------------- */
-function gemscan_add_credits($o, $email, $credits) {
+function gemscan_add_credits($o, $email, $credits, $reference = null) {
     if (empty($o['functions_url']) || empty($o['activation_secret'])) {
         return array('ok' => false, 'msg' => 'Set the Functions URL and Activation secret first.');
     }
@@ -177,15 +177,23 @@ function gemscan_add_credits($o, $email, $credits) {
         return array('ok' => false, 'msg' => 'Enter a positive number of credits.');
     }
     $url = rtrim($o['functions_url'], '/') . '/activate-subscription';
+    $body = array(
+        'secret'  => $o['activation_secret'],
+        'action'  => 'add_credits',
+        'email'   => $email,
+        'credits' => $credits,
+    );
+    // A stable per-purchase reference (e.g. the Stripe session id) lets the
+    // backend treat a retried/duplicated call as a no-op instead of granting
+    // credits twice for one purchase — omitted for the manual admin tool,
+    // where there's no natural per-purchase id and no automatic retry risk.
+    if ($reference) {
+        $body['reference'] = $reference;
+    }
     $res = wp_remote_post($url, array(
         'timeout' => 20,
         'headers' => array('Content-Type' => 'application/json'),
-        'body'    => wp_json_encode(array(
-            'secret'  => $o['activation_secret'],
-            'action'  => 'add_credits',
-            'email'   => $email,
-            'credits' => $credits,
-        )),
+        'body'    => wp_json_encode($body),
     ));
     if (is_wp_error($res)) {
         return array('ok' => false, 'msg' => $res->get_error_message());
@@ -251,6 +259,24 @@ function gemscan_verify_stripe_sig($payload, $sig_header, $secret) {
     return false;
 }
 
+/* The price (in cents) the buyer MUST have actually paid for a given item
+ * slug, derived only from server-side settings — never from anything in the
+ * webhook payload itself. Returns null for an unrecognized item. */
+function gemscan_expected_amount_cents($o, $item) {
+    $item = strtolower(trim($item));
+    $prices = array(
+        'explorer' => $o['explorer_price'],
+        'collector' => $o['collector_price'],
+        'pack5' => $o['pack5_price'],
+        'pack30' => $o['pack30_price'],
+        'pack100' => $o['pack100_price'],
+    );
+    if (!isset($prices[$item])) {
+        return null;
+    }
+    return (int) round(floatval($prices[$item]) * 100);
+}
+
 /* Map the paid item to an activation / credit grant, and record the revenue. */
 function gemscan_fulfill_stripe($o, $item, $email, $session_id) {
     $item = strtolower(trim($item));
@@ -280,7 +306,7 @@ function gemscan_fulfill_stripe($o, $item, $email, $session_id) {
 
     if (isset($packs[$item])) {
         list($credits, $price) = $packs[$item];
-        $r = gemscan_add_credits($o, $email, $credits);
+        $r = gemscan_add_credits($o, $email, $credits, $session_id);
         if (!empty($r['ok']) && class_exists('GemScan_Data')) {
             GemScan_Data::record_revenue(array(
                 'email'     => $email,
@@ -326,6 +352,19 @@ function gemscan_stripe_webhook(WP_REST_Request $request) {
     if ($event_id && get_transient('gemscan_ev_' . $event_id)) {
         return new WP_REST_Response(array('duplicate' => true), 200); // Idempotency.
     }
+    // Claim this event id BEFORE doing any of the actual fulfillment work
+    // below (not after, as this used to do) — Stripe retries a webhook
+    // delivery on any timeout/5xx, and the fulfillment call below (an
+    // outbound HTTP request to Supabase) can legitimately take long enough
+    // for a retry to land while the first delivery is still in flight. If
+    // both deliveries pass the get_transient() check above before either
+    // one records itself as done, both would fulfil — double-granting a
+    // subscription or Deep Scan credits for one payment. Claiming the slot
+    // immediately here shrinks that window from "an entire external
+    // request" down to essentially nothing.
+    if ($event_id) {
+        set_transient('gemscan_ev_' . $event_id, 1, 7 * DAY_IN_SECONDS);
+    }
 
     $session = isset($event['data']['object']) && is_array($event['data']['object']) ? $event['data']['object'] : array();
     $paid = (isset($session['payment_status']) && 'paid' === $session['payment_status'])
@@ -345,6 +384,33 @@ function gemscan_stripe_webhook(WP_REST_Request $request) {
         return new WP_REST_Response(array('error' => 'no_email'), 200);
     }
 
+    // CRITICAL: a Stripe Payment Link's `client_reference_id` is an ordinary
+    // URL query parameter — anyone can open the cheapest configured Payment
+    // Link, edit `client_reference_id` in the address bar to a MORE
+    // EXPENSIVE item's slug before paying, and pay Stripe's real (low) price
+    // for that link while this webhook would otherwise fulfil whatever slug
+    // the URL claims. Stripe itself does not tie client_reference_id to a
+    // specific link's price. The only trustworthy signal here is what Stripe
+    // says was ACTUALLY charged (session.amount_total, in cents) — refuse to
+    // fulfil unless it covers the resolved item's real, server-configured
+    // price.
+    $expected_cents = gemscan_expected_amount_cents($o, $item);
+    $paid_cents = isset($session['amount_total']) ? (int) $session['amount_total'] : null;
+    if (null === $expected_cents || null === $paid_cents || $paid_cents < $expected_cents) {
+        if (!empty($o['notify_email'])) {
+            wp_mail(
+                $o['notify_email'],
+                'GemScan Stripe — price mismatch, NOT fulfilled — ' . $email,
+                'Item claimed: ' . esc_html($item) . "\n"
+                    . 'Expected (cents): ' . esc_html((string) $expected_cents) . "\n"
+                    . 'Actually paid (cents): ' . esc_html((string) $paid_cents) . "\n"
+                    . 'Session: ' . esc_html(isset($session['id']) ? $session['id'] : '') . "\n"
+                    . 'This looks like a client_reference_id tampering attempt (a cheaper Payment Link paired with a more expensive item slug) and was deliberately NOT fulfilled. Review manually before doing anything.'
+            );
+        }
+        return new WP_REST_Response(array('error' => 'price_mismatch', 'item' => $item), 200);
+    }
+
     $result = gemscan_fulfill_stripe($o, $item, $email, isset($session['id']) ? $session['id'] : '');
 
     // Notify the owner (a paper trail; the account is already opened above).
@@ -358,9 +424,6 @@ function gemscan_stripe_webhook(WP_REST_Request $request) {
         );
     }
 
-    if ($event_id) {
-        set_transient('gemscan_ev_' . $event_id, 1, 7 * DAY_IN_SECONDS);
-    }
     return new WP_REST_Response($result, 200);
 }
 

@@ -48,6 +48,14 @@ export type NewSampleInput = {
     minerals?: MineralObservationInput[];
   };
   media?: SampleMediaInput[];
+  /**
+   * The device's own id for this submission, when it was queued offline.
+   *
+   * The server's idempotency key (migration 0096): a retry after an unknown
+   * outcome — which is what a timeout on a field link is — finds the sample it
+   * already created instead of filing a second one.
+   */
+  client_local_id?: string;
 };
 
 // Shapes returned by the API (a subset — enough for the beta screens).
@@ -248,8 +256,16 @@ export async function editSample(id: string, input: NewSampleInput): Promise<{ s
 }
 
 /** GET /enterprise-samples — the caller's own samples (RLS-scoped, newest first). */
-export async function listSamples(): Promise<SampleListRow[]> {
-  const res = await fetch(`${FUNCTIONS_URL}/enterprise-samples`, { headers: await authHeader() });
+/**
+ * The caller's samples, optionally one workflow's worth.
+ *
+ * My Samples passes `personal`. Filtered on the SERVER: a screen that fetched
+ * both and hid one would still have pulled a mission's evidence down into a
+ * personal collection, and the hiding is the kind of thing the next list forgets.
+ */
+export async function listSamples(origin?: "personal" | "exploration"): Promise<SampleListRow[]> {
+  const qs = origin ? `?origin=${origin}` : "";
+  const res = await fetch(`${FUNCTIONS_URL}/enterprise-samples${qs}`, { headers: await authHeader() });
   const body = await readBody(res);
   if (!res.ok) throw new Error(body?.message || body?.error || `Load failed (${res.status})`);
   return body.samples ?? [];
@@ -307,5 +323,12 @@ export async function captureSampleLocation(): Promise<{ lat: number; lng: numbe
   } catch { /* keep last-known if we have it */ }
 
   if (!best) return null;
-  return { lat: best.lat, lng: best.lng, gps_accuracy_m: best.acc != null ? Math.round(best.acc) : undefined };
+  // Recorded to a tenth of a metre, not rounded to whole ones: a sample taken on
+  // a ±1.4 m fix and one taken on a ±2.4 m fix are different records, and the
+  // accuracy travels with the sample precisely so a reviewer can tell.
+  return {
+    lat: best.lat,
+    lng: best.lng,
+    gps_accuracy_m: best.acc != null ? Math.round(best.acc * 10) / 10 : undefined,
+  };
 }

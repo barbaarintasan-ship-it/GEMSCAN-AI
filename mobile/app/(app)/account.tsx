@@ -9,6 +9,8 @@ import { View, Text, Pressable, Linking, Alert, StyleSheet, ActivityIndicator } 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../lib/auth";
+import { useExploration } from "../../lib/exploration/provider";
+import { requestFieldLogout } from "../../lib/exploration/fieldLogout";
 import { useSubscriptionStatus } from "../../lib/subscription";
 import { PAYMENT_URL, EXTERNAL_PURCHASES_ENABLED } from "../../lib/appLinks";
 import { Card } from "../../components/ui/Card";
@@ -17,6 +19,7 @@ import { colors, spacing, type as typo } from "../../lib/theme";
 
 export default function AccountScreen() {
   const { session, signOut, deleteAccount } = useAuth();
+  const exploration = useExploration();
   const { data, isLoading, refetch, isRefetching } = useSubscriptionStatus();
   const insets = useSafeAreaInsets();
   const [deleting, setDeleting] = useState(false);
@@ -45,7 +48,10 @@ export default function AccountScreen() {
 
   async function handleLogout() {
     setSigningOut(true);
-    await signOut();
+    // Routed through the field policy: with an expedition open this asks first
+    // and never ends the walk. With none it is an ordinary sign-out.
+    await requestFieldLogout({ signOut, endExpedition: exploration.actions.stop });
+    setSigningOut(false);
   }
 
   return (

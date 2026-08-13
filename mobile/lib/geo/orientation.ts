@@ -15,6 +15,7 @@
 // a measurement over pack contents. Nothing here estimates, and when the pack
 // holds nothing the answer is null rather than a guess.
 import { haversineM, bearingDeg, pointToPolylineM } from "../../../shared/geo-core/geo/spatial.ts";
+import { terrainIndexFor } from "./terrainIndex";
 import type { PackData } from "../../../shared/geo-core/pack/types.ts";
 
 /** Within these, a feature is "nearby" — worth listing as evidence for here. */
@@ -63,7 +64,7 @@ export interface Orientation {
  * shared function, so this can never disagree with targeting about how far a
  * fault is.
  */
-function closestPointOn(
+export function closestPointOn(
   at: { lat: number; lng: number },
   line: ReadonlyArray<readonly [number, number]>,
 ): { lat: number; lng: number } | null {
@@ -156,14 +157,19 @@ export function elevationAt(
   data: PackData,
   at: { lat: number; lng: number },
 ): { elevationM: number; fromM: number } | null {
-  let best: number | null = null;
-  let bestD = Infinity;
-  for (const t of data.terrain) {
-    const d = haversineM(at, { lat: t.lat, lng: t.lng });
-    if (d < bestD) { bestD = d; best = t.elevationM; }
-  }
-  return best == null ? null : { elevationM: best, fromM: bestD };
+  // Indexed by H3 cell, not scanned. With the occurrence-biased pack this looped
+  // over 2,191 rows and nobody noticed; the country-wide DEM is tens of thousands
+  // and this runs on every readout recompute.
+  //
+  // BOUNDED, too. The old scan kept the nearest cell however far away it was, so
+  // with country coverage it always returned something — including for a point in
+  // the Gulf of Aden, where the honest answer is that there is no measurement.
+  const t = terrainIndexFor(data.terrain).nearest(at.lat, at.lng, ELEVATION_REACH_M);
+  return t == null ? null : { elevationM: t.elevationM, fromM: t.fromM };
 }
+
+/** Past this a DEM cell describes other ground, and no elevation is reported. */
+export const ELEVATION_REACH_M = 10_000;
 
 /** Everything the pack can say about a point, near or far. */
 export function orientationAt(data: PackData, at: { lat: number; lng: number }): Orientation {

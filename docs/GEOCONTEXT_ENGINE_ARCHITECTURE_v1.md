@@ -341,12 +341,16 @@ change to the engine, contract, or runtime**.
 - **P3+ — Future adapters** (geophysics/geochem/remote sensing/structural/hydrology)
   as datasets arrive.
 
-## 15. Open decisions / dependencies
-1. **Sequencing:** GeoContext P1 depends on the 4.1 backend foundation (4.1.a done,
-   4.1.b pending). Finish 4.1 first, then GeoContext P0 → P1.
-2. **Ingestion location** for UNESCO GeoJSON + MRDS: a seed migration vs a one-off
-   loader script (recommend a loader script + `geo.raster_layer_registry`/source
-   tracking, so large datasets don't bloat migrations).
+## 15. Decisions / dependencies
+1. **Sequencing — DECIDED:** finish the 4.1 backend foundation first (4.1.a ✅ done,
+   4.1.b next), *then* GeoContext P0 → P1. GeoContext depends on auth/authz/middleware
+   being stable; no new subsystem starts before the foundation is settled.
+2. **Ingestion — DECIDED:** UNESCO GeoJSON + MRDS load via a **versioned loader
+   script + source tracking in `geo.dataset_registry`**, NOT seed migrations.
+   Migrations are for **schema changes only**; large datasets go through the loader,
+   which supports re-import, versioning, validation, rollback, and provenance. Each
+   load records/updates a `dataset_registry` row (source, version, checksum, license,
+   date, coverage, CRS) that all provenance `datasetVersion` references point to.
 3. **Knowledge extraction LLM + QA tooling** (P2) — chosen offline model + the
    human-review surface — to be specified when P2 begins.
 

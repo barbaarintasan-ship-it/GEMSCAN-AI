@@ -161,6 +161,10 @@ const PROBES = [
   ["pack self-check", "Knowledge pack NOT usable"],
   ["nearest-known evidence", "field.evidence2.farOccurrence"],
   ["Somali locale", "WAXA UGU DHOW EE LA OGYAHAY, OO FOG"],
+  // The coastline. Probed by its row id, which is deliberately unlike anything
+  // else in the bundle — "land_0" collided with an Ionicons glyph name and
+  // reported PRESENT for a layer that was absent.
+  ["coastline (land/sea)", "coastline_ne10m_0"],
 ];
 for (const [what, probe] of PROBES) {
   bundle.includes(probe)

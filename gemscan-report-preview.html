@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Report Preview</title>
+<style>
+:root{--bg: #0b0b0c;--surface: #161618;--surface-alt: #1a1a1d;--border: #2a2a2c;--text: #f5f1e8;--muted: #c9c9cc;--faint: #8a8a8e;--gold: #c9a227;--gold-soft: rgba(201,162,39,.12);--gold-border: rgba(201,162,39,.35);--success: #2e7d32;--danger: #e4685d;--info: #2f6bd6}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif}code{background:var(--surface-alt);padding:1px 5px;border-radius:4px;font-size:.85em}a{color:inherit;text-decoration:none}.center-screen{min-height:100vh;display:grid;place-items:center;padding:24px}.page{min-height:100vh}.container{max-width:1100px;margin:0 auto;padding:24px}.brand{font-size:18px;font-weight:800}.brand span{color:var(--gold);font-weight:700}.muted{color:var(--muted)}.strong{font-weight:700}.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px}.auth-card{width:340px;display:flex;flex-direction:column;gap:12px}.auth-card label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--faint)}input{background:var(--surface-alt);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:10px 12px;font-size:14px}input:focus{outline:none;border-color:var(--gold-border)}.btn{border:1px solid var(--border);background:transparent;color:var(--text);border-radius:10px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer}.btn.primary{background:var(--gold);border-color:var(--gold);color:#0b0b0c}.btn.ghost{background:transparent}.btn.small{padding:6px 12px;font-size:13px}.btn:disabled{opacity:.6;cursor:default}.error{background:#e4685d1f;color:var(--danger);border-radius:10px;padding:10px 12px;font-size:13px}.topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-bottom:1px solid var(--border)}.topbar-right{display:flex;align-items:center;gap:12px}.role-pill{background:var(--gold-soft);color:var(--gold);border:1px solid var(--gold-border);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:700}.section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}h1{font-size:22px;margin:8px 0}.queue{width:100%;border-collapse:collapse}.queue th{text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);padding:8px 10px;border-bottom:1px solid var(--border)}.queue td{padding:12px 10px;border-bottom:1px solid var(--border);font-size:14px}.queue tr:hover td{background:var(--surface)}.status{font-size:12px;padding:3px 10px;border-radius:999px;background:var(--surface-alt);color:var(--muted)}.status.s-awaiting_review{background:var(--gold-soft);color:var(--gold)}.status.s-needs_more_data{background:#2f6bd626;color:var(--info)}.queue-subhead{margin-top:32px;margin-bottom:12px}.status.s-verified{background:#2e7d322e;color:#7bd88a}.status.s-rejected{background:#e4685d26;color:var(--danger)}.ok{background:#2e7d3226;color:#7bd88a;border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:12px}.small{font-size:12px}h2{font-size:15px;margin:0 0 12px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint)}.review-grid{display:grid;grid-template-columns:1fr;gap:16px;margin-top:16px}@media (min-width: 900px){.review-grid{grid-template-columns:1.6fr 1fr;align-items:start}}.col{display:flex;flex-direction:column;gap:16px}.photo-grid{display:flex;flex-wrap:wrap;gap:10px}.photo{position:relative;width:104px;height:104px;border-radius:10px;overflow:hidden;border:1px solid var(--border);display:block;background:var(--surface-alt)}.photo img{width:100%;height:100%;object-fit:cover}.photo-ph{width:100%;height:100%;display:grid;place-items:center;color:var(--faint)}.photo-role{position:absolute;bottom:0;left:0;right:0;background:#0009;font-size:10px;padding:2px 5px}.concl{border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:10px;border-left:3px solid var(--border)}.concl-confirmed{border-left-color:var(--success)}.concl-corrected{border-left-color:var(--gold)}.concl-rejected{border-left-color:var(--danger)}.concl-head{display:flex;align-items:center;justify-content:space-between}.concl-kind{color:var(--gold);font-weight:700;font-size:13px}.concl-conf{font-size:12px;color:var(--muted);background:var(--gold-soft);border:1px solid var(--gold-border);border-radius:999px;padding:2px 8px}.concl-text{margin:8px 0 4px}.tag{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint)}.ev-block{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}.ev-label{font-size:12px;font-weight:700;margin-bottom:3px;color:var(--faint)}.ev-support{color:#7bd88a}.ev-contra{color:var(--danger)}.ev-item{font-size:13px;color:var(--muted);margin-bottom:2px}.ev-src{color:var(--faint)}.ai-extra{margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}.headline{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;background:var(--gold-soft);border:1px solid var(--gold-border);border-radius:12px;padding:14px 16px;margin-bottom:14px}.headline-text{font-size:17px;font-weight:700;line-height:1.4}.opp-chip{flex:none;font-size:12px;font-weight:800;border:1px solid;border-radius:999px;padding:4px 10px;white-space:nowrap}.overall-conf{margin-bottom:12px}.conf-caption{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint)}.simple-summary{font-size:15px;line-height:1.55;color:var(--text);margin:10px 0}.confbar{margin:8px 0}.confbar-scale{display:flex;justify-content:space-between;font-size:10px;color:var(--faint);margin-bottom:3px}.confbar-track{height:8px;background:var(--surface-sunken);border-radius:999px;overflow:hidden}.confbar-big .confbar-track{height:14px}.confbar-fill{height:100%;border-radius:999px;transition:width .3s ease}.confbar-foot{display:flex;justify-content:space-between;margin-top:3px}.confbar-band{font-size:12px;font-weight:800}.confbar-pct{font-size:12px;color:var(--muted);font-weight:700}.metric-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;align-items:start}@media (max-width: 560px){.metric-row{grid-template-columns:1fr}}.metric{display:flex;flex-direction:column}.pot{margin-top:6px;align-self:flex-start;border:2px solid;border-radius:10px;padding:8px 16px;font-size:18px;font-weight:800}.interp{margin:12px 0;display:grid;gap:12px}.interp-item{border-left:3px solid var(--gold-border);padding-left:12px}.interp-label{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--gold);font-weight:800;margin-bottom:3px}.interp-item p{margin:0;font-size:14.5px;line-height:1.55}.epi{display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;border-radius:4px;padding:1px 5px;margin-right:4px;vertical-align:middle}.epi-observed{background:#2e7d3233;color:#7bd88a}.epi-inferred{background:#2f6bd62e;color:#9cc0ff}.epi-possible{background:var(--gold-soft);color:var(--gold)}.reviewer-line{color:var(--muted);margin:0 0 14px;font-size:14px}.photo-strip{display:flex;flex-wrap:wrap;gap:10px;margin:4px 0 16px}.photo-strip .photo-lg{width:128px;height:96px}.mode-tabs{display:inline-flex;background:var(--surface-alt);border:1px solid var(--border);border-radius:12px;padding:4px;gap:4px;margin-bottom:16px}.mode-tab{border:none;background:transparent;color:var(--muted);font-weight:700;font-size:14px;padding:9px 18px;border-radius:9px;cursor:pointer}.mode-tab.on{background:var(--gold);color:#0b0b0c}.simple-report{display:grid;gap:14px}.rep-sec{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px 22px}.rep-h{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--gold);margin-bottom:12px}.rep-ic{font-size:20px}.rep-sec p{margin:0 0 8px;font-size:16px;line-height:1.6}.rep-lead{font-size:20px!important;font-weight:700;line-height:1.5!important}.rep-note{font-size:13px!important;color:var(--faint);font-style:italic}.rep-list{margin:4px 0 0;padding-left:22px}.rep-list li{font-size:16px;line-height:1.7}.rep-advice{background:var(--gold-soft);border-color:var(--gold-border)}.meter{display:flex;align-items:center;gap:16px;margin-bottom:12px}.meter-bar{flex:1;height:18px;background:var(--surface-sunken);border-radius:999px;overflow:hidden}.meter-fill{height:100%;border-radius:999px;transition:width .4s ease}.meter-side{display:flex;align-items:center;gap:10px}.meter-pct{font-size:22px;font-weight:800}.stars{letter-spacing:1px;font-size:18px;white-space:nowrap}.star{color:var(--border)}.star.on{color:var(--gold)}.why{margin-top:8px}.why-h{font-size:11px;text-transform:uppercase;letter-spacing:.6px;font-weight:800;margin-bottom:4px}.why-up .why-h{color:#7bd88a}.why-down .why-h{color:var(--faint)}.why-item{font-size:15px;line-height:1.55;color:var(--muted);margin-bottom:3px}.min-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}.min-card{border:1px solid var(--border);border-radius:12px;padding:14px 16px;background:var(--surface-alt);border-left:4px solid var(--gold)}.min-card.min-indicator{border-left-color:var(--info)}.min-name{font-size:17px;font-weight:800;margin-bottom:5px;display:flex;align-items:center;gap:8px}.crit{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--danger);border:1px solid var(--danger);border-radius:4px;padding:1px 5px}.min-imp{font-size:14px;line-height:1.5;color:var(--muted)}.pot-line{display:flex;align-items:center;gap:12px;margin-bottom:8px}.pot-line .stars{font-size:24px}.pot-label{font-size:22px;font-weight:800}.expert-report{display:grid;gap:16px}.so-line{color:var(--muted);font-style:normal;margin-top:2px!important}.so-lead{font-size:17px!important;font-weight:600}.headline-so{color:var(--text);opacity:.82;font-size:15px;margin-top:6px}.concl-actions{display:flex;gap:8px;margin-top:12px}.chip{border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:999px;padding:5px 14px;font-size:13px;font-weight:600;cursor:pointer}.chip-on.chip-confirmed{background:#2e7d322e;color:#7bd88a;border-color:var(--success)}.chip-on.chip-corrected{background:var(--gold-soft);color:var(--gold);border-color:var(--gold-border)}.chip-on.chip-rejected{background:#e4685d26;color:var(--danger);border-color:var(--danger)}.input{width:100%;background:var(--surface-alt);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:10px 12px;font-size:14px;font-family:inherit;margin-top:8px}.input:focus{outline:none;border-color:var(--gold-border)}.kv{list-style:none;padding:0;margin:0 0 8px}.kv li{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px}.kv li span{color:var(--faint)}.field{display:flex;flex-direction:column;gap:2px;font-size:13px;color:var(--faint);margin-bottom:12px}.decision-bar{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.btn.warn{background:#2f6bd626;border-color:var(--info);color:#9cc0ff}.btn.danger{background:#e4685d1f;border-color:var(--danger);color:var(--danger)}.review{max-width:860px}.review-title{font-size:34px;font-weight:800;margin:8px 0 2px;letter-spacing:-.5px}.reviewer-line{color:var(--muted);margin:0 0 16px;font-size:15px}.reviewer-line strong{color:var(--gold)}.review .card{margin-bottom:16px}.meta-card{padding:16px 20px}.meta-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 24px}@media (max-width: 560px){.meta-grid{grid-template-columns:1fr}}.meta-grid>div{display:flex;flex-direction:column;gap:3px}.meta-k{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--faint)}.meta-v{font-size:15px;font-weight:600}.meta-grid .status{align-self:flex-start}.photo-grid-lg{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-top:12px}.photo-lg{position:relative;padding:0;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface-alt);cursor:zoom-in;aspect-ratio:4 / 3}.photo-lg img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .2s ease}.photo-lg:hover img{transform:scale(1.04)}.photo-lg .photo-role{position:absolute;bottom:0;left:0;right:0;background:#000000a6;font-size:12px;padding:4px 8px;text-align:left;color:#fff}.lb-backdrop{position:fixed;top:0;right:0;bottom:0;left:0;background:#000000eb;z-index:1000;display:flex;flex-direction:column}.lb-body{flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center}.lb-body img{max-width:96%;max-height:100%;-webkit-user-select:none;user-select:none;transform-origin:center center;will-change:transform}.lb-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;background:#0009;border-top:1px solid var(--border)}.lb-role{color:var(--muted);font-size:14px;text-transform:capitalize}.lb-btns{display:flex;align-items:center;gap:8px}.lb-scale{color:var(--faint);font-size:13px;min-width:46px;text-align:center}.lb-btn{border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:8px;padding:6px 12px;font-size:14px;font-weight:700;cursor:pointer;line-height:1}.lb-btn:hover{border-color:var(--gold-border)}.lb-close{color:var(--danger)}.satwrap{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--border);background:var(--surface-alt)}.satimg{display:block;width:100%;height:auto}.satpin{position:absolute;top:50%;left:50%;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--gold);border:2px solid #0b0b0c;box-shadow:0 0 0 2px #c9a22780}.satfoot{display:flex;align-items:center;justify-content:space-between;margin-top:10px}
+
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="topbar">
+    <div class="brand">LuulScan <span>Review Console</span></div>
+    <a class="btn ghost" href="#">← Queue</a>
+  </header>
+  <main class="container review">
+    <div class="section-head">
+      <h1 class="review-title">Sample 0ec21c51 · Kimberlite</h1>
+      <span class="status s-submitted">submitted</span>
+    </div>
+    <p class="reviewer-line">Submitted by <strong>awmusse.musse@gmail.com</strong> · Somalia · Owner Beta Field Collection · 27/07/2026</p>
+
+    <div class="photo-strip">
+      <div class="photo-lg"><div class="photo-ph" style="width:100%;height:100%;display:grid;place-items:center">📷</div><span class="photo-role">context</span></div>
+      <div class="photo-lg"><div class="photo-ph" style="width:100%;height:100%;display:grid;place-items:center">📷</div><span class="photo-role">surface closeup</span></div>
+      <div class="photo-lg"><div class="photo-ph" style="width:100%;height:100%;display:grid;place-items:center">📷</div><span class="photo-role">key feature</span></div>
+    </div>
+
+    <div class="mode-tabs">
+      <button class="mode-tab on" id="t-simple" onclick="setMode('simple')">📖 Simple report</button>
+      <button class="mode-tab" id="t-expert" onclick="setMode('expert')">🔬 Expert analysis</button>
+    </div>
+
+    <!-- ═════ SIMPLE ═════ -->
+    <div class="simple-report" id="simple">
+      <section class="rep-sec">
+        <div class="rep-h"><span class="rep-ic">🔎</span> What I think this is</div>
+        <p class="rep-lead">Your sample shows key features of kimberlite with a visible octahedral crystal — an encouraging target for diamond exploration.</p>
+        <p class="so-line so-lead">Sample-kaagu wuxuu muujinayaa astaamo muhiim ah oo kimberlite ah, oo leh crystal octahedral ah — waana goob rajo leh oo lagu baari karo dheeman.</p>
+      </section>
+
+      <section class="rep-sec">
+        <div class="rep-h"><span class="rep-ic">🎯</span> How confident I am (identification)</div>
+        <div class="meter">
+          <div class="meter-bar"><div class="meter-fill" style="width:38%;background:#d98324"></div></div>
+          <div class="meter-side"><span class="stars"><span class="star on">★</span><span class="star on">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span></span><span class="meter-pct" style="color:#d98324">38%</span></div>
+        </div>
+        <div class="why why-up"><div class="why-h">Higher because</div>
+          <div class="why-item">✓ Field-recorded host rock matches kimberlite</div>
+          <div class="why-item">✓ A clear octahedral crystal with triangular growth marks is visible</div>
+          <div class="why-item">✓ Dark greenish fragmental (breccia) matrix with mantle-rock fragments</div>
+        </div>
+        <div class="why why-down"><div class="why-h">Lower because</div>
+          <div class="why-item">• Based on photographs only — no hardness or density tests</div>
+          <div class="why-item">• Exact mineral identity needs assay or petrography to confirm</div>
+        </div>
+      </section>
+
+      <section class="rep-sec"><div class="rep-h"><span class="rep-ic">💡</span> Why this matters</div>
+        <p>Besides being prized gemstones, natural diamonds are essential industrial materials — used for their extreme hardness, thermal conductivity, and precision cutting in high-tech manufacturing, drilling, and optics.</p>
+        <p class="so-line">Marka laga reebo inay dahabyo qaali ah yihiin, dheemanku waa walxo warshadeed oo muhiim ah — waxaa loo isticmaalaa adkaantooda xad-dhaafka ah, gudbinta kulaylka, iyo goynta saxda ah ee warshadaha casriga ah, qodista, iyo indho-shareerka.</p>
+      </section>
+
+      <section class="rep-sec">
+        <div class="rep-h"><span class="rep-ic">💎</span> Valuable minerals commonly associated</div>
+        <div class="min-grid">
+          <div class="min-card min-commodity"><div class="min-name">Diamond</div><div class="min-imp">Both the ultimate gemstone and a critical industrial abrasive; nearly all natural diamond is delivered to surface by kimberlite from the deep mantle beneath old cratons.</div></div>
+          <div class="min-card min-indicator"><div class="min-name">Pyrope Garnet</div><div class="min-imp">An indicator mineral geologists look for to trace kimberlite systems.</div></div>
+          <div class="min-card min-indicator"><div class="min-name">Chrome Diopside</div><div class="min-imp">A bright-green indicator mineral used to trace kimberlite systems.</div></div>
+          <div class="min-card min-indicator"><div class="min-name">Chromite</div><div class="min-imp">A heavy indicator mineral that survives in soil around kimberlite pipes.</div></div>
+          <div class="min-card min-indicator"><div class="min-name">Ilmenite</div><div class="min-imp">A mantle indicator mineral panned to trace kimberlite.</div></div>
+        </div>
+      </section>
+
+      <section class="rep-sec">
+        <div class="rep-h"><span class="rep-ic">🧭</span> What I'd look for next</div>
+        <p>Collect surface soil within about 10 m and pan for heavy indicator minerals like pyrope garnet and chrome diopside. Mapping the boundary of the intrusion will help define the pipe shape and target diamond-bearing zones.</p>
+        <p class="so-line">Ururi ciidda dusha sare ku dhow (ilaa 10 m gudahood) oo miiri macdano culus sida pyrope garnet iyo chrome diopside. Sawirista xuduudda dhagaxa ayaa caawinaysa in la go'aamiyo qaabka tuubada iyo goobaha dheeman leh.</p>
+        <ul class="rep-list">
+          <li>Pan local soil for pyrope garnet &amp; chrome diopside (within 10 m) — Miiri ciidda</li>
+          <li>Expose a fresh rock face and photograph the breccia texture (within 2 m)</li>
+          <li>Map the outcrop boundary to define the pipe shape (within 10 m)</li>
+        </ul>
+      </section>
+
+      <section class="rep-sec">
+        <div class="rep-h"><span class="rep-ic">⛏️</span> Exploration potential</div>
+        <div class="pot-line"><span class="stars"><span class="star on">★</span><span class="star on">★</span><span class="star on">★</span><span class="star on">★</span><span class="star on">★</span></span><span class="pot-label" style="color:#2e7d32">Very High</span></div>
+        <p class="rep-note">This is separate from how sure we are what the rock is — it describes how valuable the setting could be.</p>
+        <p>Kimberlite pipes erupt through thick, ancient continental crust (cratons). Even where maps show younger sedimentary cover, a kimberlite here points to deep mantle-derived pipe structures worth following up.</p>
+        <p class="so-line">Kimberlite pipes-ku waxay ka soo baxaan qolof qadiimi ah oo adag (cratons). Xitaa marka khariidadu muujiso dhagax cusub oo dusha ah, kimberlite halkan wuxuu tilmaamayaa qaab-dhismeed qoto dheer oo mudan in la sahamiyo.</p>
+      </section>
+
+      <section class="rep-sec rep-advice"><div class="rep-h"><span class="rep-ic">🗒️</span> Final advice</div>
+        <p>You've brought in a dark, heavy, brecciated rock with a greenish matrix and light clasts that match kimberlite, containing a clear octahedral crystal with classic triangular growth marks. Kimberlite acts like an elevator from deep in the mantle, bringing diamonds and indicator minerals to the surface. The exciting next move is to pan the surrounding soil for pyrope garnet and chrome diopside — those tell you whether you're onto a diamond-bearing pipe.</p>
+        <p class="so-line">Waxaad keentay dhagax madow, culus, oo qaybo leh, matoore cagaaran iyo qaybo iftiin ah oo la mid ah kimberlite, oo ay ku jirto crystal octahedral ah oo leh calaamado saddex-geesle ah. Kimberlite wuxuu u shaqeeyaa sida wiish ka soo qaada qoto dheer oo mantle-ka ah, isagoo dheeman iyo macdano tilmaame ah dusha keena. Talaabada xiisaha leh ee xigta waa in aad ciidda ku wareegsan ka miirto pyrope garnet iyo chrome diopside — kuwaas ayaa kuu sheegaya haddii aad tuubo dheeman leh saarantahay.</p>
+      </section>
+    </div>
+
+    <!-- ═════ EXPERT ═════ -->
+    <div class="expert-report" id="expert" style="display:none">
+      <div class="card">
+        <h2>Geological analysis</h2>
+        <div class="headline"><div class="headline-text">Your sample shows key features of kimberlite with a visible octahedral crystal — an encouraging target for diamond exploration.</div><div class="headline-so">Sample-kaagu wuxuu muujinayaa astaamo muhiim ah oo kimberlite ah — waana goob rajo leh oo lagu baari karo dheeman.</div></div>
+        <div class="metric-row">
+          <div class="metric"><span class="conf-caption">Identification confidence</span>
+            <div class="confbar confbar-big"><div class="confbar-scale"><span>Low</span><span>High</span></div><div class="confbar-track"><div class="confbar-fill" style="width:38%;background:#d98324"></div></div><div class="confbar-foot"><span class="confbar-band" style="color:#d98324">Low</span><span class="confbar-pct">38%</span></div></div>
+          </div>
+          <div class="metric"><span class="conf-caption">Exploration potential</span><div class="pot" style="color:#2e7d32;border-color:#2e7d32">Very High</div></div>
+        </div>
+        <div class="interp">
+          <div class="interp-item"><div class="interp-label">What it is</div><p>A heterogeneous dark grey-green matrix with olivine xenocrysts and lithic mantle inclusions, typical of a volcanic breccia called kimberlite.</p><p class="so-line">Matoore madow-cagaaran oo aan isku ekayn, leh xenocrysts olivine ah iyo qaybo mantle ah — sida caadiga ah kimberlite.</p></div>
+          <div class="interp-item"><div class="interp-label">Commonly hosts</div><p>The primary world source for natural diamond, rich in mantle indicator minerals: red pyrope garnet, bright green chrome diopside, chromite and picroilmenite.</p><p class="so-line">Isha koowaad ee dheemanka dabiiciga ah, oo hodan ku ah macdano tilmaame: pyrope garnet cas, chrome diopside cagaar ah, chromite iyo ilmenite.</p></div>
+          <div class="interp-item"><div class="interp-label">Geological environment</div><p>Kimberlite pipes erupt through ancient continental cratons; while mapped as Cenozoic sediment here, intrusions often pierce younger cover.</p><p class="so-line">Kimberlite pipes-ku waxay ka soo baxaan cratons qadiimi ah; in kasta oo halkan loo khariideeyay dhagax cusub, badanaa way dusha ka soo booday.</p></div>
+        </div>
+        <p class="muted small">Generated 27/07/2026, 20:08 · confidence is computed deterministically from the evidence graph below.</p>
+
+        <div class="concl concl-pending">
+          <div class="concl-head"><span class="concl-kind">Rock type</span></div>
+          <p class="concl-text">Kimberlite breccia — a mantle-derived volcanic rock.</p>
+          <div class="confbar"><div class="confbar-scale"><span>Low</span><span>High</span></div><div class="confbar-track"><div class="confbar-fill" style="width:40%;background:#c9a227"></div></div><div class="confbar-foot"><span class="confbar-band" style="color:#c9a227">Moderate</span><span class="confbar-pct">40%</span></div></div>
+          <span class="tag">interpretation</span>
+          <div class="ev-block"><div class="ev-label ev-support">Supporting evidence</div>
+            <div class="ev-item"><span class="epi epi-observed">observed</span> Field-recorded host rock: Kimberlite <span class="ev-src">(field)</span></div>
+            <div class="ev-item"><span class="epi epi-observed">observed</span> Dark greenish fragmental matrix with rounded grains and xenoliths <span class="ev-src">(visual)</span></div>
+            <div class="ev-item"><span class="epi epi-possible">possible</span> Kimberlite is a deep-mantle volcanic rock that can carry diamond to surface <span class="ev-src">(knowledge)</span></div>
+          </div>
+          <div class="concl-actions"><button class="chip">Confirm →</button><button class="chip">Correct</button><button class="chip">Reject</button></div>
+        </div>
+
+        <div class="ai-extra"><div class="ev-label">Uncertainties</div>
+          <div class="ev-item">• Exact mineralogical identity of the crystal requires assay or petrography.</div>
+          <div class="ev-item">• Pipe geometry and diamond grade cannot be judged from photographs.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Field context</h2>
+        <ul class="kv"><li><span>Location cell</span><b>89530a...</b></li><li><span>GPS accuracy</span><b>±8 m</b></li></ul>
+        <p><strong>Host rock:</strong> Kimberlite</p>
+      </div>
+    </div>
+
+    <div class="card decision">
+      <h2>Your review</h2>
+      <label class="field"><span>Geologist confidence (0–100)</span><input class="input" placeholder="e.g. 80" /></label>
+      <div class="decision-bar">
+        <button class="btn primary">Verify</button><button class="btn warn">Needs More Data</button>
+        <button class="btn danger">Reject</button><button class="btn ghost">Save Draft</button>
+      </div>
+    </div>
+  </main>
+</div>
+<script>
+function setMode(m){
+  document.getElementById('simple').style.display = m==='simple'?'grid':'none';
+  document.getElementById('expert').style.display = m==='expert'?'grid':'none';
+  document.getElementById('t-simple').classList.toggle('on', m==='simple');
+  document.getElementById('t-expert').classList.toggle('on', m==='expert');
+  window.scrollTo(0,0);
+}
+</script>
+</body>
+</html>

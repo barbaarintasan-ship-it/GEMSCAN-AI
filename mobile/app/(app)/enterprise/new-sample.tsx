@@ -14,6 +14,7 @@ import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors, spacing, radius, type as t } from "../../../lib/theme";
 import { useAuth } from "../../../lib/auth";
+import { useIsOnline } from "../../../lib/network";
 import { supabase } from "../../../lib/supabase";
 import { Button } from "../../../components/ui/Button";
 import { Card } from "../../../components/ui/Card";
@@ -31,6 +32,12 @@ import {
 } from "../../../lib/enterpriseSamples";
 
 import { takeCapturedPhotos } from "../../../lib/captureHandoff";
+import { putAnalysedSample } from "../../../lib/exploration/analysisHandoff";
+import {
+  currentExpeditionSessionId, currentMissionId,
+} from "../../../lib/exploration/currentExpedition";
+import { localSamples } from "../../../lib/samples/store";
+import { pushPendingSamples } from "../../../lib/samples/pendingSampleSync";
 
 const DRAFT_KEY = "enterprise:new-sample:draft";
 type GpsFix = { lat: number; lng: number; gps_accuracy_m?: number };
@@ -48,6 +55,12 @@ function roleForIndex(i: number): MediaRole {
 export default function NewSampleScreen() {
   const navigation = useNavigation();
   const { session } = useAuth();
+  // The REAL connectivity — it was already here, and the uploader was being told
+  // `true` regardless. That turned an offline save into an immediate doomed
+  // upload: it failed with "Network request failed", the failure was recorded
+  // against the sample, and the collection displayed it as an error on a sample
+  // that had in fact been saved perfectly.
+  const isOnline = useIsOnline();
   // Edit mode: /enterprise/new-sample?edit=<sampleId>. Prefills from the existing
   // sample and PUTs instead of POSTing. No AsyncStorage draft in edit mode — the
   // server copy is the source of truth.
@@ -77,6 +90,8 @@ export default function NewSampleScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [restored, setRestored] = useState(false);
   const submittedRef = useRef(false);
+  /** Held for the whole of one submission, released only on a path that failed. */
+  const submitLock = useRef(false);
   const insets = useSafeAreaInsets();
   const [gpsSource, setGpsSource] = useState<"gps" | "manual">("gps");
   const [showManual, setShowManual] = useState(false);
@@ -264,7 +279,103 @@ export default function NewSampleScreen() {
 
   const onSubmit = useCallback(async () => {
     if (!loc || !canSubmit) return;
+    // A SYNCHRONOUS guard, and it has to be synchronous.
+    //
+    // `canSubmit` and the button's `disabled` are both derived from `submitting`,
+    // which is React state — it does not change until the next render. Two taps
+    // inside one frame therefore both saw `canSubmit === true` and both ran, and
+    // localSampleStore.create() mints a FRESH localId per call, so each tap
+    // became a different idempotency key and the server had no way to tell them
+    // apart. That is how one outcrop reached the collection three times, all
+    // stamped 09:12:24, while every other sample was filed once.
+    //
+    // The ref changes on the spot, before any await, so the second tap returns.
+    if (submitLock.current) return;
+    submitLock.current = true;
     setSubmitting(true);
+
+    const payloadBase = {
+      name: name.trim(),
+      lat: loc.lat, lng: loc.lng, gps_accuracy_m: loc.gps_accuracy_m, gps_source: gpsSource,
+      collected_at: collectedAt ?? new Date().toISOString(), // keep the original date on edit
+      field_observations: notes.trim() || undefined,
+      observations: { rock: rockClass.trim() ? { rock_class: rockClass.trim() } : null, minerals },
+      /**
+       * WHICH WORKFLOW THIS SAMPLE BELONGS TO, and therefore what the analysis is
+       * allowed to infer from it.
+       *
+       * Opened from a running exploration session, this is a mission's evidence
+       * and the full engine applies. Opened from My Samples, it is a specimen
+       * somebody collected — visual identification and mineral knowledge only, no
+       * mapped geology, no nearby occurrences, no structural context.
+       *
+       * Decided HERE, at capture, from how the screen was reached. Deriving it on
+       * the server from whether an expedition happened to be open would file a
+       * rock picked up on the way home as mission evidence.
+       */
+      origin: fromExploration ? "exploration" : "personal",
+      field_mission_id: fromExploration ? currentMissionId() : null,
+    };
+
+    /**
+     * OFFLINE FIRST — a new sample is written to the device before the network is
+     * touched at all.
+     *
+     * This used to upload the photographs, post the record, and show
+     * "Submission failed · try again" the moment either step could not reach the
+     * server. In a wadi that is every time, and "try again" is advice the
+     * geologist cannot take. The sample is now saved complete — metadata, GPS,
+     * observations and the photographs themselves — and filed when there is a
+     * signal, by lib/samples/pendingSampleSync.
+     *
+     * Editing an EXISTING server sample is deliberately left alone: it revises a
+     * row that is already on the server, which is a different operation from
+     * creating one, and it is not what a geologist does mid-traverse.
+     */
+    if (!isEdit) {
+      try {
+        const local = await localSamples().create({
+          payload: payloadBase,
+          photos: photos.map((uri, i) => ({ uri, role: roleForIndex(i) })),
+          // Attributes the sample to the walk it was taken on (Slice 2).
+          expeditionSessionId: currentExpeditionSessionId(),
+          // Sealed at capture, from whoever is signed in now. Filing later
+          // under a different account must never reattribute this.
+          collectedBy: session?.user
+            ? { userId: session.user.id, email: session.user.email ?? null }
+            : null,
+        });
+        await clearDraft();
+        submittedRef.current = true;
+
+        // Try immediately ONLY if there is a connection. Passing `true`
+        // unconditionally — which this did — starts a doomed upload the moment a
+        // sample is taken offline: it fails with "Network request failed", spends
+        // a retry, and stamps that message onto a sample that is perfectly
+        // intact. Offline, the sync hook picks it up when the signal returns.
+        void pushPendingSamples(localSamples(), isOnline).catch(() => {});
+
+        if (fromExploration) {
+          putAnalysedSample(local.serverId ?? local.localId);
+          router.back();
+        } else {
+          router.replace("/(app)/enterprise/samples");
+        }
+        return;
+      } catch (e) {
+        // Only a storage failure can land here — the network is not involved.
+        Alert.alert(
+          "Could not save the sample",
+          e instanceof Error ? e.message : "The device could not write the sample.",
+        );
+        // Released so the geologist can correct and try again.
+
+        submitLock.current = false;
+        setSubmitting(false);
+        return;
+      }
+    }
+
     try {
       // Reuse already-uploaded photos (kept on edit); only upload newly added local URIs.
       const media: SampleMediaInput[] = [];
@@ -273,14 +384,7 @@ export default function NewSampleScreen() {
         media.push(kept ? { role: roleForIndex(i), storage_path: kept } : await uploadSampleMedia(photos[i], roleForIndex(i)));
       }
 
-      const payload = {
-        name: name.trim(),
-        lat: loc.lat, lng: loc.lng, gps_accuracy_m: loc.gps_accuracy_m, gps_source: gpsSource,
-        collected_at: collectedAt ?? new Date().toISOString(), // keep the original date on edit
-        field_observations: notes.trim() || undefined,
-        observations: { rock: rockClass.trim() ? { rock_class: rockClass.trim() } : null, minerals },
-        media,
-      };
+      const payload = { ...payloadBase, media };
 
       let sampleId: string;
       if (isEdit && edit) {
@@ -293,24 +397,30 @@ export default function NewSampleScreen() {
       }
       submittedRef.current = true;
       if (fromExploration) {
-        // Straight back to the live map, with the sample id carried along so
-        // the session can pick up the analysis when it lands. The exploration
-        // session is NOT ended and was never replaced — it has been running
-        // underneath this screen the whole time. The sample detail is one tap
-        // away from the map; forcing it here would break the walking loop.
-        router.replace({
-          pathname: "/(app)/exploration",
-          params: { analysed: sampleId },
-        });
+        // BACK to the live map, not "replace with a new one". The map is a layout
+        // route that has been running underneath this screen the whole time
+        // (Architecture v2 §0.2), so popping returns to the same session, the
+        // same target, the same track and the same map camera. `replace` used to
+        // mount a SECOND exploration screen on top of the first — a second
+        // provider and a second GPS watch — which only looked like it worked.
+        //
+        // The sample id goes in a slot rather than a URL parameter, because
+        // there is no longer a navigation event to hang it on. Same pattern the
+        // camera already uses to hand photographs to this form.
+        putAnalysedSample(sampleId);
+        router.back();
       } else {
         router.replace(`/(app)/enterprise/sample/${sampleId}`);
       }
     } catch (e) {
       Alert.alert(isEdit ? "Save failed" : "Submission failed", e instanceof Error ? e.message : "Unknown error");
     } finally {
+      // Released so the geologist can correct and try again.
+
+      submitLock.current = false;
       setSubmitting(false);
     }
-  }, [loc, canSubmit, photos, uploadedByUri, name, notes, rockClass, minerals, gpsSource, collectedAt, clearDraft, isEdit, edit, fromExploration]);
+  }, [loc, canSubmit, photos, uploadedByUri, name, notes, rockClass, minerals, gpsSource, collectedAt, clearDraft, isEdit, edit, fromExploration, isOnline]);
 
   const collectorName = (session?.user?.user_metadata?.display_name as string | undefined)?.trim()
     || session?.user?.email?.split("@")[0] || "—";

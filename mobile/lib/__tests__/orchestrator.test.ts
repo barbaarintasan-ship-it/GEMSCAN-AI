@@ -414,7 +414,10 @@ describe("ExplorationOrchestrator", () => {
       id: "occ:far-gold", kind: "occurrence" as const, label: "Gold showing",
       commodity: "Gold", lat: 9.56, lng: 44.065,
       distanceM: 900_000, bearingDeg: 315, compass: "NW",
-      distanceClass: { band: "expedition" as const, transport: "expedition" as const, travelMinutes: 1_543 },
+      distanceClass: {
+        band: "expedition" as const, transport: "expedition" as const,
+        travelMinutes: 1_543, travelDistanceM: 1_800_000, roadFactorApplied: 2,
+      },
       priority: 0.2,
       reason: { kind: "known_occurrence" as const, commodity: "Gold" },
     };
@@ -459,7 +462,7 @@ describe("ExplorationOrchestrator", () => {
     orch.navigateToRegional({
       id: "occ:x", kind: "occurrence", label: "x", commodity: null,
       lat: 3, lng: 45, distanceM: 100_000, bearingDeg: 0, compass: "N",
-      distanceClass: { band: "expedition", transport: "expedition", travelMinutes: 171 },
+      distanceClass: { band: "expedition", transport: "expedition", travelMinutes: 171, travelDistanceM: 0, roadFactorApplied: 1 },
       priority: 0.1, reason: { kind: "known_occurrence", commodity: null },
     });
     orch.navigateTo(4, 46);
@@ -496,5 +499,141 @@ describe("ExplorationOrchestrator", () => {
     await settle();
     expect(orch.getSnapshot().inspecting).toBeNull();
     orch.stop();
+  });
+});
+
+// ── Pack provenance is not a product of targeting ───────────────────────────
+//
+// The field build showed Diagnostics claiming "Pack version: NOT LOADED" while
+// the same panel printed that pack's SHA256, named the Macrostrat unit under the
+// geologist's feet, and the map drew its geology, faults and occurrences. Cause:
+// `packProvenance` was written in exactly one place — the success path of
+// retarget() — so before a ranking run completed, the snapshot still held the
+// null it was initialised with, while every other reader went to the pack store.
+//
+// These tests pin the fact that the snapshot answers for the STORE, at every
+// point in the session, whether or not targeting has ever run.
+describe("the snapshot never disagrees with the pack store", () => {
+  test("provenance is reported before any fix, so before any targeting run", async () => {
+    const { orch, packs } = harness();
+    await packs.load();
+
+    // No start(), no fix, no retarget — and it must still tell the truth.
+    expect(packs.provenance()).not.toBeNull();
+    expect(orch.getSnapshot().packProvenance).toEqual(packs.provenance());
+  });
+
+  test("provenance survives start(), which replaces the whole snapshot", async () => {
+    const { orch, packs } = harness();
+    await packs.load();
+    orch.start();
+    // start() resets to emptySnapshot(); a latch set earlier would be wiped here
+    // and, matching its own stale signature, never refilled.
+    expect(orch.getSnapshot().packProvenance).toEqual(packs.provenance());
+    orch.stop();
+  });
+
+  test("a pack loaded MID-SESSION is reported without waiting for a retarget", async () => {
+    const { orch, packs } = harness();
+    orch.start();
+    expect(orch.getSnapshot().packProvenance).toBeNull();   // honestly, at this point
+    await packs.load();
+    expect(orch.getSnapshot().packProvenance).toEqual(packs.provenance());
+    orch.stop();
+  });
+
+  test("no pack means no provenance — the row is not faked either way", async () => {
+    const { orch, packs } = harness(null);
+    await packs.load();
+    expect(packs.provenance()).toBeNull();
+    expect(packs.isReady()).toBe(false);
+    expect(orch.getSnapshot().packProvenance).toBeNull();
+    // packProblem is reserved for a pack that was REFUSED — a tampered or
+    // malformed one. An absent pack is a normal state and must not be dressed up
+    // as an integrity failure.
+    expect(orch.getSnapshot().packProblem).toBeNull();
+  });
+
+  test("it still agrees after a real targeting run", async () => {
+    const { orch, field, packs } = harness();
+    await packs.load();
+    orch.start();
+    field.emitFix(MOG.lat, MOG.lng);
+    await settle();
+    expect(orch.getSnapshot().packProvenance).toEqual(packs.provenance());
+    orch.stop();
+  });
+
+  test("the snapshot stays referentially stable while nothing changes", async () => {
+    // getSnapshot() derives the pack fields on every call. If it returned a fresh
+    // object each time, useSyncExternalStore above it would re-render forever.
+    const { orch, packs } = harness();
+    await packs.load();
+    const a = orch.getSnapshot();
+    const b = orch.getSnapshot();
+    expect(a).toBe(b);
+  });
+});
+
+// ── Resuming a walk the process died in ─────────────────────────────────────
+//
+// The lease outlives the process; the orchestrator does not. Android reclaims a
+// backgrounded app overnight, and on the next launch the stored lease still says
+// a walk is open while this object starts at `idle`. That left the two disagreeing
+// in the worst direction: the auth gate held open for an expedition recording
+// nothing, and `stop()` unreachable — so the lease could only be released by its
+// fourteen-day safety net. A gap introduced by Milestone 1 and closed here.
+//
+// Resuming, not closing: the expedition did not end, the process ended.
+describe("an interrupted expedition is the SAME expedition", () => {
+  test("resuming keeps the original id and start time", async () => {
+    const { orch, field } = harness();
+    // What the lease held from before the kill.
+    const lease = { sessionId: "ex-karkaar-1", startedAt: NOW - 9 * 60 * 60 * 1000 };
+
+    orch.start(lease);
+    field.emitFix(MOG.lat, MOG.lng);
+    await settle();
+
+    const s = orch.getSnapshot();
+    // A new id would fork the traverse; a new clock would misreport a nine-hour
+    // walk as having just begun.
+    expect(s.explorationSessionId).toBe("ex-karkaar-1");
+    expect(s.startedAt).toBe(lease.startedAt);
+    orch.stop();
+  });
+
+  test("starting fresh still mints its own id", async () => {
+    const { orch } = harness();
+    orch.start();
+    const s = orch.getSnapshot();
+    expect(s.explorationSessionId).toMatch(/^ex-/);
+    expect(s.startedAt).toBe(NOW);
+    orch.stop();
+  });
+
+  test("a resume cannot be applied over a live session", async () => {
+    // start() refuses any state but idle/ended, so a stray resume can never
+    // overwrite the walk someone is actually on.
+    const { orch, field } = harness();
+    orch.start();
+    field.emitFix(MOG.lat, MOG.lng);
+    await settle();
+    const original = orch.getSnapshot().explorationSessionId;
+
+    orch.start({ sessionId: "ex-somewhere-else", startedAt: 1 });
+    expect(orch.getSnapshot().explorationSessionId).toBe(original);
+    orch.stop();
+  });
+
+  test("stop() works on a resumed walk, so the lease can be released", async () => {
+    // The point of resuming: it restores the set -> null transition that closes
+    // the lease. Without it the lease was orphaned.
+    const { orch, field } = harness();
+    orch.start({ sessionId: "ex-karkaar-1", startedAt: NOW - 1000 });
+    field.emitFix(MOG.lat, MOG.lng);
+    await settle();
+    orch.stop();
+    expect(orch.getSnapshot().state).toBe("ended");
   });
 });

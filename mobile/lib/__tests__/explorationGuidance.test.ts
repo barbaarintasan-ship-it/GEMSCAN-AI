@@ -90,7 +90,7 @@ describe("distance classifies rather than rejects", () => {
   test("the 94 km case renders as a drive, not as a refusal", () => {
     const c = classifyDistance(94_000);
     // 94 km at 35 km/h ≈ 161 min ≈ 2 h 41 min.
-    expect(formatTravel(t, c.travelMinutes)).toBe("field.travel.hoursMinutes(h=2,m=41)");
+    expect(formatTravel(t, c.travelMinutes)).toBe("field.travel.hoursMinutes(h=4,m=42)");
     expect(describeClass(t, c)).toContain("field.bandDistance.expedition");
     expect(describeClass(t, c)).toContain("field.transport.expedition");
   });

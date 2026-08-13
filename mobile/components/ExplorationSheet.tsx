@@ -13,9 +13,52 @@ import React from "react";
 import {
   Animated, PanResponder, StyleSheet, Text, View, ScrollView, Pressable,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, radius, spacing } from "../lib/theme";
 
-export const SHEET_COLLAPSED_H = 208;
+/**
+ * How much of a 6–7 inch screen the sheet is allowed to take when collapsed.
+ *
+ * Four numbers and one line of advice — target, distance, direction, confidence,
+ * and what to do about them. Everything else is behind the drag. The old height
+ * fitted three lines of prose and a chevron, which on a 6" phone was a quarter
+ * of the map given over to text that could wait.
+ */
+export const SHEET_COLLAPSED_H = 168;
+
+/**
+ * Where the sheet's content is allowed to stop, in each state.
+ *
+ * THE BUG THIS EXISTS FOR — reported from the field with screenshots.
+ *
+ * The sheet is anchored at `bottom: 0` and TRANSLATED down to collapse it, so its
+ * own bottom edge is only at the bottom of the SCREEN when it is fully open.
+ * Collapsed, that edge sits `travel` pixels below the screen. A `paddingBottom`
+ * on the sheet therefore protects the navigation strip in one state and nothing
+ * at all in the other — which is exactly what was seen: the layout was correct
+ * expanded, and FIELD DIAGNOSTICS rendered behind Android's navigation buttons
+ * the moment the sheet was collapsed.
+ *
+ * Content flows from the sheet's TOP, and the navigation strip is at a fixed
+ * position on the SCREEN. The distance between those two changes as the sheet
+ * moves, so no single constant can satisfy both states — the inset has to be
+ * applied at a different place depending on where the sheet currently is:
+ *
+ *   collapsed  the visible window is the sheet's top `168 + inset`. The header
+ *              fills it, so the header carries the inset and stops at 168.
+ *   expanded   the sheet's bottom IS the screen's bottom, so the sheet carries
+ *              it and the scroll viewport ends above the buttons.
+ *
+ * Returned from one function so the two are impossible to change independently,
+ * and so the invariant can be tested without a renderer.
+ */
+export function sheetInsets(bottomInset: number, expanded: boolean): {
+  header: number; sheet: number;
+} {
+  return expanded
+    ? { header: 0, sheet: bottomInset }
+    : { header: bottomInset, sheet: bottomInset };
+}
 
 export function ExplorationSheet({
   expandedHeight, header, children, expanded, onExpandedChange,
@@ -28,11 +71,24 @@ export function ExplorationSheet({
   expanded: boolean;
   onExpandedChange: (v: boolean) => void;
 }) {
-  const travel = Math.max(0, expandedHeight - SHEET_COLLAPSED_H);
+  const insets = useSafeAreaInsets();
+  // Where the inset goes depends on where the sheet IS — see sheetInsets. The
+  // dark panel still runs to the screen edge behind the buttons; only the content
+  // stops above them.
+  const pad = sheetInsets(insets.bottom, expanded);
+  // The collapsed WINDOW is the content height plus the strip the buttons cover.
+  // The window grows by the inset; the content inside it does not.
+  const collapsedH = SHEET_COLLAPSED_H + insets.bottom;
+  const travel = Math.max(0, expandedHeight - collapsedH);
   // 0 = collapsed, `travel` = fully open. Animating the sheet's HEIGHT would
   // relayout its contents on every frame; translating it does not.
   const y = React.useRef(new Animated.Value(0)).current;
   const at = React.useRef(0);
+  // The resting offset, as an animated value that exists ONCE. Building it
+  // inline made a fresh Animated.Value on every render of a screen that
+  // re-renders on every GPS fix.
+  const base = React.useMemo(() => new Animated.Value(travel), [travel]);
+  const offset = React.useMemo(() => Animated.subtract(base, y), [base, y]);
 
   React.useEffect(() => {
     const to = expanded ? travel : 0;
@@ -66,16 +122,26 @@ export function ExplorationSheet({
     <Animated.View
       style={[
         styles.sheet,
-        { height: expandedHeight, transform: [{ translateY: Animated.subtract(new Animated.Value(travel), y) }] },
+        { height: expandedHeight, paddingBottom: pad.sheet, transform: [{ translateY: offset }] },
       ]}
     >
-      <View {...pan.panHandlers}>
-        <View style={styles.grabWrap}><View style={styles.grab} /></View>
+      {/* The header carries the inset while the sheet is DOWN. Collapsed, the
+          sheet's own bottom edge is below the screen, so its padding is not on
+          screen to protect anything — the header is the last thing above the
+          navigation buttons, and it is what has to stop short of them. */}
+      <View {...pan.panHandlers} style={{ paddingBottom: pad.header }}>
+        <Pressable onPress={() => onExpandedChange(!expanded)} style={styles.grabWrap} hitSlop={8}>
+          <View style={styles.grab} />
+        </Pressable>
         {header}
       </View>
       <ScrollView
         style={styles.body}
-        contentContainerStyle={styles.bodyContent}
+        // The last row of a long report — and the actions on the arrived card —
+        // must be scrollable CLEAR of the navigation buttons, not merely rendered
+        // above them. The inset is added to the scroll content's own padding so
+        // the surface still runs to the screen edge and only the content stops.
+        contentContainerStyle={[styles.bodyContent, { paddingBottom: spacing.xl + pad.sheet }]}
         showsVerticalScrollIndicator={false}
         scrollEnabled={expanded}
       >
@@ -121,6 +187,23 @@ export function SheetSection({ title, children }: { title: string; children: Rea
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
       {children}
+    </View>
+  );
+}
+
+/**
+ * One fact and its value.
+ *
+ * Used by the identify panel, where every row is a pack field. A row whose
+ * value is missing renders as an explicit "not recorded" rather than
+ * disappearing — a geologist needs to know the difference between "this unit has
+ * no age" and "we did not ask".
+ */
+export function SheetRow({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
+  return (
+    <View style={styles.row}>
+      <Text style={styles.rowLabel}>{label}</Text>
+      <Text style={[styles.rowValue, muted && styles.rowValueMuted]} numberOfLines={3}>{value}</Text>
     </View>
   );
 }
@@ -183,6 +266,11 @@ const styles = StyleSheet.create({
 
   body: { flex: 1 },
   bodyContent: { padding: spacing.md, paddingBottom: spacing.xl },
+
+  row: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md, paddingVertical: 4 },
+  rowLabel: { color: colors.textFaint, fontSize: 12, width: 104 },
+  rowValue: { color: colors.text, fontSize: 13, flex: 1, lineHeight: 19 },
+  rowValueMuted: { color: colors.textFaint, fontStyle: "italic" },
 
   section: { marginBottom: spacing.lg },
   sectionTitle: {

@@ -6,6 +6,7 @@
 // numbers — the engine computes those from the evidence (scoring.ts). The AI
 // proposes; the engine adjudicates. The call is injected so parsing stays pure.
 import type { Bilingual, EvidenceNode } from "./types.ts";
+import { fetchWithTimeout, BUDGET_MS } from "../timeout.ts";
 
 const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-flash-latest";
 
@@ -242,9 +243,11 @@ export const defaultReasoningDeps: ReasoningDeps = {
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0.3, responseMimeType: "application/json" },
     };
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+      BUDGET_MS.reasoningGenerate,
+      "Gemini reasoning",
     );
     const raw = await res.json();
     if (!res.ok) throw new Error(raw?.error?.message ?? `Gemini API error (status ${res.status})`);

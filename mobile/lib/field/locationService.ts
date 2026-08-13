@@ -56,7 +56,12 @@ function normalize(raw: RawFix, provisional: boolean): FieldFix {
   return {
     lat: c.latitude,
     lng: c.longitude,
-    accuracy: typeof c.accuracy === "number" ? Math.round(c.accuracy) : null,
+    // NOT rounded. A receiver reporting ±1.5 m and one reporting ±2.4 m are
+    // telling a geologist different things about whether a position is worth
+    // recording, and rounding both to "±2 m" invents agreement between them.
+    // Presentation decides how many digits to show (see format.formatAccuracy);
+    // the service's job is to carry what the platform said.
+    accuracy: typeof c.accuracy === "number" ? c.accuracy : null,
     altitude: typeof c.altitude === "number" ? c.altitude : null,
     speed: typeof c.speed === "number" ? c.speed : null,
     timestamp: raw.timestamp,
@@ -220,12 +225,19 @@ function createExpoLocationApi(): LocationApi {
       const r = await Location.getLastKnownPositionAsync({ maxAge: maxAgeMs });
       return r ?? null;
     },
+    // The highest the platform offers, both for the first fix and the watch.
+    // BestForNavigation asks the GNSS chip for its best work instead of letting
+    // the fused provider answer from wifi and cell towers — see the note on
+    // LocationProfileConfig.
     currentFix: () =>
-      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.BestForNavigation }),
     watch: (profile, cb) =>
       Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.Balanced,
+          accuracy:
+            profile.accuracy === "highest"
+              ? Location.Accuracy.BestForNavigation
+              : Location.Accuracy.Balanced,
           distanceInterval: profile.distanceIntervalM,
           timeInterval: profile.timeIntervalMs,
         },

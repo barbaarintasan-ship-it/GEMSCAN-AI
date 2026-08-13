@@ -45,11 +45,38 @@ describe("classifyDistance", () => {
     expect(classifyDistance(BAND_LIMITS_M.regional + 1).band).toBe("expedition");
   });
 
-  test("travel time uses walking speed near, vehicle speed far", () => {
-    // 4 km on foot at 4 km/h is an hour.
-    expect(classifyDistance(4_000).travelMinutes).toBe(60);
-    // 35 km by vehicle at 35 km/h is an hour.
-    expect(classifyDistance(35_000).travelMinutes).toBe(60);
+  test("ON FOOT the straight line stands — a road is irrelevant over 4 km of ground", () => {
+    // 4 km on foot at 4 km/h is an hour, and no road factor applies: you walk
+    // over the ground. This is the half of the model that must NOT change.
+    const c = classifyDistance(4_000);
+    expect(c.travelMinutes).toBe(60);
+    expect(c.roadFactorApplied).toBe(1);
+    expect(c.travelDistanceM).toBe(4_000);
+  });
+
+  test("ONCE DRIVING the road is the journey, not the straight line", () => {
+    // 35 km of straight line is 70 km of road at the default factor: 1 h 45 at
+    // the measured 40 km/h, not the one hour the old test asserted. That hour is
+    // how a geologist came to plan a night drive on half the real time.
+    const c = classifyDistance(35_000, 2);
+    expect(c.roadFactorApplied).toBe(2);
+    expect(c.travelDistanceM).toBe(70_000);
+    expect(c.travelMinutes).toBe(105);
+  });
+
+  test("the Karkaar case, as measured", () => {
+    // 94.4 km straight, factor 2.02 from the geologist's own odometer.
+    const c = classifyDistance(94_400, 2.02);
+    expect(Math.round(c.travelDistanceM / 1000)).toBe(191);
+    // The screen said 2 h 42 (162 min). The measured answer is 4 h 45.
+    expect(c.travelMinutes).toBe(286);
+  });
+
+  test("a nonsense factor cannot become a nonsense plan", () => {
+    // A road is never shorter than the straight line.
+    expect(classifyDistance(60_000, 0.2).roadFactorApplied).toBe(1);
+    expect(classifyDistance(60_000, 99).roadFactorApplied).toBeLessThanOrEqual(4);
+    expect(classifyDistance(60_000, Number.NaN).roadFactorApplied).toBe(1);
   });
 
   test("the estimates are pessimistic on purpose", () => {
@@ -157,5 +184,47 @@ describe("regionalTargets", () => {
       mapFeatures: [], terrain: [], associations: [], rules: [], commodities: [], assemblages: [], land: [],
     };
     expect(regionalTargets(empty, HERE)).toEqual([]);
+  });
+});
+
+// ── The model against the journey that produced it ──────────────────────────
+//
+// A travel estimate is only worth what it predicts. This asserts the model
+// against the Karkaar expedition of 07–08/08/2026, measured two independent ways:
+//
+//     straight line   64.49 km   PostGIS, from the recorded GPS fixes
+//     road, one way  130.00 km   the geologist's odometer   -> factor 2.02
+//     average speed   40 km/h    the geologist's own figure
+//     elapsed          3 h 15
+//
+// Nothing here is tuned. The factor and the speed both came off that trip, and
+// the test is whether the two together reproduce it.
+describe("the Karkaar journey, reproduced", () => {
+  const STRAIGHT_M = 64_490;
+  const ODOMETER_KM = 130;
+  const FACTOR = ODOMETER_KM / (STRAIGHT_M / 1000);   // 2.016
+
+  test("the model predicts the road distance actually driven", () => {
+    const c = classifyDistance(STRAIGHT_M, FACTOR);
+    expect(Math.round(c.travelDistanceM / 1000)).toBe(ODOMETER_KM);
+  });
+
+  test("the model predicts the time actually taken", () => {
+    const c = classifyDistance(STRAIGHT_M, FACTOR);
+    // 130 km at 40 km/h is 3 h 15.
+    expect(c.travelMinutes).toBe(195);
+  });
+
+  test("the target that was misreported now reads honestly", () => {
+    // The screen said "94.4 km · 2 h 42 min" and a night drive was planned on it.
+    const c = classifyDistance(94_400, FACTOR);
+    expect(Math.round(c.travelDistanceM / 1000)).toBe(190);
+    expect(c.travelMinutes).toBe(285);   // 4 h 45
+    // Nearly two hours more than the figure that was shown.
+    expect(c.travelMinutes).toBeGreaterThan(162 + 100);
+  });
+
+  test("the speed is the measured one, not the guess it replaced", () => {
+    expect(VEHICLE_KMH).toBe(40);
   });
 });

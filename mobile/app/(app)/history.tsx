@@ -24,6 +24,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth";
+import { RequireSession } from "../../components/RequireSession";
 import { useSubscriptionStatus } from "../../lib/subscription";
 import { generatePdfForScan } from "../../lib/scanReport";
 import { deleteScan } from "../../lib/scanUpload";
@@ -187,7 +188,7 @@ const HistoryRow = React.memo(function HistoryRow({
   );
 });
 
-export default function HistoryScreen() {
+function HistoryScreenInner() {
   const { t, i18n } = useTranslation();
   const so = i18n.language === "so";
   const router = useRouter();
@@ -696,3 +697,13 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: { color: "#0B0B0C", fontWeight: "700", fontSize: 15 },
 });
+
+// Identity is required by this screen, not by the app. Declared here so the
+// field path can run with no session while this one still asks for one.
+export default function HistoryScreen() {
+  return (
+    <RequireSession what="your collection">
+      <HistoryScreenInner />
+    </RequireSession>
+  );
+}

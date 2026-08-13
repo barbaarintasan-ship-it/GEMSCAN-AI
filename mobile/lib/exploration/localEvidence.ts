@@ -29,8 +29,16 @@ export const FIELD_OBSERVATION_TIER = "field_observation";
  * look, not a find. These weights are what stop "I stood on a rock" scoring
  * like "I found sulfides", which is the difference between a useful assistant
  * and one nobody believes twice.
+ *
+ * PARTIAL, AND DELIBERATELY SO. A type absent from this table is NOT a scoring
+ * signal, and `toObservation` produces nothing for it — it is field evidence for
+ * the report and for the AI, but it does not move the prospectivity score.
+ *
+ * The map used to be total, with a `?? 0.2` fallback behind it. That meant any type
+ * added later silently began scoring at the floor, which is how `sample-location`
+ * came to add weight for the act of collecting a sample. Absence now means absence.
  */
-const TYPE_SIGNAL: Record<WaypointType, number> = {
+const TYPE_SIGNAL: Partial<Record<WaypointType, number>> = {
   sulfides: 0.85,
   gossan: 0.8,
   "quartz-vein": 0.7,
@@ -41,6 +49,17 @@ const TYPE_SIGNAL: Record<WaypointType, number> = {
   float: 0.45,
   outcrop: 0.3,
   other: 0.2,
+  // "sample-location" IS ABSENT ON PURPOSE, and this is the whole point of the
+  // table being partial.
+  //
+  // A sample was taken here. That says nothing yet about what is in it — the
+  // contents are unknown until the assay comes back. An app that scored the ACT of
+  // sampling would reward a geologist for collecting rather than for finding, and
+  // would let anyone raise a site's prospectivity by bagging rocks on it.
+  //
+  // Giving it the floor weight of 0.2 was tried and was wrong for exactly that
+  // reason: 0.2 is not zero. Collection is evidence for the assessment, never a
+  // signal in the score.
 };
 
 /** Human-readable label for a type, used in the evidence statement. */
@@ -54,6 +73,7 @@ const TYPE_LABEL: Record<WaypointType, string> = {
   fault: "Fault",
   float: "Float",
   outcrop: "Outcrop",
+  "sample-location": "Sample location",
   other: "Observation",
 };
 
@@ -86,7 +106,13 @@ function toObservation(w: Waypoint, lat: number, lng: number): Observation | nul
   const qualityFactor =
     quality === "good" ? 1 : quality === "degraded" ? 0.75 : quality === "stale" ? 0.5 : 0;
 
-  const base = TYPE_SIGNAL[w.type] ?? 0.2;
+  // Absent from the table means this type is not a scoring signal at all. Returning
+  // null keeps it out of `items` entirely, rather than pushing a zero-weight item
+  // that would mark the `field` role as having contributed when it contributed
+  // nothing.
+  const base = TYPE_SIGNAL[w.type];
+  if (base == null) return null;
+
   return {
     id: w.id,
     type: w.type,

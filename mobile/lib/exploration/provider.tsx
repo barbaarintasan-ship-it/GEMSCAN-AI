@@ -7,23 +7,37 @@
 // The orchestrator throttles itself (re-targeting is event-driven, not per-fix),
 // so this layer re-renders at the rate the sensors already gate.
 import React, { createContext, useContext, useEffect, useRef, useSyncExternalStore } from "react";
+import { InteractionManager } from "react-native";
 import { FieldSessionController } from "../field/sessionController";
 import { PackStore, createBundledPackSource } from "../geo/packStore.ts";
 import { OfflineGeoContextService } from "../geo/offlineGeoContext.ts";
 import { TargetingEngine } from "../geo/targeting.ts";
-import { ExplorationOrchestrator, type ExplorationSnapshot } from "./orchestrator.ts";
+import {
+  ExplorationOrchestrator,
+  type CaptureObservationInput, type ExplorationSnapshot, type ResumeExpedition,
+} from "./orchestrator.ts";
+import { expeditionLease } from "./expeditionLease";
 import type { Waypoint, WaypointType } from "../field/waypointTypes";
 import type { RegionalTarget } from "../geo/expedition.ts";
 import { loadBundledPackFiles } from "../geo/bundledPack.ts";
+import { markPhase } from "../diagnostics/jsStall";
 import { WaypointStore } from "../field/waypointStore";
 import { WaypointService } from "../field/waypointService";
 import { makeLocalEvidenceProvider, makeWaypointEvidenceSource } from "./localEvidence.ts";
+import { PackageStore } from "./packageStore";
+import { PhotoUploadQueue } from "../sync/photoUploadQueue";
+import { Outbox } from "../sync/outbox";
+import { hotspotIn } from "../geo/hotspot";
 
 export interface ExplorationApi {
   snapshot: ExplorationSnapshot;
   orchestrator: ExplorationOrchestrator;
   /** The installed pack, for the offline map and the evidence readout. */
   packs: PackStore;
+  /** Finished sections held on the device, with their assessments when they return. */
+  packages: PackageStore | null;
+  /** Photographs waiting to reach object storage. Never empties by losing one. */
+  photoUploads: PhotoUploadQueue | null;
   /**
    * Recorded observations, for the map's waypoint layer.
    *
@@ -42,18 +56,43 @@ export interface ExplorationApi {
    */
   waypointRecords: readonly Waypoint[];
   actions: {
-    start: () => void;
+    start: (resume?: ResumeExpedition) => void;
     stop: () => void;
     refresh: () => void;
     selectTarget: (cell: string) => void;
     recordEvidence: () => Promise<void>;
-    captureObservation: (type: WaypointType, notes?: string) => Promise<void>;
+    captureObservation: (input: CaptureObservationInput) => Promise<Waypoint | null>;
     inspectAt: (lat: number, lng: number) => void;
     clearInspect: () => void;
     navigateTo: (lat: number, lng: number) => void;
     /** Navigate to a mapped pack feature at any distance — see orchestrator. */
     navigateToRegional: (target: RegionalTarget) => void;
+    /**
+     * Take a target the user named, at ANY distance.
+     *
+     * Distinct from `navigateTo`, which is plain navigation to a coordinate and
+     * carries no assessment. This makes the place a real, committed TARGET with the
+     * engine's reading attached. Resolves false when the ground has nothing to say.
+     */
+    selectTargetAt: (lat: number, lng: number) => Promise<boolean>;
     clearDestination: () => void;
+    /** Assess for one commodity profile, or null for the universal engine. */
+    setCommodity: (code: string | null) => void;
+    /** The geologist has started working the ground they arrived on. */
+    beginInvestigation: () => void;
+    /** FINISH SECTION — assemble the package, write it, queue it. Sends nothing. */
+    finishSection: () => Promise<void>;
+    /** Close the mission. Only then may the engine recommend somewhere else. */
+    closeMission: () => void;
+    /**
+     * Record where a photograph landed in object storage.
+     *
+     * Called by the sync loop once R2 has confirmed the bytes. `remotePath` was
+     * declared on the waypoint record and never written by anything, so a
+     * geologist reopening an observation could not tell whether its photographs
+     * had left the phone — and neither could a support conversation about it.
+     */
+    notePhotoUploaded: (photoId: string, r2Key: string) => Promise<void>;
   };
 }
 
@@ -66,7 +105,21 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
   const waypointStoreRef = useRef<WaypointStore | null>(null);
   const ref = useRef<ExplorationOrchestrator | null>(null);
   const packsRef = useRef<PackStore | null>(null);
+  const packageStoreRef = useRef<PackageStore | null>(null);
+  const photoQueueRef = useRef<PhotoUploadQueue | null>(null);
   if (ref.current == null) {
+    /**
+     * MEASURED, because it runs in a render body on the startup path.
+     *
+     * Everything below is synchronous and happens during the FIRST render of a
+     * provider that sits above the router — so it is on the critical path of
+     * every cold start, and a Pressable cannot fire until it finishes. The four
+     * `void …load()` calls are not: they return immediately and settle later.
+     *
+     * Naming it means a stall that lands here arrives already attributed instead
+     * of as an unexplained four seconds. See lib/diagnostics/jsStall.
+     */
+    const built = markPhase("app.providers.graph");
     // One graph per mounted provider; never rebuilt across re-renders.
     const packs = new PackStore(createBundledPackSource(loadBundledPackFiles));
     packsRef.current = packs;
@@ -84,12 +137,41 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
     const geo = new OfflineGeoContextService(packs, "1.0.0", [
       makeLocalEvidenceProvider(localEvidence),
     ]);
+    // Finished sections are written HERE, on the device, before anything is
+    // queued. The field has no network and that is the normal case.
+    const packages = new PackageStore();
+    void packages.load();
+    packageStoreRef.current = packages;
+    const outbox = new Outbox();
+    void outbox.load();
+    // Photographs travel separately from the package: the bytes go straight to R2
+    // on a presigned URL and only the key reaches Postgres. Queued so a finished
+    // section survives no signal, a killed process and an expired URL.
+    const photoUploads = new PhotoUploadQueue();
+    void photoUploads.load();
+    photoQueueRef.current = photoUploads;
+
     ref.current = new ExplorationOrchestrator({
       field,
       targeting: new TargetingEngine(geo, localEvidence, () => packs.getData()),
       packs,
       waypoints,
+      packages,
+      outbox,
+      // The SAME queue Finish Section uses. A capture hands its photos over
+      // immediately; there is no second upload path.
+      photoUploads,
+      // Injected rather than imported, so the orchestrator keeps no opinion about
+      // scoring. Runs once on arrival, over the 49 resolution-9 children of the
+      // target cell.
+      findHotspot: (cell, commodity) => hotspotIn(geo, packs.getData(), cell, { commodity }),
+      // The first scoring pass waits for the app to finish painting. See
+      // deferFirstRun — it moves four seconds of cold-start work off the thread
+      // that has to answer the geologist's first tap, and changes nothing about
+      // what that pass computes.
+      deferFirstRun: (fn) => { InteractionManager.runAfterInteractions(fn); },
     });
+    built();
   }
   const orchestrator = ref.current;
 
@@ -104,6 +186,38 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
   );
 
   useEffect(() => () => orchestrator.destroy(), [orchestrator]);
+
+  /**
+   * RESUME A WALK THE PROCESS DIED IN.
+   *
+   * The lease outlives the process; this object does not. Android reclaims a
+   * backgrounded app overnight, and on the next launch the stored lease still
+   * says a walk is open while the orchestrator starts at `idle`. That left the
+   * two disagreeing in the worst direction: the auth gate held open for an
+   * expedition recording nothing, and `stop()` unreachable — so the lease could
+   * only be released by its fourteen-day safety net.
+   *
+   * Resuming is the correct answer rather than closing the lease, because the
+   * expedition did not end. The process ended. Field Reliability Contract,
+   * clause 2: a walk ends when the geologist ends it.
+   *
+   * Runs once, and only into `idle` — `start()` itself refuses any other state,
+   * so a live session can never be restarted over.
+   */
+  const resumed = useRef(false);
+  useEffect(() => {
+    if (resumed.current) return;
+    const store = expeditionLease();
+    void store.load().then(() => {
+      if (resumed.current) return;
+      const lease = store.get();
+      if (!lease || !store.isOpen()) return;
+      if (orchestrator.getSnapshot().state !== "idle") return;
+      resumed.current = true;
+      // Same id, same clock: a resumed traverse is the same traverse.
+      orchestrator.start({ sessionId: lease.expeditionId, startedAt: lease.openedAt });
+    });
+  }, [orchestrator]);
 
   // Only waypoints with a real fix can be drawn; one without a position is a
   // valid observation but has nowhere to go on a map, and putting it at the
@@ -120,20 +234,57 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
     snapshot,
     orchestrator,
     packs: packsRef.current!,
+    packages: packageStoreRef.current,
+    photoUploads: photoQueueRef.current,
     waypoints: waypointPins,
     waypointRecords: waypoints,
     actions: {
-      start: () => orchestrator.start(),
+      start: (resume?: ResumeExpedition) => orchestrator.start(resume),
       stop: () => orchestrator.stop(),
       refresh: () => orchestrator.refresh(),
       selectTarget: (cell) => orchestrator.selectTarget(cell),
       recordEvidence: () => orchestrator.recordEvidence(),
-      captureObservation: (type, notes) => orchestrator.captureObservation(type, notes),
+      captureObservation: (input) => orchestrator.captureObservation(input),
       inspectAt: (lat, lng) => orchestrator.inspectAt(lat, lng),
       clearInspect: () => orchestrator.clearInspect(),
       navigateTo: (lat, lng) => orchestrator.navigateTo(lat, lng),
       navigateToRegional: (target) => orchestrator.navigateToRegional(target),
+      selectTargetAt: (lat, lng) => orchestrator.selectTargetAt(lat, lng),
       clearDestination: () => orchestrator.clearDestination(),
+      setCommodity: (code) => orchestrator.setCommodity(code),
+      beginInvestigation: () => orchestrator.beginInvestigation(),
+      finishSection: async () => {
+        // The waypoints live in their own store and the traverse in the recorder;
+        // both are handed in rather than reached for, so there is only ever one
+        // copy of each in the system.
+        const waypoints = waypointStoreRef.current?.all() ?? [];
+        const pkg = await orchestrator.finishSection({ waypoints, track: [] });
+
+        // Queue every photograph the package names. Uploading is NOT attempted
+        // here: the geologist pressed a button on a mountain and needs an answer
+        // now, so this writes to disk and lets the sync layer deliver whenever a
+        // network next exists.
+        if (pkg) {
+          const photos = pkg.observations.flatMap((o) =>
+            o.photos.map((ph) => ({ id: ph.id, uri: ph.uri, contentType: ph.contentType })));
+          if (photos.length > 0) await photoQueueRef.current?.enqueue(pkg.missionId, photos);
+        }
+      },
+      closeMission: () => orchestrator.closeMission(),
+      notePhotoUploaded: async (photoId, r2Key) => {
+        const store = waypointStoreRef.current;
+        if (!store) return;
+        const owner = store.all().find((w) => w.photos.some((p) => p.id === photoId));
+        // Already recorded, or not ours: nothing to do. Writing unconditionally
+        // would persist the whole store on every uploaded photograph.
+        if (!owner) return;
+        const photo = owner.photos.find((p) => p.id === photoId);
+        if (!photo || photo.remotePath === r2Key) return;
+        await store.put({
+          ...owner,
+          photos: owner.photos.map((p) => (p.id === photoId ? { ...p, remotePath: r2Key } : p)),
+        });
+      },
     },
   };
 

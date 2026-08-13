@@ -22,7 +22,8 @@ import { loadBundledPackFiles } from "../geo/bundledPack";
 import { OfflineGeoContextService } from "../geo/offlineGeoContext";
 import { orientationAt } from "../geo/orientation";
 import { buildScene } from "../geo/mapScene";
-import { PACK_FILES, MANIFEST_FILE } from "../../../shared/geo-core/pack/types.ts";
+import {
+  packFileObject, PACK_FILES, MANIFEST_FILE } from "../../../shared/geo-core/pack/types.ts";
 import { pointInRings } from "../../../shared/geo-core/geo/spatial.ts";
 
 /** Real ground, spread across the coverage area. */
@@ -53,7 +54,12 @@ describe("the pack the app ships is found", () => {
   test("EVERY declared file is present — a partial pack is a refused pack", () => {
     // A previous build listed ten of twelve files here after two were added,
     // and the pack failed its own integrity check in silence.
-    const declared = Object.keys(JSON.parse(files![MANIFEST_FILE]).files).sort();
+    // The bundled pack is handed over as parsed objects now — Metro compiled the
+    // JSON in and Hermes materialised it, so stringifying it back cost 1.2 s of
+    // every cold start for a hash comparison that is switched off.
+    const declared = Object.keys(
+      (packFileObject(files![MANIFEST_FILE]) as unknown as { files: Record<string, string> }).files,
+    ).sort();
     const shipped = Object.keys(files!).filter((f) => f !== MANIFEST_FILE).sort();
     expect(shipped).toEqual(declared);
     expect(declared).toEqual(Object.values(PACK_FILES).sort());
@@ -184,5 +190,30 @@ describe("the pack can tell land from sea", () => {
   test("a target can therefore be judged, rather than guessed at", () => {
     // The point of the layer: any coordinate now has an answer.
     expect(typeof onLand(49.0, 11.07)).toBe("boolean");
+  });
+
+  // The tests above pass on a coastline of almost any quality, because inland
+  // cities and mid-ocean points are nowhere near the shore. The first version
+  // of this layer kept Natural Earth's whole Afro-Eurasia ring and thinned it
+  // to fit, which described the ENTIRE Somali coastline in fifteen vertices —
+  // and passed every one of them. These are the tests that would have failed.
+  test.each([
+    ["10 km N of Bosaso", 49.1816, 11.375, false],
+    ["10 km S of Bosaso", 49.1816, 11.195, true],
+    ["10 km N of Berbera", 45.0143, 10.530, false],
+    ["Berbera town", 45.0143, 10.4396, true],
+    ["15 km E of Mogadishu", 45.4600, 2.0469, false],
+    ["Cape Guardafui", 51.2700, 11.8200, true],
+  ])("%s reads correctly — the shore is resolved, not approximated", (_n, lng, lat, expected) => {
+    expect(onLand(lng, lat)).toBe(expected);
+  });
+
+  test("the coastline is detailed where the coast actually is", () => {
+    const nearCoast = data.land
+      .flatMap((u) => u.rings.flat() as Array<[number, number]>)
+      .filter(([lng, lat]) => lng >= 47 && lng <= 52 && lat >= 8 && lat <= 12.5);
+    // Fifteen was the whole Horn. A hundred is the floor below which this layer
+    // stops being able to answer anything near the shore.
+    expect(nearCoast.length).toBeGreaterThan(100);
   });
 });

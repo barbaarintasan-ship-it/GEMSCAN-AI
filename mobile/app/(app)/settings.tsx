@@ -22,6 +22,8 @@ import Constants from "expo-constants";
 import * as Application from "expo-application";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../lib/auth";
+import { useExploration } from "../../lib/exploration/provider";
+import { requestFieldLogout } from "../../lib/exploration/fieldLogout";
 import { supabase } from "../../lib/supabase";
 import { useSubscriptionStatus } from "../../lib/subscription";
 import { setAppLanguage, type AppLanguage } from "../../lib/i18n";
@@ -36,6 +38,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { session, signOut } = useAuth();
+  const exploration = useExploration();
   const { data: subscription } = useSubscriptionStatus();
 
   const [displayName, setDisplayName] = useState<string | null>(null);
@@ -136,8 +139,14 @@ export default function SettingsScreen() {
 
   async function handleLogout() {
     setSigningOut(true);
-    await signOut();
-    // The root auth gate redirects to /(auth)/login once the session clears.
+    // Routed through the field policy, NOT straight to signOut().
+    //
+    // This called signOut() directly and a field test caught it: the geologist
+    // logs out from Settings, no dialog appears, and the whole three-option
+    // policy is bypassed — because the policy lived in account.tsx only. Two
+    // doors to the same decision, one of them unguarded.
+    await requestFieldLogout({ signOut, endExpedition: exploration.actions.stop });
+    setSigningOut(false);
   }
 
   // Show version name + build number, e.g. "1.0.1 (31)". The build number is

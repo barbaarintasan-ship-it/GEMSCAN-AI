@@ -7,12 +7,16 @@
 import type { SessionSnapshot } from "./types";
 import { WaypointStore } from "./waypointStore";
 import {
+  DEFAULT_PHOTO_CONTENT_TYPE,
   headingSampleFrom,
   positionFromFix,
   positionQuality,
+  type EvidenceOrigin,
   type PositionQuality,
   type Waypoint,
   type WaypointPhoto,
+  type WaypointPosition,
+  type WaypointSample,
   type WaypointType,
 } from "./waypointTypes";
 
@@ -33,6 +37,26 @@ export interface CaptureWaypointInput {
   photoUris?: string[];
   /** Track linkage, supplied by Milestone 2.2 once tracks exist. */
   trackId?: string | null;
+  /** The investigation this belongs to. Absent outside a mission. */
+  missionId?: string | null;
+  /**
+   * The sample taken at this point, when one was.
+   *
+   * Optional: most field observations are looked at and photographed, not
+   * collected. Absent means no sample, and every existing caller stays valid.
+   */
+  sample?: WaypointSample | null;
+  /**
+   * A position supplied instead of measured — see `EvidenceOrigin`.
+   *
+   * When present it REPLACES the live fix rather than supplementing it. A record
+   * carrying both a colleague's coordinate and this phone's would be a record of
+   * two different places, and nothing downstream could tell which one the
+   * photographs belong to.
+   */
+  position?: WaypointPosition | null;
+  /** Defaults to `observed`, which is what every caller before this was. */
+  origin?: EvidenceOrigin;
 }
 
 export interface WaypointMutationResult {
@@ -42,7 +66,16 @@ export interface WaypointMutationResult {
   photoFailures: string[];
 }
 
-export type WaypointPatch = Partial<Pick<Waypoint, "type" | "name" | "notes" | "trackId">>;
+/**
+ * What may be edited after the fact.
+ *
+ * `position` is deliberately absent and always has been: the recorded fix is where
+ * the geologist stood, and letting it be edited would turn a measurement into an
+ * opinion. `sample` is editable because the bag label and the description are
+ * written by hand and get corrected.
+ */
+export type WaypointPatch =
+  Partial<Pick<Waypoint, "type" | "name" | "notes" | "trackId" | "sample">>;
 
 export class WaypointService {
   private seq = 0; // instance-scoped: no module-level mutable state
@@ -71,12 +104,17 @@ export class WaypointService {
       id: this.nextId(capturedAt),
       sessionId: snap.sessionId,
       trackId: input.trackId ?? null,
+      missionId: input.missionId ?? null,
       type: input.type,
       name: input.name?.trim() ? input.name.trim() : null,
       notes: input.notes?.trim() ?? "",
-      position: positionFromFix(snap.lastFix, capturedAt),
+      // A supplied position wins over the receiver: the whole point of a reported
+      // observation is that this phone is not where the rock is.
+      position: input.position ?? positionFromFix(snap.lastFix, capturedAt),
       heading: headingSampleFrom(snap.lastHeading, capturedAt),
       photos,
+      sample: input.sample ?? null,
+      origin: input.origin ?? "observed",
       capturedAt,
       updatedAt: capturedAt,
       syncState: "local",
@@ -173,7 +211,13 @@ export class WaypointService {
       const photoId = this.nextId(t, "wpp");
       try {
         const local = await this.store.persistPhotoFile(uri, `${photoId}.jpg`);
-        photos.push({ id: photoId, uri: local, capturedAt: t, remotePath: null });
+        // Recorded, not assumed downstream. The filename above and this type are
+        // the same decision, and stating it here is what lets the upload, the R2
+        // key and the database row all agree without any of them guessing.
+        photos.push({
+          id: photoId, uri: local, capturedAt: t,
+          contentType: DEFAULT_PHOTO_CONTENT_TYPE, remotePath: null,
+        });
       } catch {
         // One unreadable photo must not cost the whole observation.
         failures.push(uri);

@@ -446,7 +446,11 @@ function gemscan_hvr_render() {
                         if (!trim($svc['num'])) continue;
                         $local = gemscan_hvr_local_number($svc['num']);
                         $national = ltrim($local, '0');
-                        $amount_dial = str_replace('.', '*', $o['price_usd']);
+                        // Whole-dollar amount only — mobile money USSD codes
+                        // dial as plain digits (e.g. "5"), not "5.00" or a
+                        // decimal-point-turned-into-a-star ("5*00"), which
+                        // would dial as a broken extra menu level.
+                        $amount_dial = (string) (int) round((float) $o['price_usd']);
                         $code = str_replace(array('{number}', '{national}', '{amount}'), array($local, $national, $amount_dial), $svc['ussd']);
                         // tel: link — tapping this on a phone opens the dialer
                         // with the USSD code already filled in; the buyer just

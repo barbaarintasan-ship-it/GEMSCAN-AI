@@ -8,13 +8,14 @@
 // The pack SOURCE is injected. E2 reads the pack bundled in the app; E6 adds a
 // downloaded-pack source with atomic swap and rollback. Neither this class nor
 // its callers change when that lands.
+import { markPhase } from "../diagnostics/jsStall";
 import { emptyPackData, readPack, type LoadedPack } from "../../../shared/geo-core/pack/read.ts";
 import {
   describeFailure,
   verifyPack,
   type VerifyFailure,
 } from "../../../shared/geo-core/pack/verify.ts";
-import type { PackData, PackManifest } from "../../../shared/geo-core/pack/types.ts";
+import type { PackData, PackFile, PackManifest } from "../../../shared/geo-core/pack/types.ts";
 
 /** Engine-version range this build of the app understands (§7.2). */
 export const SUPPORTED_ENGINE_VERSIONS = { min: "1.0.0", max: "1.99.99" };
@@ -22,15 +23,17 @@ export const SUPPORTED_ENGINE_VERSIONS = { min: "1.0.0", max: "1.99.99" };
 /** A source of raw pack files: filename → content. */
 export interface PackSource {
   readonly name: string;
-  load(): Promise<Record<string, string> | null>;
+  load(): Promise<Record<string, PackFile> | null>;
   /**
    * True when `load()` returns the pack's EXACT original bytes, so per-file
    * sha256 comparison is meaningful.
    *
-   * False for the bundled pack. Metro parses a required .json into an object,
-   * so the device never sees the builder's bytes — it re-serialises them, and
-   * two different JS engines (Deno writing, Hermes reading) are not obliged to
-   * emit byte-identical JSON. Comparing hashes there tests engine agreement,
+   * False for the bundled pack. Metro parses a required .json into an object, so
+   * the device never sees the builder's bytes at all — and since a hash cannot be
+   * checked either way, the objects are now handed over as they are rather than
+   * being re-serialised for a comparison that is switched off. Two different JS
+   * engines (Deno writing, Hermes reading) are not obliged to
+   * emit byte-identical JSON, so comparing hashes there tests engine agreement,
    * not pack integrity, and a mismatch silently rejected a perfectly good pack.
    *
    * The bundled pack is instead trusted by PROVENANCE — it shipped inside the
@@ -70,7 +73,7 @@ export class PackStore {
   }
 
   private async doLoad(): Promise<PackStatus> {
-    let files: Record<string, string> | null;
+    let files: Record<string, PackFile> | null;
     try {
       files = await this.source.load();
     } catch {
@@ -84,10 +87,12 @@ export class PackStore {
       return this.status;
     }
 
+    const verifying = markPhase("pack.verify");
     const verdict = verifyPack(files, {
       supportedEngineVersions: SUPPORTED_ENGINE_VERSIONS,
       skipFileHashes: !this.source.bytesAreExact,
     });
+    verifying();
     if (!verdict.ok) {
       // Refused: the previous data (empty here) stays in place. Nothing from an
       // unverified pack is ever read.
@@ -99,7 +104,12 @@ export class PackStore {
       return this.status;
     }
 
+    // The third pass: every string produced above is parsed straight back into
+    // objects. Build, serialise, parse — the whole pack, three times, before the
+    // first GPS fix can be answered.
+    const reading = markPhase("pack.read");
     const loaded: LoadedPack = readPack(files);
+    reading();
     this.data = loaded.data;
     this.manifest = loaded.manifest;
     this.status = {
@@ -146,11 +156,14 @@ export class PackStore {
  * is a normal state (the app simply has no knowledge yet), not a crash.
  */
 export function createBundledPackSource(
-  loader: () => Record<string, string> | null,
+  loader: () => Record<string, PackFile> | null,
 ): PackSource {
   return {
     name: "bundled",
-    // Re-serialised from Metro's parsed JSON, not the builder's bytes.
+    // Metro's parsed JSON, handed over as objects — NOT the builder's bytes. The
+    // per-file sha256 is therefore not checkable and PackStore passes
+    // skipFileHashes, which is the whole reason the objects can travel as they
+    // are. A downloaded pack keeps its bytes and keeps its hash check.
     bytesAreExact: false,
     load: async () => loader(),
   };

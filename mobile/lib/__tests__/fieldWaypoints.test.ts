@@ -121,7 +121,14 @@ const pos = (over: Partial<WaypointPosition> = {}): WaypointPosition => ({
 describe("waypoint type catalogue", () => {
   test("covers every type the field spec calls for", () => {
     expect([...WAYPOINT_TYPES].sort()).toEqual(
-      ["alteration", "contact", "fault", "float", "gossan", "other", "outcrop", "quartz-vein", "sulfides", "vein"],
+      // "sample-location" was added for the sample-evidence work: a point recorded
+      // BECAUSE a sample was taken there. "mineral-occurrence" was considered and
+      // rejected — an occurrence is a database concept that reads as a confirmed
+      // deposit, and a waypoint is one person's field observation.
+      [
+        "alteration", "contact", "fault", "float", "gossan", "other", "outcrop",
+        "quartz-vein", "sample-location", "sulfides", "vein",
+      ],
     );
   });
 

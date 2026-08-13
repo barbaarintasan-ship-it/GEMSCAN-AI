@@ -4,6 +4,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
+import { setCurrentIdentity } from "./currentIdentity";
 
 type AuthContextValue = {
   session: Session | null;
@@ -45,6 +46,10 @@ export type SignUpProfile = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+function publishIdentity(s: Session | null): void {
+  setCurrentIdentity(s?.user ? { userId: s.user.id, email: s.user.email ?? null } : null);
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,11 +57,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
+      publishIdentity(data.session);
       setIsLoading(false);
     });
 
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
+      // Published for readers outside the context — see lib/currentIdentity.
+      publishIdentity(newSession);
     });
 
     return () => subscription.subscription.unsubscribe();

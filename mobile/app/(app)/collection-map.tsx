@@ -9,6 +9,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/auth";
+import { RequireSession } from "../../components/RequireSession";
 import { readCachedJson, writeCachedJson, formatCacheAge } from "../../lib/offlineCache";
 import { useIsOnline } from "../../lib/network";
 import LocationMap, { MapMarker } from "../../components/LocationMap";
@@ -26,7 +27,7 @@ function mapCacheKey(userId: string): string {
   return `gemscan.cache.map.v1:${userId}`;
 }
 
-export default function CollectionMapScreen() {
+function CollectionMapScreenInner() {
   const { i18n, t } = useTranslation();
   const so = i18n.language === "so";
   const router = useRouter();
@@ -173,3 +174,13 @@ const styles = StyleSheet.create({
     gap: 12,
   },
 });
+
+// Identity is required by this screen, not by the app. Declared here so the
+// field path can run with no session while this one still asks for one.
+export default function CollectionMapScreen() {
+  return (
+    <RequireSession what="your collection map">
+      <CollectionMapScreenInner />
+    </RequireSession>
+  );
+}

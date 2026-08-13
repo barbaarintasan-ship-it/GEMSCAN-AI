@@ -16,22 +16,43 @@ function uniqStrings(xs: string[]): string[] {
   return [...new Set(xs.filter((x) => x != null && x !== ""))];
 }
 
-const EMPTY: GeoContextData = {
-  geology: {},
-  formations: [],
-  lithology: [],
-  hostRocks: [],
-  faults: [],
-  intrusions: [],
-  metamorphism: {},
-  knownOccurrences: [],
-  commodityAssociations: [],
-  geochemistry: { anomalies: [] },
-  geophysics: { anomalies: [] },
-  remoteSensing: { alteration: [] },
-  historicalReports: [],
-  communityEvidence: {},
-};
+/**
+ * A fresh, empty result — CONSTRUCTED, not cloned.
+ *
+ * This was a module-level constant deep-copied with `structuredClone`, and that
+ * broke the whole engine on a phone. Hermes — the JS engine React Native runs in
+ * — has no `structuredClone`, so every call to `fuse` below threw
+ * `ReferenceError: Property 'structuredClone' doesn't exist` before it did any
+ * work. On the device that meant the offline GeoContext produced nothing at all,
+ * over and over: the exploration screen calls this on a timer, so logcat showed
+ * ninety-one unhandled rejections climbing at roughly one a second.
+ *
+ * It passed every test, because jest and deno both run on Node, and Node HAS
+ * `structuredClone`. The bug lived exactly in the gap between the two engines.
+ *
+ * A factory is better than any clone here, not merely a workaround: the fresh
+ * arrays are visible in the source, so no future reader has to reason about
+ * whether a nested array is shared with the template. It cannot leak between
+ * calls, which is the property the clone existed to provide.
+ */
+function emptyData(): GeoContextData {
+  return {
+    geology: {},
+    formations: [],
+    lithology: [],
+    hostRocks: [],
+    faults: [],
+    intrusions: [],
+    metamorphism: {},
+    knownOccurrences: [],
+    commodityAssociations: [],
+    geochemistry: { anomalies: [] },
+    geophysics: { anomalies: [] },
+    remoteSensing: { alteration: [] },
+    historicalReports: [],
+    communityEvidence: {},
+  };
+}
 
 export interface FusionResult {
   data: GeoContextData & { geologyAlternatives?: Record<string, unknown> };
@@ -40,7 +61,7 @@ export interface FusionResult {
 }
 
 export function fuse(contributions: ProviderContribution[]): FusionResult {
-  const data: GeoContextData = structuredClone(EMPTY);
+  const data: GeoContextData = emptyData();
   const evidence: EvidenceItem[] = [];
 
   // Array sections — concat across providers.

@@ -83,11 +83,14 @@
                     el.textContent = amountText;
                 });
 
-                // Fill the plan amount into every USSD "tap to pay" code. Somali
-                // mobile-money USSD types the decimal as another * (4.99 → 4*99),
-                // so convert here. Wire the tel: link (encode the trailing #) and
-                // the Copy button.
-                var amtUssd = price.replace(".", "*");
+                // Fill the plan amount into every USSD "tap to pay" code. A USSD
+                // dial string is plain digits/*/# only — "*" is a menu-navigation
+                // separator, not a decimal point, so a literal price like "4.99"
+                // must be rounded to a whole dollar amount ("5"), not have its dot
+                // swapped for a "*" (that dialed as an extra broken menu step,
+                // e.g. "4*99" instead of "4.99"). Wire the tel: link (encode the
+                // trailing #) and the Copy button with the same rounded amount.
+                var amtUssd = String(Math.round(parseFloat(price) || 0));
                 wrap.querySelectorAll(".gs-ussd-code").forEach(function (el) {
                     var tpl = el.getAttribute("data-ussd") || "";
                     var code = tpl.replace("{amount}", amtUssd);

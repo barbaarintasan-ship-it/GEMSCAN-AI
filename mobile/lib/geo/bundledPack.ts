@@ -8,8 +8,10 @@
 // A missing pack is a NORMAL state, not a crash: the app then says it has no
 // knowledge here rather than extrapolating (§3.9). That is why every require
 // is guarded rather than assumed.
-import { canonicalJson } from "../../../shared/geo-core/pack/canonical.ts";
-import { MANIFEST_FILE, PACK_FILES } from "../../../shared/geo-core/pack/types.ts";
+import {
+  MANIFEST_FILE, PACK_FILES, type PackFile,
+} from "../../../shared/geo-core/pack/types.ts";
+import { markPhase } from "../diagnostics/jsStall";
 
 /**
  * Metro inlines these requires at build time. `require` of a missing file is a
@@ -17,6 +19,10 @@ import { MANIFEST_FILE, PACK_FILES } from "../../../shared/geo-core/pack/types.t
  * pack has not been built yet the app still runs, with no knowledge.
  */
 function tryRequireAll(): Record<string, unknown> | null {
+  // ~17 MB of JSON across thirteen files. Metro turns each into a JS module, so
+  // `require` here is not a file read — it is Hermes constructing the objects,
+  // synchronously, on this thread. Named so a stall lands attributed.
+  const done = markPhase("pack.require");
   try {
     /* eslint-disable @typescript-eslint/no-var-requires */
     return {
@@ -37,6 +43,8 @@ function tryRequireAll(): Record<string, unknown> | null {
     /* eslint-enable @typescript-eslint/no-var-requires */
   } catch {
     return null;
+  } finally {
+    done();
   }
 }
 
@@ -50,13 +58,37 @@ function tryRequireAll(): Record<string, unknown> | null {
  * builder used reproduces the bytes exactly and the sha256 still verifies.
  * Using the shared function rather than a copy is what guarantees that.
  */
-export function loadBundledPackFiles(): Record<string, string> | null {
-  const raw = tryRequireAll();
-  if (!raw) return null;
-  const files: Record<string, string> = {};
-  for (const [name, value] of Object.entries(raw)) {
-    if (value == null) return null;
-    files[name] = canonicalJson(value);
+export function loadBundledPackFiles(): Record<string, PackFile> | null {
+  // `tryRequireAll` already marks pack.require, which is where the time actually
+  // goes now: Hermes materialising seventeen megabytes from bytecode.
+  const done = markPhase("pack.handover");
+  try {
+    const raw = tryRequireAll();
+    if (!raw) return null;
+    const files: Record<string, PackFile> = {};
+    for (const [name, value] of Object.entries(raw)) {
+      if (value == null) return null;
+      // HANDED OVER AS IT IS.
+      //
+      // This used to `JSON.stringify` every file so the reader could parse them
+      // straight back. The round trip existed for one reason: verifyPack hashes
+      // bytes. But the bundled source sets `bytesAreExact: false`, so PackStore
+      // passes `skipFileHashes` and no hash is ever computed — seventeen
+      // megabytes serialised and re-parsed to satisfy a check that is switched
+      // off.
+      //
+      // Measured on an SM-A165F, inside a four-second cold-start block:
+      //   pack.stringify  656 ms
+      //   pack.read       527 ms
+      //
+      // Metro compiled these into the app and Hermes has already materialised
+      // them. readPack now accepts the object, so nothing is converted at all.
+      // A DOWNLOADED pack still arrives as bytes and still has its hash checked;
+      // that path does not come through here.
+      files[name] = value as PackFile;
+    }
+    return files;
+  } finally {
+    done();
   }
-  return files;
 }

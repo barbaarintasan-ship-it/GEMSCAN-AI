@@ -7,7 +7,9 @@
 // result object, not an exception it might swallow.
 import { canonicalJson } from "./canonical.ts";
 import { sha256Hex } from "./sha256.ts";
-import { MANIFEST_FILE, PACK_FORMAT_VERSION, type PackManifest } from "./types.ts";
+import { MANIFEST_FILE, PACK_FORMAT_VERSION, type PackManifest,
+  packFileObject, type PackFile,
+} from "./types.ts";
 
 export type VerifyFailure =
   | { code: "manifest-unreadable"; detail: string }
@@ -51,15 +53,29 @@ export function compareVersions(a: string, b: string): number {
  *
  * @param files filename → exact content as read from disk/bundle.
  */
-export function verifyPack(files: Record<string, string>, opts: VerifyOptions = {}): VerifyResult {
+export function verifyPack(files: Record<string, PackFile>, opts: VerifyOptions = {}): VerifyResult {
   const rawManifest = files[MANIFEST_FILE];
   if (rawManifest === undefined) {
     return { ok: false, failure: { code: "manifest-unreadable", detail: `${MANIFEST_FILE} missing` } };
   }
 
+  // A parsed file cannot be hashed: the bytes it came from are gone, and
+  // re-serialising would not reproduce them. Refused loudly rather than passed
+  // over — silently skipping an integrity check that was asked for is the one
+  // outcome this function must never produce.
+  if (!opts.skipFileHashes && typeof rawManifest !== "string") {
+    return {
+      ok: false,
+      failure: {
+        code: "manifest-unreadable",
+        detail: "file hashes were requested but the pack was supplied already parsed",
+      },
+    };
+  }
+
   let manifest: PackManifest;
   try {
-    manifest = JSON.parse(rawManifest) as PackManifest;
+    manifest = packFileObject(rawManifest) as unknown as PackManifest;
   } catch (e) {
     return { ok: false, failure: { code: "manifest-unreadable", detail: String(e) } };
   }
@@ -109,6 +125,15 @@ export function verifyPack(files: Record<string, string>, opts: VerifyOptions = 
       return { ok: false, failure: { code: "file-missing", detail: name } };
     }
     if (opts.skipFileHashes) continue;
+    // Only bytes can be hashed. The guard above already refused a parsed pack
+    // when hashes were asked for, so reaching here with a non-string is a
+    // programming error, not a bad pack — and it is named as one.
+    if (typeof content !== "string") {
+      return {
+        ok: false,
+        failure: { code: "file-missing", detail: `${name} was supplied parsed; cannot hash` },
+      };
+    }
     if (sha256Hex(content) !== manifest.files[name]) {
       return { ok: false, failure: { code: "file-corrupt", detail: name } };
     }

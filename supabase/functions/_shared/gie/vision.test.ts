@@ -152,29 +152,33 @@ function depsFor(sizesMb: number[], seen: { images?: VisionImage[] } = {}): Visi
 }
 const urls = (n: number) => Array.from({ length: n }, (_, i) => `u${i}`);
 
-Deno.test("Guri: three 4.42 MB photos — the count was fine, the bytes were not", async () => {
+Deno.test("Guri: three 4.42 MB photos — no visual evidence, and NO run killed", async () => {
+  // The budget is now sized for what an ISOLATE survives, not for what Gemini
+  // accepts. A 4.42 MB frame is 5.9 MB encoded, past the single-image limit, so
+  // it is skipped — the sample gets an assessment from the geological providers
+  // and reasoning instead of being killed mid-run with nothing recorded.
   const seen: { images?: VisionImage[] } = {};
-  await runVision(urls(3), depsFor([4.42, 4.42, 4.42], seen));
-  const total = seen.images!.reduce((a, im) => a + im.base64.length, 0);
-  assertEquals(total <= MAX_VISION_BYTES, true);
-  // At least one photo still reaches the model — degraded, not discarded.
-  assertEquals(seen.images!.length >= 1, true);
+  const obs = await runVision(urls(3), depsFor([4.42, 4.42, 4.42], seen));
+  assertEquals(obs, []);
+  assertEquals(seen.images, undefined, "nothing that large may be inlined");
 });
 
-Deno.test("Sample: five 0.10 MB photos all go through untouched", async () => {
+Deno.test("Sample: 0.10 MB photos still go through, up to the count cap", async () => {
+  // The samples that always worked. Small frames must keep working — the fix
+  // must not have thrown away vision for the photos it can actually handle.
   const seen: { images?: VisionImage[] } = {};
   await runVision(urls(5), depsFor([0.1, 0.1, 0.1, 0.1, 0.1], seen));
-  assertEquals(seen.images!.length, 5);
+  assertEquals(seen.images!.length, Math.min(5, MAX_VISION_IMAGES));
+  for (const im of seen.images!) assertEquals(im.base64.length <= MAX_SINGLE_IMAGE_BYTES, true);
 });
 
-Deno.test("Qardho buur: 27 photos at 5.04 MB stay inside the budget", async () => {
+Deno.test("Qardho buur: 27 photos at 5.04 MB — 27 full frames inline nothing", async () => {
   const seen: { images?: VisionImage[] } = {};
-  await runVision(urls(27), depsFor(Array(27).fill(5.04), seen));
+  const obs = await runVision(urls(27), depsFor(Array(27).fill(5.04), seen));
   const total = (seen.images ?? []).reduce((a, im) => a + im.base64.length, 0);
   assertEquals(total <= MAX_VISION_BYTES, true);
-  assertEquals((seen.images ?? []).length <= MAX_VISION_IMAGES, true);
-  // Something still reaches the model rather than the whole set being dropped.
-  assertEquals((seen.images ?? []).length >= 1, true);
+  // And it returns rather than throwing, which is the property that matters.
+  assertEquals(obs, []);
 });
 
 Deno.test("Qarka Qardhl: 6.94 MB photos exceed even the single-image limit", async () => {
@@ -194,7 +198,7 @@ Deno.test("a single oversized frame is skipped, not allowed to eat the budget", 
   const seen: { images?: VisionImage[] } = {};
   // One 9 MB monster followed by four usable photos.
   await runVision(urls(5), depsFor([9, 0.5, 0.5, 0.5, 0.5], seen));
-  assertEquals(seen.images!.length, 4);
+  assertEquals(seen.images!.length, Math.min(4, MAX_VISION_IMAGES));
   for (const im of seen.images!) assertEquals(im.base64.length <= MAX_SINGLE_IMAGE_BYTES, true);
 });
 
@@ -244,14 +248,25 @@ Deno.test("an oversized photo is never downloaded at all", async () => {
 });
 
 Deno.test("the budget stops the loop before the next download, not after", async () => {
+  // Derived from the constants, not from the numbers they happened to hold.
+  // This test asserted a 12 MB budget; lowering it to what an isolate survives
+  // broke the arithmetic rather than the property, and the property is what is
+  // under test: the probe must prevent downloads, not merely discard them.
+  //
+  // A frame just under the single-image limit, so the TOTAL budget is what
+  // stops the loop.
+  const encodedEach = Math.floor(MAX_SINGLE_IMAGE_BYTES * 0.8);
+  const fileBytes = Math.floor(encodedEach / BASE64_INFLATION);
+  const expected = Math.min(Math.floor(MAX_VISION_BYTES / encodedEach), MAX_VISION_IMAGES);
+
   const fetched: string[] = [];
   await runVision(urls(10), {
-    probeSizeBytes: () => Promise.resolve(Math.round(4 * MB)), // ~5.3 MB encoded
-    fetchImageBase64: (u) => { fetched.push(u); return Promise.resolve(image(4)); },
+    probeSizeBytes: () => Promise.resolve(fileBytes),
+    fetchImageBase64: (u) => { fetched.push(u); return Promise.resolve(image(fileBytes / MB)); },
     generate: () => Promise.resolve('{"observations":[]}'),
   });
-  // 12 MB budget / 5.3 MB each = two images, and only two downloads.
-  assertEquals(fetched.length, 2);
+  assertEquals(expected >= 1, true, "the budget must admit at least one frame");
+  assertEquals(fetched.length, expected);
 });
 
 Deno.test("a probe that cannot answer does not discard the photo", async () => {

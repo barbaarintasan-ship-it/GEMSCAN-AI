@@ -9,7 +9,7 @@ import { errorResponse, json, BadRequestError, NotFoundError, UnauthorizedError 
 import { corsHeaders } from "../_shared/cors.ts";
 import { serviceClient } from "../_shared/enterprise/clients.ts";
 import { cellFor } from "../_shared/geocontext/h3.ts";
-import { buildProviders } from "../_shared/geocontext/providers/index.ts";
+import { buildKnowledgeProviders, buildProviders } from "../_shared/geocontext/providers/index.ts";
 import { makeSupabaseGateway } from "../_shared/geocontext/providers/supabaseGateway.ts";
 import { assemble, fieldEvidence, geoEvidence, runProviders } from "../_shared/gie/gather.ts";
 import { defaultVisionDeps, runVision, visualEvidence, type VisualObservation } from "../_shared/gie/vision.ts";
@@ -17,11 +17,25 @@ import { defaultReasoningDeps, runReasoning, type ReasoningOutput } from "../_sh
 import { assembleAssessment } from "../_shared/gie/assemble.ts";
 import type { SampleInput } from "../_shared/gie/types.ts";
 import type { GeoQuery, ProviderContribution } from "../_shared/geocontext/types.ts";
+import { withDeadline, BUDGET_MS } from "../_shared/timeout.ts";
 
 export const ENGINE_VERSION = "gie-1.0.0";
 const MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-flash-latest";
 const RADIUS_M = 25000;
 const DAILY_CAP = Number(Deno.env.get("GIE_DAILY_CAP") ?? "200");
+
+/**
+ * Which workflow this sample belongs to, and therefore what may be inferred.
+ *
+ * `personal` — a collected specimen. Visual identification and mineral knowledge
+ * only. No spatial inference: no mapped geology, no nearby occurrences, no
+ * structural context, no community reports, and therefore nothing resembling a
+ * prospectivity statement about where it was picked up.
+ *
+ * `exploration` — evidence of a field mission. The full engine, because the whole
+ * question being asked IS about the ground.
+ */
+export type SampleLane = "personal" | "exploration";
 
 export interface LoadedSample {
   sample: SampleInput;
@@ -29,12 +43,18 @@ export interface LoadedSample {
   imageUrls: string[];
   imageQuality: number; // 0..1
   inputHash: string;
+  /** Absent on rows written before 0102 — those are all personal. */
+  lane: SampleLane;
 }
 
 export interface AnalyzeDeps {
   authorize: (req: Request) => void;
   loadSample: (id: string) => Promise<LoadedSample | null>;
-  runProviders: (q: GeoQuery) => Promise<{ contributions: ProviderContribution[]; providersRun: string[]; providersFailed: string[] }>;
+  /**
+   * Gather evidence. The LANE decides which providers are even constructed —
+   * see buildKnowledgeProviders in _shared/geocontext/providers/index.ts.
+   */
+  runProviders: (q: GeoQuery, lane: SampleLane) => Promise<{ contributions: ProviderContribution[]; providersRun: string[]; providersFailed: string[] }>;
   runVision: (imageUrls: string[]) => Promise<VisualObservation[]>;
   runReasoning: (nodes: Parameters<typeof runReasoning>[0], summary: string) => Promise<ReasoningOutput>;
   saveAssessment: (sampleId: string, actorId: string, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -44,6 +64,14 @@ export interface AnalyzeDeps {
   markFailed: (sampleId: string, reason: string) => Promise<void>;
   countToday: () => Promise<number>;
   dailyCap: number;
+  /**
+   * Stage budgets, injected like every other stage here.
+   *
+   * Optional so no existing caller changes. Present so a hang — the failure that
+   * stranded twelve samples — can be exercised in milliseconds instead of by
+   * waiting out a real fifty-second budget in the test suite.
+   */
+  budgets?: { visionStage?: number; reasoningStage?: number };
 }
 
 export function sampleSummary(s: SampleInput): string {
@@ -58,10 +86,21 @@ export function sampleSummary(s: SampleInput): string {
 
 export async function handleAnalyze(req: Request, deps: AnalyzeDeps = defaultDeps): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Declared outside the try so the catch can tell "never started" from "started
+  // and died" — the distinction migration 0092 exists to preserve.
+  let started = false;
+  let sampleId = "";
+  // Set by whichever stage records first. The backstop must not overwrite a
+  // specific diagnosis ("Evidence gathering failed: …") with a generic one.
+  let reasonRecorded = false;
+  const recordFailure = async (reason: string) => {
+    reasonRecorded = true;
+    await deps.markFailed(sampleId, reason).catch(() => {});
+  };
   try {
     deps.authorize(req);
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-    const sampleId = typeof body.sample_id === "string" ? body.sample_id : "";
+    sampleId = typeof body.sample_id === "string" ? body.sample_id : "";
     if (!sampleId) throw new BadRequestError("sample_id is required");
     // force = an explicit re-analysis (owner or geologist). It re-gathers evidence
     // fresh (picking up any newly loaded data), bypasses the per-day auto-run cap,
@@ -88,6 +127,11 @@ export async function handleAnalyze(req: Request, deps: AnalyzeDeps = defaultDep
     // its outcome. Before this line a failure means the sample was never really
     // started; after it, the reason is written to the row.
     await deps.markStarted(sampleId);
+    // ...and this is what makes that sentence true rather than aspirational. The
+    // claim was made in this comment and enforced only at the three call sites
+    // someone had thought of; anything else threw straight past it. The flag lets
+    // the outer catch close every remaining path, including the ones added later.
+    started = true;
 
     // GATHER (geo) + VISION → unified Evidence Set (visual folded in before ids)
     const query: GeoQuery = {
@@ -101,7 +145,26 @@ export async function handleAnalyze(req: Request, deps: AnalyzeDeps = defaultDep
         structures: sample.structural.map((s) => s.structureType).filter((x): x is string => !!x),
       },
     };
-    const { contributions, providersRun, providersFailed } = await deps.runProviders(query);
+    // GATHER can strand a sample, and it did.
+    //
+    // This call sits AFTER markStarted and had no guard, while reasoning and
+    // persist below each had one. So a throw here — a geo query, a knowledge
+    // provider, anything under runProviders — fell through to the outer catch,
+    // which returned an HTTP error to a caller that was ignoring it and wrote
+    // NOTHING to the row. The sample kept ai_processing for ever with no reason
+    // recorded: nine of them, overnight, which is the report that found this.
+    //
+    // Gathering failing is also a different diagnosis from reasoning failing, so
+    // it says so rather than being folded into a generic message.
+    let contributions, providersRun, providersFailed;
+    try {
+      ({ contributions, providersRun, providersFailed } = await deps.runProviders(query, loaded.lane));
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      console.error(`analyze-sample ${sampleId}: evidence gathering failed —`, reason);
+      await recordFailure(`Evidence gathering failed: ${reason}`);
+      throw e;
+    }
     // Vision is ENRICHMENT, not a precondition. A failure here (oversized
     // payload, a dead signed URL, a model hiccup) used to reject the whole run,
     // leaving the sample at "submitted" with no assessment and no explanation.
@@ -110,7 +173,16 @@ export async function handleAnalyze(req: Request, deps: AnalyzeDeps = defaultDep
     // GeoContext engine already applies to a failing provider.
     let visualObs: VisualObservation[] = [];
     try {
-      visualObs = await deps.runVision(loaded.imageUrls);
+      // Bounded as a WHOLE, not just per call: the cost of this stage scales
+      // with the number of photographs, and that is the variable that was
+      // killing runs. Vision is enrichment, so a timeout here degrades the
+      // result rather than failing the sample — the existing policy, now
+      // reachable, because a hang never used to reach this catch at all.
+      visualObs = await withDeadline(
+        deps.runVision(loaded.imageUrls),
+        deps.budgets?.visionStage ?? BUDGET_MS.visionStage,
+        "Image analysis",
+      );
     } catch (e) {
       console.error(`analyze-sample ${sampleId}: vision failed, continuing without it —`, e);
     }
@@ -128,11 +200,15 @@ export async function handleAnalyze(req: Request, deps: AnalyzeDeps = defaultDep
     // able to strand a sample on any Gemini hiccup.
     let reasoning: ReasoningOutput;
     try {
-      reasoning = await deps.runReasoning(set.nodes, sampleSummary(sample));
+      reasoning = await withDeadline(
+        deps.runReasoning(set.nodes, sampleSummary(sample)),
+        deps.budgets?.reasoningStage ?? BUDGET_MS.reasoningStage,
+        "Geological reasoning",
+      );
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
       console.error(`analyze-sample ${sampleId}: reasoning failed —`, reason);
-      await deps.markFailed(sampleId, `Geological reasoning failed: ${reason}`).catch(() => {});
+      await recordFailure(`Geological reasoning failed: ${reason}`);
       throw e;
     }
     const assessment = assembleAssessment(set, reasoning);
@@ -149,7 +225,7 @@ export async function handleAnalyze(req: Request, deps: AnalyzeDeps = defaultDep
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
       console.error(`analyze-sample ${sampleId}: persist failed —`, reason);
-      await deps.markFailed(sampleId, `Could not save the assessment: ${reason}`).catch(() => {});
+      await recordFailure(`Could not save the assessment: ${reason}`);
       throw e;
     }
 
@@ -164,6 +240,22 @@ export async function handleAnalyze(req: Request, deps: AnalyzeDeps = defaultDep
       idempotent: result.idempotent ?? false,
     });
   } catch (err) {
+    // THE BACKSTOP. A run that had started must never end without saying why.
+    //
+    // Every stage above records its own, more specific reason first; markFailed
+    // is idempotent in effect (last write wins on the same row) so a second call
+    // here is harmless. What matters is the path nobody anticipated — a throw in
+    // assemble, in cellFor, in a stage added next year — which previously
+    // returned an HTTP error to a fire-and-forget caller that discarded it, and
+    // left the row at ai_processing with nothing recorded anywhere.
+    //
+    // This cannot catch the isolate being KILLED (no code runs then). That case
+    // is a genuinely stalled row, which the client now names by the age of
+    // ai_attempted_at — see mobile/lib/samples/sampleStatus.
+    if (started && sampleId && !reasonRecorded) {
+      const reason = err instanceof Error ? err.message : String(err);
+      await deps.markFailed(sampleId, `Analysis failed: ${reason}`).catch(() => {});
+    }
     return errorResponse(err);
   }
 }
@@ -194,7 +286,7 @@ export const defaultDeps: AnalyzeDeps = {
   loadSample: async (id) => {
     const svc = serviceClient(); // enterprise schema
     const { data: sRow } = await svc.from("sample")
-      .select("id,collector_id,collected_at,updated_at,terrain_type,geological_environment,field_observations," +
+      .select("id,collector_id,collected_at,updated_at,terrain_type,geological_environment,field_observations,origin," +
         "sample_location(altitude_m,gps_accuracy_m)," +
         "sample_media(storage_path,image_quality_score)," +
         "rock_observation(rock_class,texture,weathering,notes)," +
@@ -241,9 +333,25 @@ export const defaultDeps: AnalyzeDeps = {
         .map((x) => ({ structureType: x.structure_type, strikeDeg: x.strike_deg, dipDeg: x.dip_deg, dipDirection: x.dip_direction })),
     };
 
-    return { sample, actorId: (s.collector_id as string) ?? id, imageUrls, imageQuality, inputHash: await hashInputs(id, s.updated_at, paths) };
+    // Anything that is not explicitly 'exploration' is personal. Rows written
+    // before 0102 carry no origin at all, and those are all personal — but the
+    // rule is stated as a positive test rather than a default so a typo, a new
+    // enum value or a dropped column can only ever narrow what may be inferred,
+    // never widen it.
+    const lane: SampleLane = s.origin === "exploration" ? "exploration" : "personal";
+
+    return {
+      sample, actorId: (s.collector_id as string) ?? id, imageUrls, imageQuality,
+      lane, inputHash: await hashInputs(id, s.updated_at, paths),
+    };
   },
-  runProviders: (q) => runProviders(buildProviders(makeSupabaseGateway(serviceClient())), q),
+  runProviders: (q, lane) => runProviders(
+    // THE LANE SPLIT. A personal sample never meets a spatial provider.
+    (lane === "personal" ? buildKnowledgeProviders : buildProviders)(
+      makeSupabaseGateway(serviceClient()),
+    ),
+    q,
+  ),
   runVision: (urls) => runVision(urls, defaultVisionDeps),
   runReasoning: (nodes, summary) => runReasoning(nodes, summary, defaultReasoningDeps),
   markStarted: async (sampleId) => {

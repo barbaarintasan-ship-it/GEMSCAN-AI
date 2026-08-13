@@ -8,7 +8,7 @@
 // Like types.ts this module is 100% dependency-free (no expo, no react, no
 // react-native), so the whole ingest policy is unit-testable without native
 // modules. It reads Phase 1's contracts and constants; it does not change them.
-import { LOW_ACCURACY_M, WALKING_PROFILE, type FieldFix } from "./types";
+import { LOW_ACCURACY_M, type FieldFix } from "./types";
 import { haversineM } from "../../../shared/geo-core/geo/spatial.ts";
 
 // ── Stored shapes ───────────────────────────────────────────────────────────
@@ -82,8 +82,12 @@ export interface TrackSnapshot {
 
 // ── Configuration ───────────────────────────────────────────────────────────
 export interface TrackConfig {
-  /** Floor on real movement. The OS already gates at WALKING_PROFILE.distanceIntervalM;
-   *  this is the safety net for platforms that ignore it and burst. */
+  /** Floor on real movement, and now the ONLY one.
+   *
+   *  The OS gate is gone — WALKING_PROFILE.distanceIntervalM is 0 so that fixes
+   *  keep arriving while a geologist stands still, which arrival detection and
+   *  the staleness readout both need. Every fix therefore reaches this recorder,
+   *  and this is what decides whether one becomes a point on the traverse. */
   minDistanceM: number;
   /** Movement must also clear accuracy × this, so a ±40 m fix cannot fake a walk. */
   accuracyGateFactor: number;
@@ -107,7 +111,12 @@ export interface TrackConfig {
 }
 
 export const DEFAULT_TRACK_CONFIG: TrackConfig = {
-  minDistanceM: Math.round(WALKING_PROFILE.distanceIntervalM * 0.67), // 10 m
+  // A fixed floor, deliberately NOT derived from the location profile any more.
+  // The profile no longer gates on distance at all — it delivers on time, so that
+  // standing still does not look like a dead receiver; a drawn traverse wants a
+  // or a phone standing still with a ±3 m fix scribbles GPS wander onto the map
+  // and calls it walking.
+  minDistanceM: 10,
   accuracyGateFactor: 0.5,
   maxAccuracyM: LOW_ACCURACY_M * 2, // 100 m
   maxSpeedMps: 15,                  // 54 km/h — far above any traverse on foot

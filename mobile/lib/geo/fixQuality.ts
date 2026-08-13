@@ -63,3 +63,27 @@ export function arrivalRadiusFor(accuracyM: number | null): number {
   const a = accuracyM == null || !Number.isFinite(accuracyM) ? 20 : accuracyM;
   return Math.max(25, Math.min(150, a * 2.5));
 }
+
+/**
+ * The receiver's accuracy, written the way a person reads it.
+ *
+ * NOT a rounding of the measurement — the measurement is untouched, and every
+ * distance, arrival radius and stored record still uses the full value. This is
+ * the display of it, and the display was wrong: Android hands back a float32,
+ * so a receiver reporting 17.8 m arrives as the double 17.799999237060547, and
+ * the panel printed all seventeen digits of it. Sixteen of those digits are an
+ * artifact of the format, not information from the satellites, and showing them
+ * makes a precise instrument look broken.
+ *
+ * The rule keeps every digit the receiver could actually have meant:
+ *   ±1.5 m stays ±1.5 m — a good fix is never rounded away to a whole metre
+ *   sub-metre keeps two decimals, because there the second one is real
+ *   trailing zeros are dropped, so 18.0 reads as ±18 m
+ */
+export function formatAccuracyM(accuracyM: number | null | undefined): string {
+  if (accuracyM == null || !Number.isFinite(accuracyM)) return "not reported";
+  const m = Math.abs(accuracyM);
+  const decimals = m < 1 ? 2 : 1;
+  // Number() drops the trailing zero that toFixed insists on keeping.
+  return `±${Number(m.toFixed(decimals))} m`;
+}

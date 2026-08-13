@@ -1,0 +1,31 @@
+-- The analysis could not read the evidence it was asked to analyse.
+--
+-- MEASURED IN PRODUCTION, 12 August 2026, 14:38 EAT. A geologist finished a
+-- section with one observation and seven photographs; the report row appeared on
+-- the phone and stopped at "Analysis is waiting for 7 photograph(s) to finish
+-- uploading". The Postgres log said, twice, ninety seconds apart:
+--
+--     42501  permission denied for table mission_package
+--
+-- and the edge log showed two 5xx in the same minute.
+--
+-- WHY. Every write in this workflow goes through a SECURITY DEFINER function --
+-- upsert_mission_package, save_mission_report, mark_photos_verified -- and those
+-- were granted to service_role when they were written. The two READS in
+-- analyze-mission are direct PostgREST selects, added later:
+--
+--     loadPackage  ->  geo.mission_package   (payload, files_verified_at)
+--     loadReport   ->  geo.mission_report    (idempotency: has this already run?)
+--
+-- service_role bypasses RLS. It does not bypass table privileges, and `geo` is
+-- not a schema Supabase grants by default -- every other table in it says so
+-- explicitly (see 0044-0048). These two were created without that line, and
+-- nothing noticed until a read was added against them.
+--
+-- SELECT AND NOTHING MORE. The absence of insert/update here is the design, not
+-- an oversight: ownership is enforced inside the definer functions, and handing
+-- the same role a direct write would route around the checks those functions
+-- exist to perform.
+
+grant select on geo.mission_package to service_role;
+grant select on geo.mission_report  to service_role;

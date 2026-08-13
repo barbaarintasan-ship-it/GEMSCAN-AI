@@ -127,8 +127,16 @@ android {
         applicationId 'com.gemscan.ai'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 63
-        versionName "1.6.1"
+        // MUST match app.json (expo.version / expo.android.versionCode).
+        //
+        // These are two independent sources for one fact: this block is what
+        // Android and Play read, and app.json is what expo-constants bundles as an
+        // asset — which is what the Settings screen shows the geologist. They have
+        // silently drifted apart twice, and each time the phone reported a version
+        // this repo had never built. `lib/__tests__/appVersion.test.ts` fails the
+        // build before that can ship a third time.
+        versionCode 121
+        versionName "1.37.0"
     }
     signingConfigs {
         debug {

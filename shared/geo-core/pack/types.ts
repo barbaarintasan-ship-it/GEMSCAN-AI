@@ -250,3 +250,24 @@ export const PACK_FILES = {
 } as const;
 
 export const MANIFEST_FILE = "manifest.json";
+
+/**
+ * One pack file, as bytes or as an object that has already been parsed.
+ *
+ * A DOWNLOADED pack arrives as bytes and must stay that way: its sha256 is
+ * checked against the manifest, and re-serialising a parsed object would not
+ * reproduce the bytes it was hashed from.
+ *
+ * A BUNDLED pack is different. Metro compiles the JSON into the app, so Hermes
+ * hands it over already parsed — and the code then stringified all seventeen
+ * megabytes of it purely so the reader could parse them straight back. Measured
+ * on an SM-A165F: 656 ms to stringify, 527 ms to parse, for a hash comparison
+ * that `bytesAreExact: false` skips anyway. One and two tenths of a second, every
+ * cold start, to arrive at the object it started from.
+ */
+export type PackFile = string | Record<string, unknown>;
+
+/** Bytes when it must be bytes, the object when it need not be. */
+export function packFileObject(f: PackFile): Record<string, unknown> {
+  return typeof f === "string" ? JSON.parse(f) as Record<string, unknown> : f;
+}

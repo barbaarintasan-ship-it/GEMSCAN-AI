@@ -13,6 +13,7 @@ import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { colors, spacing, radius, type as typo } from "../../lib/theme";
 import { isOwnerEmail } from "../../lib/enterpriseSamples";
+import { useExpeditionLease } from "../../lib/exploration/useExpeditionLease";
 
 // What the scanner identifies — shown as coloured gem marks. Names are the real
 // gem/material names; the count below is deliberately honest (see the note).
@@ -47,7 +48,21 @@ export default function HomeScreen() {
   // Kept as a named value rather than inlined per-button so the two entries
   // cannot drift apart again — which is exactly how Exploration ended up
   // reachable while Field Samples was hidden.
-  const showEnterprise = isOwnerEmail(session?.user?.email);
+  // ATTRIBUTION, not authentication.
+  //
+  // This read the live session's email alone, and real-device testing on 08/08
+  // caught what that costs: Milestone 1 lifts the auth gate so an expedition
+  // survives an expired token, the geologist stays in the app — and then finds
+  // this entry point gone, because it asked for a live session. Half a fix is
+  // its own trap: in the app, unable to reach the map.
+  //
+  // So it falls back to the identity SEALED IN THE LEASE. That identity was
+  // verified when the expedition opened; an expired token does not unverify it.
+  // With no lease and no session this is false exactly as before.
+  const lease = useExpeditionLease();
+  const showEnterprise = isOwnerEmail(
+    session?.user?.email ?? (lease.isOpen ? lease.lease?.collectedBy?.email : null),
+  );
 
   // Refresh the Deep Scan credit balance every time the home screen is focused
   // (e.g. returning from a scan), so a just-used Deep Scan shows 99 immediately
@@ -147,6 +162,29 @@ export default function HomeScreen() {
         </View>
       </View>
 
+      {/* SIGN IN — the way back, which Milestone 1 removed.
+
+          Lifting the auth gate for an open expedition means a null session no
+          longer redirects to login. That is the point. But login was the ONLY
+          route to the login screen, so signing back in became impossible from
+          inside the app: signed out, on the home screen, with no way to
+          authenticate and therefore no way to upload. Found by being stuck in
+          exactly that state on a real device.
+
+          So the door is explicit now instead of implicit. It appears only when
+          there is no session, which is the only time it means anything. */}
+      {!session ? (
+        <Pressable
+          style={styles.collectionButton}
+          onPress={() => router.push("/(auth)/login")}
+          hitSlop={8}
+        >
+          <Ionicons name="log-in-outline" size={16} color={colors.gold} />
+          <Text style={styles.collectionButtonText}>
+            Sign in to file your records
+          </Text>
+        </Pressable>
+      ) : null}
       <Pressable style={styles.collectionButton} onPress={() => router.push("/(app)/history")} hitSlop={8}>
         <Ionicons name="albums-outline" size={16} color={colors.gold} />
         <Text style={styles.collectionButtonText}>{t("home.myCollection")}</Text>
@@ -156,18 +194,21 @@ export default function HomeScreen() {
           ONE gate for every enterprise entry point. They were written separately
           once and immediately diverged: Exploration ended up reachable when
           Field Samples was not. A single expression cannot drift. */}
+      {/* ONE door, not two.
+          `Exploration` used to sit beside this and went straight to the map,
+          bypassing the dashboard — so the same workspace had two entrances that
+          led to different places, and neither said what the other was for. Field
+          Work is the entrance now; Start Exploration is the first thing inside
+          it. A full-width action, because it is a destination in its own right
+          and not a footnote under the collection links. */}
       {showEnterprise && (
-        <>
-          <Pressable style={styles.collectionButton} onPress={() => router.push("/(app)/enterprise/samples")} hitSlop={8}>
-            <Ionicons name="briefcase-outline" size={16} color={colors.gold} />
-            <Text style={styles.collectionButtonText}>Enterprise · Field Samples</Text>
-          </Pressable>
-
-          <Pressable style={styles.collectionButton} onPress={() => router.push("/(app)/exploration")} hitSlop={8}>
-            <Ionicons name="compass-outline" size={16} color={colors.gold} />
-            <Text style={styles.collectionButtonText}>{t("field.title")}</Text>
-          </Pressable>
-        </>
+        <Button
+          title={t("fieldWork.title")}
+          variant="outline"
+          icon={<Ionicons name="briefcase-outline" size={16} color={colors.gold} />}
+          onPress={() => router.push("/(app)/enterprise")}
+          style={styles.enterpriseAction}
+        />
       )}
 
       {/* Gemstone showcase */}
@@ -248,6 +289,9 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   proBadgeText: { color: "#0B0B0C", fontWeight: "900", fontSize: 9, letterSpacing: 0.3 },
+  // Full width, like the scan actions above it — the same weight as the other
+  // places this app can take you, rather than a text link under the collection.
+  enterpriseAction: { marginTop: spacing.xs },
   collectionButton: {
     flexDirection: "row", justifyContent: "center", alignItems: "center", gap: spacing.sm,
     paddingVertical: spacing.sm,

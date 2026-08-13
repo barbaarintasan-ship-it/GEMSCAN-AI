@@ -1,4 +1,7 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+// HashRouter (not BrowserRouter): the app is served as static files from Supabase
+// Storage, which has no server-side rewrite to index.html, so routes live in the URL
+// hash (…/index.html#/review/:id) and deep links / refreshes work without a backend.
+import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./lib/auth";
 import { Login } from "./pages/Login";
 import { ReviewQueue } from "./pages/ReviewQueue";
@@ -24,12 +27,12 @@ export function App() {
   }
 
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Routes>
         <Route path="/" element={<ReviewQueue />} />
         <Route path="/review/:id" element={<ReviewSample />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   );
 }

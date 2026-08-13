@@ -29,6 +29,7 @@ import { haversineM } from "../../../shared/geo-core/geo/spatial.ts";
 import type { PackData } from "../../../shared/geo-core/pack/types.ts";
 import { orientationAt, type Orientation } from "./orientation";
 import { regionalTargets, type RegionalTarget } from "./expedition";
+import { roadFactor } from "./roadFactor";
 
 /**
  * How far the geologist must move before the readout is worth recomputing.
@@ -86,6 +87,31 @@ export function useGeoReadout(
   const mounted = useRef(true);
   useEffect(() => () => { mounted.current = false; }, []);
 
+  /**
+   * Read this device's measured road factor from storage, once.
+   *
+   * Without this, `current()` answers from an unread store — it has no
+   * measurements in memory, so it returns the compiled-in default and looks
+   * correct. A factor the device measured on the Karkaar road would then be
+   * silently discarded on every restart, which is the same class of failure as
+   * the estimate it exists to fix: a plausible number with nothing behind it.
+   *
+   * The counter forces one recompute when the value lands, because the scan is
+   * otherwise gated on movement and would keep serving the default until the
+   * geologist walked 250 m.
+   */
+  const [factorVersion, setFactorVersion] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    void roadFactor().load().then(() => {
+      if (alive) {
+        requestedFor.current = null;
+        setFactorVersion((n) => n + 1);
+      }
+    });
+    return () => { alive = false; };
+  }, []);
+
   useEffect(() => {
     if (!ready || !at) {
       requestedFor.current = null;
@@ -113,11 +139,14 @@ export function useGeoReadout(
       const regional = regionalTargets(data, point, {
         limit: REGIONAL_LIMIT,
         minDistanceM: minRegionalDistanceM,
+        // What THIS device has measured on THIS ground. Falls back to the
+        // documented Karkaar default until a traverse teaches it otherwise.
+        roadFactor: roadFactor().current(),
       });
       if (!mounted.current || requestedFor.current !== point) return;
       setReadout({ at: point, orientation, regional, computing: false });
     });
-  }, [ready, data, at?.lat, at?.lng, minRegionalDistanceM]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready, data, at?.lat, at?.lng, minRegionalDistanceM, factorVersion]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return readout;
 }

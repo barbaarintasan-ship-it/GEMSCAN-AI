@@ -8,6 +8,7 @@
 // Neither invents data. With no map features or terrain in the pack they
 // contribute nothing, which is the honest answer and the current state for
 // terrain (no DEM is ingested yet — §7.7 "Data status").
+import { terrainIndexFor } from "./terrainIndex";
 import {
   bboxContains,
   bboxPadding,
@@ -157,14 +158,18 @@ export function makeMapLayerProvider(data: () => PackData): GeoContextProvider {
 
 // ── Terrain ─────────────────────────────────────────────────────────────────
 /** Nearest terrain cell to a position, or null when no DEM is in the pack. */
+/**
+ * The DEM cell describing this point.
+ *
+ * Indexed rather than scanned — see lib/geo/terrainIndex.ts — and BOUNDED. The
+ * old scan returned the nearest cell however far away it was, which with a
+ * country-wide grid means it always returns something, including for a point in
+ * the middle of the Indian Ocean.
+ */
+export const TERRAIN_REACH_M = 5_000;
+
 export function terrainAt(cells: PackTerrainCell[], lat: number, lng: number): PackTerrainCell | null {
-  let best: PackTerrainCell | null = null;
-  let bestD = Infinity;
-  for (const c of cells) {
-    const d = haversineM({ lat, lng }, { lat: c.lat, lng: c.lng });
-    if (d < bestD) { bestD = d; best = c; }
-  }
-  return best;
+  return terrainIndexFor(cells).nearest(lat, lng, TERRAIN_REACH_M);
 }
 
 const MORPHOLOGY_NOTE: Record<PackTerrainCell["morphology"], string> = {

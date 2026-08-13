@@ -12,6 +12,9 @@
 // rather than working around it.
 import { PackStore, createBundledPackSource } from "./packStore";
 import { loadBundledPackFiles } from "./bundledPack";
+import {
+  packFileObject, type PackFile,
+} from "../../../shared/geo-core/pack/types.ts";
 import { makePackGateway } from "./packGateway";
 import { MANIFEST_FILE } from "../../../shared/geo-core/pack/types.ts";
 
@@ -45,7 +48,7 @@ export async function runPackSelfCheck(): Promise<PackSelfCheck> {
     ...partial,
   });
 
-  let files: Record<string, string> | null;
+  let files: Record<string, PackFile> | null;
   try {
     files = loadBundledPackFiles();
   } catch (e) {
@@ -55,10 +58,13 @@ export async function runPackSelfCheck(): Promise<PackSelfCheck> {
 
   const rawManifest = files[MANIFEST_FILE];
   if (!rawManifest) return fail("the pack manifest is missing");
+  // The bundled pack now travels as objects, not bytes — see bundledPack.
 
   let declared: string[];
   try {
-    declared = Object.keys(JSON.parse(rawManifest).files ?? {});
+    // Parsed only when it arrives as bytes: the bundled pack hands over objects.
+    const manifest = packFileObject(rawManifest) as { files?: Record<string, string> };
+    declared = Object.keys(manifest.files ?? {});
   } catch (e) {
     return fail(`the manifest is not readable (${String(e)})`, { manifestFound: true });
   }

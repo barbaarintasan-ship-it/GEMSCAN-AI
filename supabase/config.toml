@@ -95,6 +95,23 @@ verify_jwt = true
 [functions.enterprise-samples]
 verify_jwt = true
 
+# Field sync: an expedition, its observations and its traverse, uploaded from a
+# device outbox. Authenticated like every other enterprise route.
+[functions.expeditions]
+verify_jwt = true
+
+# Object-storage presigning. The R2 secret lives only in this function's
+# environment; the device receives short-lived URLs for one object at a time.
+[functions.r2-presign]
+verify_jwt = true
+
+# Field-mission analysis. Separate from expeditions/sync ON PURPOSE: sync is
+# evidence preservation and must stay fast, this is interpretation and takes tens
+# of seconds. An outage in the model must never be able to make collection look
+# broken. User-facing, so a real JWT — the device asks for its own mission.
+[functions.analyze-mission]
+verify_jwt = true
+
 # Geological Intelligence Engine (Sprint 4.3) — called server-to-server with the
 # service role (auto-triggered by enterprise-samples), not a user JWT. Its handler
 # checks the service-role bearer itself, so JWT verification is off like the webhooks.

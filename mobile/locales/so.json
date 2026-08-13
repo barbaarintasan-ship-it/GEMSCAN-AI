@@ -5,7 +5,9 @@
     "cancel": "Jooji",
     "loading": "Waa la soo rarayaa…",
     "retry": "Isku day mar kale",
-    "close": "Xir"
+    "close": "Xir",
+    "yes": "Haa",
+    "no": "Maya"
   },
   "home": {
     "subtitle": "Aqoonso dhagxaanta qaaliga ah, macdanta iyo wax kale adigoo isticmaalaya baaris khibrad leh.",
@@ -128,7 +130,16 @@
       "save": "Kaydi bartilmaameedka",
       "saved": "Waxaa loo kaydiyay meel",
       "actions": "FALALKA",
-      "navigate": "U soco"
+      "navigate": "U soco",
+      "held": "Adigu waxaad dooratay halkan, marka waa xidhan. Dib-u-kala-horreysiintu waxay cusboonaysiisaa liiska hoose, ee marnaba ma beddesho halka aad u socoto. Riix Recalculate haddii aad rabto in dib laga fikiro.",
+      "betterAvailable": "Dhul dhibco ka sarreeya leh {{distance}} {{compass}} — halkaas laguma jiheynayo.",
+      "switchToIt": "HALKAAS TAG",
+      "scoredFor": "Target-kan waxaa loo kala horreysiiyay {{commodity}}.",
+      "scoredUniversal": "Target-kan waxaa lagu kala horreysiiyay juqraafi ahaan oo keliya, macdan gaar ahna lama qaadan.",
+      "scoredStale": "Target-kan waxaa la kala horreysiiyay KA HOR inta aan {{commodity}} la dooran — MA AHA target {{commodity}} u gaar ah. Riix Recalculate si loo kala horreysiiyo {{commodity}}.",
+      "makeTarget": "KAN KA DHIG TARGET-KAYGA",
+      "makeTargetHint": "Masaafo kasta. Engine-ku wuxuu weli sheegayaa waxa uu dhulka ka yaqaan — ma go'aansanayo inaad tagi karto iyo in kale.",
+      "nothingThere": "Dhulkaas waxba lama duubin, marka target looma bixin karo. Weli waad u socon kartaa."
     },
     "none": {
       "noStronger": "Dhul ka fiican lama helin",
@@ -167,7 +178,14 @@
     },
     "distance": {
       "m": "{{value}} mitir",
-      "km": "{{value}} km"
+      "km": "{{value}} km",
+      "straightOnly": "{{km}} km khad toosan",
+      "roadKm": "~{{road}} km",
+      "roadShort": "~{{road}} km waddo",
+      "roadEstimate": "~{{road}} km waddo (qiyaas ×{{factor}})",
+      "withRoad": "{{straight}} km toos · ~{{road}} km waddo (qiyaas ×{{factor}})",
+      "estimatedBasis": "qiyaasta waddada safarradaada laga bartay",
+      "defaultBasis": "qiyaas waddo ×{{factor}} — halkan weli lama cabbirin"
     },
     "reason": {
       "occurrence": "Macdan {{commodity}} ah oo {{distance}} u jirta",
@@ -189,7 +207,8 @@
       "alteration": "Isbeddel dhagax",
       "fault": "Jeex dhul",
       "contact": "Xudduud dhagax",
-      "other": "Mid kale"
+      "other": "Mid kale",
+      "sample-location": "Goobta muunada"
     },
     "location": {
       "coords": "{{lat}}, {{lng}}",
@@ -248,10 +267,33 @@
       "accuracy": "Goobada saxnaanta GPS",
       "compass": "Kombaas / jihada",
       "grid": "Shabag",
-      "frame": "Muuji bartilmaameedka"
+      "frame": "Muuji bartilmaameedka",
+      "hillshade": "Hoos-hadhka buuraha",
+      "roads": "Wadooyin & jidad",
+      "labels": "Magacyada meelaha",
+      "land": "Xeebta",
+      "geologyLabels": "Magacyada qaybaha dhagaxa",
+      "slope": "Jiirashada dhulka",
+      "aspect": "Jihada jiirashada",
+      "contacts": "Xudduudaha dhagaxa",
+      "drainage": "Webiyo & togag",
+      "lineaments": "Xariiqyo dhulka",
+      "groupBackdrop": "Khariidadda aasaasiga ah",
+      "groupGeology": "Juquraafi dhagax",
+      "groupTerrain": "Muuqaalka dhulka",
+      "groupSession": "Fadhigan",
+      "offlineLayer": "Khadka ka baxsan — waxaa la isticmaalayaa kaydka",
+      "sourceEsri": "Esri, waa la kaydiyay",
+      "sourceMacrostrat": "Macrostrat",
+      "sourceMrds": "USGS MRDS",
+      "sourceDem": "DEM (xirmada offline)",
+      "sourcePack": "Xirmada offline",
+      "sourceDevice": "Taleefankan",
+      "tapHint": "Taabo khariidadda si aad u aragto waxa hoos yaal."
     },
     "sheet": {
       "distance": "Masaafada",
+      "distanceRoad": "Masaafada waddada",
       "direction": "Jihada",
       "directionValue": "{{compass}} ({{deg}}°)",
       "confidence": "Kalsoonida",
@@ -263,13 +305,13 @@
       "addNote": "Ku dar qoraal",
       "recalculate": "Dib u xisaabi",
       "walkToward": "U soco {{distance}} xagga {{compass}}. {{reason}}",
-      "nothingHereFar": "Bartilmaameed lug lagu gaadho ma jiro. Dhulka khariidadaysan ee ugu dhow waa {{distance}} xagga {{compass}} — {{transport}}, qiyaastii {{travel}}.",
+      "nothingHereFar": "Bartilmaameed lug lagu gaadho ma jiro. Dhulka khariidadaysan ee ugu dhow waa {{distance}} xagga {{compass}}{{road}} — {{transport}}, qiyaastii {{travel}}.",
       "youAreOn": "Waxaad saaran tahay {{unit}}.",
       "unitUnknown": "Barta aad joogto qayb khariidadaysan ma haysato.",
       "faultAhead": "Jeex la khariidadeeyay ayaa {{distance}} kaa jira, taasoo macdanta kulmin karta.",
       "walked": "Waxaad socotay {{distance}}",
-      "travelLine": "{{band}} · {{transport}} · qiyaastii {{travel}}",
-      "regionalLead": "Halka ugu dhow ee la khariidadeeyay: {{distance}} xagga {{compass}}. {{transport}}, qiyaastii {{travel}}."
+      "travelLine": "{{band}} · {{transport}}{{road}} · qiyaastii {{travel}}",
+      "regionalLead": "Halka ugu dhow ee la khariidadeeyay: {{distance}} xagga {{compass}}{{road}}. {{transport}}, qiyaastii {{travel}}."
     },
     "arrived": {
       "title": "Waad gaadhay bartilmaameedka",
@@ -342,7 +384,16 @@
       "warnStale": "{{s}} il-biriqsi meel cusub lama helin. Waxa la muujinayo waxaa laga yaabaa inay tahay meeshii aad joogtay.",
       "warnNone": "GPS weli lama helin. Masaafada iyo jihada waa la sugayaa, lama qiyaasayo.",
       "calibrate": "Kombaaska waa in la habeeyaa — taleefanka u dhaqaaji sida sideed.",
-      "altitude": "Dhererka {{m}} mitir"
+      "altitude": "Dhererka {{m}} mitir",
+      "accuracyValue": "±{{value}} m",
+      "headingLabel": "Jiho",
+      "headingCalibrating": "kombaska waa la habeynayaa",
+      "headingNone": "jiho ma jirto",
+      "movement": "Dhaqdhaqaaq",
+      "moving": "socod {{speed}}",
+      "stationary": "taagan",
+      "movementUnknown": "lama soo sheegin",
+      "chipNoFix": "Meel lama hayo"
     },
     "track": {
       "title": "SOCDAALKAN",
@@ -356,7 +407,7 @@
       "samples": "Muunado",
       "waypoints": "Meelo",
       "targets": "Bartilmaameedyo",
-      "speed": "{{value}} km/s",
+      "speed": "{{value}} km/h",
       "none": "—"
     },
     "export": {
@@ -371,7 +422,7 @@
       "failed": "Soo saaridda way fashilantay."
     },
     "diag": {
-      "title": "BAADHITAANKA SAHAMINTA",
+      "title": "BAARISTA GOOBTA",
       "pack": "Xirmada aqoonta",
       "packVersion": "Nooca xirmada",
       "packAge": "Da'da xirmada",
@@ -390,6 +441,217 @@
       "satelliteOff": "Damin",
       "days": "{{days}} maalmood",
       "none": "—"
+    },
+    "identify": {
+      "title": "KHARIIDADDA KOR",
+      "unit": "Qayb dhagax",
+      "occurrence": "Goob macdan",
+      "terrain": "Dhulka",
+      "fault": "Jabin (fault)",
+      "contact": "Xuduud dhagax",
+      "drainageLine": "Tog",
+      "lineament": "Xariiq dhul",
+      "line": "Xariiq la khariidadeeyay",
+      "name": "Magac",
+      "type": "Nooc",
+      "source": "Isha",
+      "age": "Da'da",
+      "ageRange": "{{top}}–{{bottom}} Ma",
+      "lithology": "Nooca dhagaxa",
+      "description": "Sharraxaad",
+      "commodity": "Macdanta",
+      "depositType": "Nooca kaydka",
+      "hostRocks": "Dhagaxa haya",
+      "reference": "Tixraac",
+      "distance": "Masaafo",
+      "bearing": "Jiho",
+      "elevation": "Sare u dhaca",
+      "slope": "Jiirasho",
+      "slopeValue": "{{deg}}°",
+      "aspect": "Jihada jiirashada",
+      "morphology": "Qaabka dhulka",
+      "drainage": "Togga ugu dhow",
+      "associated": "Waxaa la xiriira",
+      "associatedNote": "Xiriirkan wuxuu ku qoran yahay xirmada — ma aha wax halkan laga helay.",
+      "notRecorded": "lama diiwaangelin",
+      "offset": "{{distance}} meesha aad taabatay",
+      "nothingHere": "Xirmadu waxba kama hayso meeshan.",
+      "recommended": "Waxa la sameeyo",
+      "recommendedUnit": "Ku soco xuduudaha qaybtan oo sawir qaad meel kasta oo dhagax bannaan ah.",
+      "recommendedOccurrence": "U socod diiwaanka oo sawir waxa dhab ahaan halkaas yaal.",
+      "recommendedFault": "Raac jabinta oo eeg xarig kuwaarso, jabniin iyo isbeddel dhagax.",
+      "recommendedContact": "Ka gudub xuduudda oo labada dhinac ka qaado muunad.",
+      "recommendedDrainage": "Baar quruurux togga iyo meelaha ciiddu ku ururto.",
+      "recommendedTerrain": "Isticmaal muuqaalka dhulka: cirifyada iyo meelaha jiiran dhagax bannaan bay muujiyaan.",
+      "navigate": "U socod",
+      "centre": "Bartamaha",
+      "waypoint": "Calaamad",
+      "capture": "Sawir",
+      "close": "Xir",
+      "latitude": "Latitude (loolka)",
+      "longitude": "Longitude (dhererka)",
+      "fixAccuracy": "Saxnaanta GPS-kaaga",
+      "lastUpdated": "Cusaybka xogta",
+      "packCurrency": "xirmo {{version}} · {{days}} maalmood",
+      "confidenceNotAssessed": "lama qiimeyn — waa diiwaan khariidad, ee ma aha qiimeyn"
+    },
+    "advice": {
+      "title": "TALLAABADA XIGTA",
+      "none": "Wax dheeraad ah lama sheegi karo ilaa xirmadu wax ka hayso dhulkan.",
+      "continue_to_target": "Sii wad {{compass}} — {{distance}} ayaa bartilmaameedka kaa haray.",
+      "inspect_fault": "Baar jabinta la khariidadeeyay ee {{distance}} {{compass}}: raadi xarig kuwaarso iyo isbeddel dhagax.",
+      "inspect_contact": "Ka gudub xuduudda dhagaxa ee {{distance}} {{compass}} oo labada dhinac muunad ka qaado.",
+      "drainage_trap": "Tog la khariidadeeyay {{distance}} ayuu jiraa — baar quruuruxda macdanta culus.",
+      "steep_outcrop": "Dhul jiiran ({{slope}}°) — badanaa dhagaxa aasaasiga ah halkan buu ka muuqdaa.",
+      "ridge_outcrop": "Cirifka buurta — dhagax bannaan ayaa inta badan ka muuqda.",
+      "valley_float": "Sallaanka dooxada — raadi dhagax soo dhacay iyo quruurux ka soo degtay kor.",
+      "host_association": "Waxaad taagan tahay {{lithology}}; xirmadu waxay la xiriirisaa {{commodities}}.",
+      "occurrence_ahead": "Goob macdan la khariidadeeyay {{distance}} {{compass}} — mudan in la gaaro safarkan.",
+      "capture_evidence": "Wax muunad ah lagama diiwaangelin {{radius}} gudahood.",
+      "basis": {
+        "engine": "Mishiinka bartilmaameedka",
+        "mappedFault": "Jabin la khariidadeeyay (xirmada offline)",
+        "mappedContact": "Xuduud la khariidadeeyay (xirmada offline)",
+        "mappedOccurrence": "Goob macdan la khariidadeeyay (xirmada offline)",
+        "dem": "Unug DEM {{fromM}} m u jira",
+        "drainage": "Tog la khariidadeeyay, unug DEM {{fromM}} m u jira",
+        "association": "Shaxda xiriirinta ee xirmada",
+        "noEvidence": "Wax indho-indheyn ah oo {{radiusM}} m gudahood ah ma jirto"
+      }
+    },
+    "morphology": {
+      "ridge": "Cirif",
+      "slope": "Jiirasho",
+      "valley": "Dooxo",
+      "flat": "Bannaan"
+    },
+    "sync": {
+      "syncing": "diiwaannada goobta waa la gudbinayaa…",
+      "pending": "{{count}} la gudbinayo",
+      "pendingOne": "1 la gudbinayo",
+      "failing": "{{count}} lama gudbin karin",
+      "done": "dhammaan diiwaannadu waa la gudbiyay",
+      "title": "DIIWAANNADA GOOBTA",
+      "held": "Taleefankan ku hayaa",
+      "filed": "Server-ka la gaarsiiyay",
+      "note": "Waxa goobta laga ururiyay lama tuurayo. Waxaa halkan la hayaa ilaa xiriir la helo."
+    },
+    "logout": {
+      "title": "Expedition ayaa socda",
+      "body": "Diiwaanadaadu taleefankan way ku sii jiraan — waxba lumi mayso, oo duubistu way sii socotaa. Waxa istaagaya waa geeynta server-ka oo kaliya.",
+      "held": "{{count}} diiwaan ayaa sugaya in la faylayo. {{who}} ayaa kaliya faylayn kara.",
+      "cancel": "Jooji",
+      "handover": "Qof kale u wareeji",
+      "keepRecording": "Ka bax, duubistu ha socoto",
+      "thisAccount": "akoonkan"
+    },
+    "evidenceRole": {
+      "geology": "Dhagaxa khariidadaysan",
+      "structural": "Jeexyo",
+      "contacts": "Xuduudo dhagax",
+      "lineaments": "Khadad qaab-dhismeed",
+      "occurrence": "Macdan la yaqaan",
+      "association": "Xidhiidhka macdan–dhagax",
+      "terrain": "Muuqaalka dhulka (DEM)",
+      "drainage": "Webiyada",
+      "field": "Aragtidaada goobta",
+      "community": "Helitaanno la xaqiijiyay",
+      "geochemistry": "Kiimiko-juqraafi",
+      "geophysics": "Fiisigis-juqraafi",
+      "remote_sensing": "Dayax-gacmeed (isbeddel)"
+    },
+    "coverage": {
+      "title": "SALKA CADDAYNTA",
+      "count": "Caddayn {{present}}/{{total}}",
+      "present": "La isticmaalay",
+      "not_scored": "Xog waa jirtaa — lama qiimeyn",
+      "none_here": "Halkan kuma jiro",
+      "empty_layer": "Lakab madhan — weli lama rarin",
+      "no_source": "Il xog ah ma jirto",
+      "thin": "Dhibcahani waxay ku dhisan yihiin {{present}} lakab oo {{total}} ah. Waxa maqan lama sheegi karo inay maqan yihiin dhulka — lama eegin.",
+      "notScoredWhy": {
+        "drainage": "Shabakadda webiyada waa mid dhab ah oo dalka oo dhan daboolaysa, laakiin cabbirku wuxuu muujiyay inaanay calaamad guud siin — macdanta la yaqaan waxay u qaybsan tahay webiyada si la mid ah dhulka random-ka ah. Waxay sugaysaa commodity profile (placer), halkii aan miisaan aan xog lahayn la siin lahaa.",
+        "contacts": "Contacts-ka Abbate 1:1,500,000 waa juquraafi dhab ah, 1,538 ayaana la rakibay. Wali dhibco lama siinayo: goobaha macdanta la yaqaan 91% waxay ku dhow yihiin contact 10 km gudahood, halka dhulka caadiga ahi uu yahay 26% — laakiin marka dhagaxa la kala saaro farqigaasi wuu baaba'aa: 1.17x dhulka metamorphic. Khariidaddu waxay ugu kala qaybsan tahay meesha basement-ku yahay, basement-kuna waa meesha helitaannadu joogaan; sidaas darteed dhibco siintoodu waxay noqon lahayd calaamadda juquraafi oo mar labaad la tiriyo."
+      }
+    },
+    "commodity": {
+      "title": "MACDANTA",
+      "current": "MACDANTA HADDA: {{name}}",
+      "currentUniversal": "MACDANTA HADDA: MID NA (GUUD)",
+      "universal": "Dhammaan macdanaha",
+      "universalNote": "Dhulka waxaa lagu qiimeynayaa juquraafi ahaan oo keliya, macdan gaar ahna lama qaadanayo. Kanu waa qaabka la xaqiijiyay: wuxuu dhul macdan leh ka kor mariyaa dhul aan kala sooc lahayn AUC 0.90, iyo 0.84 marka la saaro dhammaan aqoonta helitaannadii hore.",
+      "none": "Xirmadan kuma jiraan profile macdan ah.",
+      "calibrated": "LA CABBIRAY",
+      "uncalibrated": "LAMA CABBIRIN",
+      "occurrences": "{{count}} goob macdaneed oo xirmada ku jira",
+      "notAProbability": "Dhibcaha Rajada waxay dhulkan la barbar dhigaan dhul kale. MA AHA suurtagalnimo aad wax u heli doonto, xogtanna laguma sheegi karo boqolkiiba imisa."
+    },
+    "mission": {
+      "title": "BAARITAANKA GOOBTA",
+      "arrivedTitle": "Waxaad gaartay goobta baaritaanka.",
+      "arrivedBody": "Tanu waa {{area}} oo dhul ah, weliba waxba lama eegin. Bilow ururinta caddeymaha.",
+      "hotspot": "Meesha mudan baaritaanka waxay kaaga jirtaa {{distance}} jihada {{compass}}.",
+      "noHotspot": "Qayb ka mid ah aaggan kama soo baxdo kuwa kale — u shaqee sida aag.",
+      "begin": "BILOW BAARITAANKA",
+      "investigating": "Waa la baarayaa. {{count}} indho-indheyn ayaa la duubay.",
+      "finish": "DHAMMEEY QAYBTA",
+      "completed": "Qaybtii waa dhammaatay. Xirmada caddeymaha waa lagu dhisay taleefankan.",
+      "waitingUpload": "Waxaa la sugayaa dirid — {{observations}} indho-indheyn, {{photos}} sawir. Iskeed ayey u diri doontaa marka internet la helo.",
+      "analysed": "Qiimeyntii waa timid.",
+      "close": "XIR HOWLGALKA",
+      "closed": "Howlgalku waa xidhan yahay. Engine-ku hadda wuxuu soo jeedin karaa meel kale.",
+      "locked": "Target cusub lama soo jeedinayo ilaa howlgalkan la xiro."
+    },
+    "sampleType": {
+      "rock": "Dhagax",
+      "soil": "Ciid",
+      "sediment": "Wasakh (sediment)",
+      "mineral-specimen": "Muunad macdan",
+      "other": "Kale"
+    },
+    "collectionMethod": {
+      "surface": "Dusha sare",
+      "outcrop": "Dhagax soo baxay (outcrop)",
+      "float": "Dhagax kala firdhisan (float)",
+      "stream-sediment": "Wasakhda tooggii"
+    },
+    "addWaypoint": {
+      "title": "KU DAR WAYPOINT",
+      "gpsAutomatic": "Booskaaga, saxnaanta, sarreynta iyo jihada waxaa si toos ah laga duubaa GPS-ka nool. Waxba lama qorayo — boos gacan lagu galiyay waa mid cidna hubin karin.",
+      "type": "WAA MAXAY?",
+      "hasSample": "MUUNAD MA URURISAY?",
+      "sampleId": "SUMMADDA MUUNADA",
+      "sampleIdHint": "Waa la kuu soo saaray, waana la beddeli karaa — ka dhig mid la mid ah kan bacda ku qoran.",
+      "sampleType": "NOOCA MUUNADA",
+      "collectionMethod": "HALKA LAGA QAADAY",
+      "sampleDescription": "SHARRAXAADDA MUUNADA",
+      "sampleDescriptionPlaceholder": "tusaale: Xidid quartz cad oo midab birreed leh",
+      "observation": "MAXAAD ARKAY?",
+      "observationPlaceholder": "tusaale: Xidid quartz muuqda, macdan cagaaran, midab sulphide",
+      "observationHint": "Waxaa loo duubayaa INDHO-INDHEYNTAADA. Qiimeyntu waxay u qaadataa wax la hubinayo, ee marnaba xaqiiq la caddeeyay maaha.",
+      "photos": "SAWIRRO ({{count}})",
+      "fieldCamera": "KAMARADA GOOBTA",
+      "addPhoto": "KU DAR SAWIR",
+      "photoHint": "Isla markiiba taleefankan lagu kaydiyaa oo safka shubista la geliyaa. Iskood ayey u diri doonaan marka internet la helo — waxba ma lumin marka internet la'aan.",
+      "save": "KAYDI WAYPOINT-KA",
+      "reportedTitle": "YAA ARKAY?",
+      "reportedNo": "Halkan ayaan joogaa",
+      "reportedYes": "Waa la ii soo sheegay",
+      "latitude": "Latitude",
+      "longitude": "Longitude",
+      "reportedOk": "Waxaa la duubay {{lat}}, {{lng}} — sida loo soo sheegay, ma aha wax halkan laga arkay.",
+      "reportedNeedsCoords": "Geli latitude-ka iyo longitude-ka lagu soo diray."
+    },
+    "nearby": {
+      "title": "CADDEYMO GOOB OO HORE",
+      "within": "Caddeymo goob oo hore {{radius}} gudahood",
+      "none": "Caddeymo goob oo hore lama duubin {{radius}} gudahood.",
+      "summary": "{{count}} waypoint · {{photos}} sawir · {{samples}} muunad. Kan ugu dhow {{nearest}}.",
+      "row": "{{type}} — {{distance}} u jira, {{date}}",
+      "rowPhotos": "{{count}} sawir",
+      "rowSample": "Muunad {{id}} ({{type}})",
+      "rowNoSample": "Muunad ma jirto",
+      "contextOnly": "Shaqadaadii hore, oo macluumaad ahaan la tusayo. Dhibcaha rajada waxba kama beddesho."
     }
   },
   "camera": {
@@ -417,6 +679,216 @@
       "vein_closeup": "Xididka quartz-ka oo dhow",
       "weathered": "Dusha duugoobay",
       "mineral_closeup": "Macdanta oo dhow"
+    }
+  },
+  "report": {
+    "title": "WARBIXINTA JUQRAAFIGA AI",
+    "pending": "Falanqayn ayaa la sugayaa. Xirmada caddeymaha waxay taleefankan ku jirtaa, waxaana la qiimeynayaa marka ay server-ka gaadho.",
+    "blockedPhotos": "Falanqayntu waxay sugaysaa {{count}} sawir inay dhammaystiraan shubista. Waxba ma lumin — iskood ayey u diri doonaan.",
+    "failed": "Qiimeyntii lama soo saari karin. Caddeymahaagu waa sida ay ahaayeen, dib ayaana loo isku dayi doonaa.",
+    "language": "Luqadda warbixinta",
+    "section": {
+      "summary": "GUUDMAR",
+      "score": "RAJADA",
+      "interpretation": "FASIRAAD SUURTAGAL AH",
+      "evidence": "CADDEYMO LA HELAY",
+      "missing": "WAX AAN LA EEGIN",
+      "actions": "TALLAABOOYINKA XIGA",
+      "confidence": "KALSOONI",
+      "overview": "GUUD AHAAN",
+      "observations": "INDHO-INDHEYNTA GOOBTA",
+      "visual": "CADDAYN SAWIR AH",
+      "context": "XAALADDA JUQRAAFI",
+      "delivery": "GAADHSIINTA"
+    },
+    "summary": {
+      "generated": "Xiiso juqraafi {{interest}}. {{found}} lakab caddeymo ayaa wax ku darsaday; {{missing}} way maqan yihiin. Kalsooni {{confidence}}."
+    },
+    "score": {
+      "value": "Dhibcaha rajada {{score}}",
+      "notAProbability": "Tanu waxay dhulkan la barbar dhigaysaa dhul kale. MA AHA suurtogalnimada helitaanka macdan, xogtanna laguma sheegi karo boqolkiiba imisa.",
+      "commodity": "Waxaa loo qiimeeyay {{commodity}}.",
+      "universal": "Waxaa lagu qiimeeyay juqraafi ahaan oo keliya, macdan gaar ahna lama qaadan."
+    },
+    "evidence": {
+      "row": "{{name}} — {{status}} · {{strength}} · {{reason}}",
+      "none": "Caddeymo lama duubin lamana cabbirin goobtan."
+    },
+    "missing": {
+      "none": "Wax kale oo maqan lama garan.",
+      "assay": "Natiijo assay ma jirto",
+      "geochemistry": "Geochemistry ma jirto",
+      "geophysics": "Geophysics ma jirto",
+      "remote_sensing": "Khariidad isbeddel macdaneed oo remote-sensing ah ma jirto",
+      "alteration_mapping": "Khariidad isbeddel macdaneed ma jirto",
+      "lineaments": "Fasiraad lineament ma jirto",
+      "drilling": "Qodis ma jirto",
+      "trenching": "Godan ma jirto",
+      "vein_orientation": "Jihada xididka lama duubin",
+      "sample_collected": "Muunad lama ururin",
+      "confirmed_mineralization": "Macdanaysasho xaqiijisan ma jirto",
+      "grade_data": "Xog darajo ma jirto",
+      "petrography": "Shaqo petrographic ma jirto",
+      "structural_measurement": "Cabbir qaab-dhismeed ma jiro"
+    },
+    "action": {
+      "row": "{{n}}. {{action}}",
+      "none": "Shaqo dheeraad ah lama talinayo caddeymahan.",
+      "collect_rock_samples": "Ururi muunado dhagax matalaya",
+      "submit_for_assay": "U dir muunadaha assay",
+      "record_vein_orientation": "Duub jihada iyo janjeerta xididka",
+      "photograph_fresh_surfaces": "Sawir dusha jabka cusub",
+      "map_strike_extent": "Khariidadee fidsanaanta xididka",
+      "soil_geochemistry": "Samee geochemistry ciid ah",
+      "stream_sediment_sampling": "Muunad qaado wasakhda tooggeeda",
+      "panning_test": "Tijaabo panning ku samee tooggii",
+      "trace_contact": "Ku soco xuduudka juqraafiga",
+      "examine_alteration": "Baar oo duub isbeddelka macdaneed ee xididka ku xeeran",
+      "revisit_with_gps": "Dib u booqo GPS ka wanaagsan",
+      "petrographic_analysis": "U dir muunad falanqayn petrographic",
+      "check_fault_zone": "Baar aagga jeexa shear iyo quartz"
+    },
+    "confidence": {
+      "value": "Kalsooni {{confidence}}",
+      "meaning": "Kalsoonidu waxay sheegaysaa sida caddeymuhu u DHAMMAYSTIRAN yihiin. MA AHA suurtogalnimada in macdan jirto.",
+      "capped": "Falanqayntu markii hore waxay sheegtay {{claimed}}. Waa la hoos u dhigay maxaa yeelay caddeymuhu ma taageerayaan.",
+      "high": "SARE",
+      "medium": "DHEXDHEXAAD",
+      "low": "HOOSE"
+    },
+    "interest": {
+      "notable": "la taaban karo",
+      "moderate": "dhexdhexaad",
+      "limited": "xaddidan",
+      "none": "ma jirto"
+    },
+    "strength": {
+      "strong": "xoog leh",
+      "moderate": "dhexdhexaad",
+      "weak": "daciif",
+      "absent": "maqan"
+    },
+    "evidenceType": {
+      "quartz_vein": "Xidid quartz (quartz vein)",
+      "sulphides": "Macdanaha sulphide",
+      "gossan": "Gossan",
+      "alteration": "Isbeddel macdaneed (alteration)",
+      "malachite": "Midab malachite",
+      "iron_staining": "Midab birreed",
+      "fault_proximity": "U dhowaanshaha jeex la khariidadeeyay (fault)",
+      "contact_proximity": "U dhowaanshaha xuduud juqraafi (contact)",
+      "lithology": "Nooca dhagaxa la khariidadeeyay",
+      "host_rock": "Dhagaxa martida loo yahay",
+      "terrain_morphology": "Qaabka dhulka",
+      "valley_landform": "Qaab dooxo",
+      "ridge_landform": "Qaab kur",
+      "elevation": "Sarreynta",
+      "drainage_proximity": "U dhowaanshaha tooggii",
+      "occurrence_cluster": "Goobo macdan la khariidadeeyay oo u dhow",
+      "geochemistry": "Geochemistry",
+      "geophysics": "Geophysics",
+      "remote_sensing": "Isbeddel remote-sensing",
+      "field_observation": "Indho-indheyn goobta",
+      "photograph": "Sawir",
+      "outcrop": "Dhagax soo baxay (outcrop)",
+      "float": "Dhagax kala firdhisan (float)",
+      "shear_zone": "Aag shear"
+    },
+    "significance": {
+      "hydrothermal_indicator": "wuxuu ka dhici karaa nidaamyada hydrothermal, laakiin wuxuu u baahan yahay xaqiijin geochemical",
+      "fluid_pathway": "jeexyada waxay noqon karaan waddooyin dareerayaasha macdanaysiinaya",
+      "favourable_host": "noocan dhagax macdantan wuu martigeliyaa meelo kale",
+      "structural_control": "macdano badan oo noocan ah waxaa xakameeya qaab-dhismeedka",
+      "placer_potential": "tooggii wuxuu isku uruurin karaa macdanaha culus",
+      "weathering_product": "wuxuu noqon karaa wax duufaan ka dhashay ee ma aha macdanaysasho asal ah",
+      "oxidation_indicator": "wuxuu tilmaamayaa oksaydh, kaas oo sulphide ka kor jiri karo",
+      "not_available": "tan waligeed lama cabbirin, taasoo ka duwan in la cabbiray oo la waayay",
+      "none_in_range": "lakabku waa la rakibay laakiin midna goobtan ma u dhowa",
+      "unstated": "sabab lama bixin",
+      "context_only": "macluumaad guud ee ma aha calaamad keligeed",
+      "requires_assay": "lama qiimeyn karo shaqo shaybaar la aan"
+    },
+    "observations": {
+      "none": "Qaybtan wax dhulka lagu duubay ma jiraan."
+    },
+    "visual": {
+      "none": "Qaybtan sawiro la akhriyay ma jiraan.",
+      "photo": "[sawir {{id}}]"
+    },
+    "context": {
+      "none": "Injiinku dhulkan akhris la sawiray uma haysto."
+    },
+    "failedNote": "Caddayntu waa badbaadsan tahay taleefankan iyo server-kaba. Akhrintii oo keliya ayaa fashilantay — mar kale ayaa la weydiin karaa.",
+    "pdfFooter": "LuulScan ayaa ka soo saaray caddaymaha hawlgalkan loo diiwaan geliyay. Waa fasiraad, ma aha assay.",
+    "reportedFlag": "{{n}} indho-indhayn oo warbixintan ku jira waxaa geologist-ka LA SOO SHEEGAY, ma aha wax uu isagu arkay. Falanqayntu waxay u qaadataa caddayn la hubinayo."
+  },
+  "reports": {
+    "title": "Warbixinnada Sahaminta",
+    "oneTitle": "Warbixinta Goobta",
+    "notFound": "Warbixintan taleefankan kuma jirto.",
+    "emptyTitle": "Weli qayb lama dhammayn",
+    "emptyBody": "Qayb ku dhammee khariidadda, halkanna way ka soo muuqan doontaa — falanqayntuna way raaci doontaa marka caddaynta la shubo.",
+    "universal": "Guud",
+    "observations": "{{n}} indho-indheyn",
+    "photos": "{{n}} sawir",
+    "collectedSummary": "{{obs}} indho-indheyn · {{photos}} sawir · {{track}} barta socodka",
+    "state": {
+      "analysed": "WARBIXINTU DIYAAR",
+      "uploading": "WAA LA SHUBAYAA {{n}}",
+      "waiting": "FALANQAYN LA SUGAYO",
+      "failed": "FALANQAYNTU WAY FASHILANTAY",
+      "refused": "LA DIIDAY {{n}}",
+      "retrying": "DIB-ISKUDAY {{n}}"
+    },
+    "field": {
+      "date": "Taariikh",
+      "target": "Unugga bartilmaameedka",
+      "position": "Goobta",
+      "commodity": "Macdanta",
+      "mission": "Hawlgalka",
+      "collected": "La ururiyay",
+      "lastAnswer": "Jawaabtii u dambaysay",
+      "photoStates": "Sawirrada"
+    },
+    "retrying": "Dib ayaa loo isku dayayaa…",
+    "retryPhotos": "Dib u isku day {{n}} sawir",
+    "sharePdf": "La wadaag warbixinta",
+    "exportPdf": "PDF ka dhig"
+  },
+  "fieldWork": {
+    "title": "Shaqada Goobta",
+    "start": {
+      "title": "Bilow Sahaminta",
+      "body": "Bartilmaameed qaado, u soco, oo qor waxa halkaas yaal. Internet uma baahna."
+    },
+    "reports": {
+      "title": "Warbixinnada Sahaminta",
+      "body": "Qaybaha aad dhammaysay, iyo akhrinta juquraafiga AI-ga mid kasta."
+    },
+    "samples": {
+      "title": "Muunadahayga",
+      "body": "Muunadihii aad ururisay. Dhagaxa laftiisa ayaa lagu aqoonsanayaa — qiimeyn goobeed ma laha."
+    },
+    "footnote": "Muunadda dhagaxeeda ayaa lagu aqoonsadaa. Warbixintu dhulka ayay fasirtaa. Si ula kac ah ayaa loo kala saaray.",
+    "guide": {
+      "title": "SIDA AY U SHAQEYSO",
+      "s1": {
+        "title": "Bilow Sahaminta",
+        "body": "Injiinku wuxuu akhriyaa dhulka hoostaada, kadibna bartilmaameed buu ku siinayaa. U soco — khariidaddu way ku hagaysaa internet la'aan."
+      },
+      "s2": {
+        "title": "Qor waxa halkaas yaal",
+        "body": "Marka aad gaadho, waypoint ku dar. Sawirrada KAMARADA GOOBTA ku qaad — waxay leedahay zoom-ka iyo focus lock-ga dhagax gacanta loo baahan yahay."
+      },
+      "s3": {
+        "title": "Qaybta dhammee",
+        "body": "Wax kastaa marka hore taleefankan ayay ku qornaadaan. Internet looma baahna, waxna ma lumayaan haddii uusan jirin."
+      },
+      "s4": {
+        "title": "Warbixinta akhri",
+        "body": "Marka internet la helo, caddayntu way shubmaysaa oo juquraafiga AI-gu wuu akhrinayaa. Warbixintu waxay kugu sugaysaa Natiijada Baaritaanka."
+      },
+      "offline": "Muunadahaygu waa shay kale: dhagax aad qaadatay, oo laftiisa lagu aqoonsaday. Marnaba ma qiimeynayo dhulka uu ka yimid."
     }
   }
 }

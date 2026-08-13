@@ -77,9 +77,19 @@ describe("the nearest feature is reported at ANY distance", () => {
 
   test("elevation is withheld: a DEM cell 90 km away does not describe this ground", () => {
     expect(o.elevationM).toBeNull();
-    // But the distance is still reported, so the screen can explain the silence
-    // rather than simply omitting the line.
-    expect(o.elevationFromM).toBeGreaterThan(80_000);
+    // AND no distance either, which changed when the DEM did.
+    //
+    // The old pack held 2,191 cells clustered around known occurrences, so "the
+    // nearest reading is 90 km away" was a real situation worth explaining, and
+    // finding it meant scanning every row. The DEM is now country-wide, so a point
+    // with nothing within 10 km is a point with genuinely no coverage — sea, or a
+    // gap — and the honest line is "no DEM here", not "the nearest is 340 km
+    // away", which is noise dressed as information.
+    //
+    // The lookup is bounded for the same reason it is indexed: an unbounded
+    // nearest-search over tens of thousands of rows, on every readout recompute,
+    // is the shape of bug that has frozen this app twice.
+    expect(o.elevationFromM).toBeNull();
   });
 });
 

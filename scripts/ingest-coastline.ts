@@ -40,13 +40,13 @@ const BBOX: [number, number, number, number] = [
   Number(argOf("north") ?? 12.5),
 ];
 /**
- * Vertices kept per ring.
+ * Vertices kept per ring AFTER clipping.
  *
- * The coastline decides land or sea, and it is drawn as a background. A few
- * hundred metres of positional slack at the shore is irrelevant to both jobs;
- * shipping every vertex of a 1:10m global coastline is not.
+ * High, because this is a regional extract, not a world map: once the global
+ * polygon has been cut down to the Horn there are only a few thousand vertices
+ * left and they are all coastline someone might stand on.
  */
-const MAX_RING_VERTICES = Number(argOf("maxVertices") ?? 1500);
+const MAX_RING_VERTICES = Number(argOf("maxVertices") ?? 20000);
 
 type Coord = [number, number];
 type Ring = Coord[];
@@ -76,24 +76,73 @@ function bboxOf(ring: Ring): [number, number, number, number] {
 const overlaps = (b: [number, number, number, number]) =>
   !(b[2] < BBOX[0] || b[0] > BBOX[2] || b[3] < BBOX[1] || b[1] > BBOX[3]);
 
+/**
+ * Sutherland–Hodgman: clip a polygon to the rectangle.
+ *
+ * THIS IS THE POINT OF THE SCRIPT, and the first version skipped it. Natural
+ * Earth's land layer is a handful of continent-sized rings; Africa arrives as
+ * one polygon running from Siberia to the Cape. Keeping such a ring whole and
+ * thinning it to fit left the ENTIRE Somali coastline described by fifteen
+ * vertices — a land/sea test that happened to pass on points far inland and far
+ * offshore, and would have been worthless anywhere near the shore.
+ *
+ * Clipping first, thinning second, keeps full resolution where it is needed and
+ * discards every vertex in Siberia. The rectangle is convex, which is the one
+ * condition this algorithm requires.
+ */
+function clipToBox(ring: Ring, box: [number, number, number, number]): Ring {
+  const [w, s, e, n] = box;
+  type Edge = { inside: (p: Coord) => boolean; cut: (a: Coord, b: Coord) => Coord };
+  const lerp = (a: Coord, b: Coord, t: number): Coord =>
+    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+
+  const edges: Edge[] = [
+    { inside: (p) => p[0] >= w, cut: (a, b) => lerp(a, b, (w - a[0]) / (b[0] - a[0])) },
+    { inside: (p) => p[0] <= e, cut: (a, b) => lerp(a, b, (e - a[0]) / (b[0] - a[0])) },
+    { inside: (p) => p[1] >= s, cut: (a, b) => lerp(a, b, (s - a[1]) / (b[1] - a[1])) },
+    { inside: (p) => p[1] <= n, cut: (a, b) => lerp(a, b, (n - a[1]) / (b[1] - a[1])) },
+  ];
+
+  let out: Ring = ring;
+  for (const edge of edges) {
+    const input = out;
+    out = [];
+    for (let i = 0; i < input.length; i++) {
+      const cur = input[i];
+      const prev = input[(i + input.length - 1) % input.length];
+      const curIn = edge.inside(cur);
+      const prevIn = edge.inside(prev);
+      if (curIn) {
+        if (!prevIn) out.push(edge.cut(prev, cur));
+        out.push(cur);
+      } else if (prevIn) {
+        out.push(edge.cut(prev, cur));
+      }
+    }
+    if (out.length === 0) return [];
+  }
+  // Close it: the point-in-polygon test that decides land or sea reads every
+  // ring as closed, and an open one answers at random near the seam.
+  if (out.length > 0) {
+    const f = out[0], l = out[out.length - 1];
+    if (f[0] !== l[0] || f[1] !== l[1]) out.push([f[0], f[1]]);
+  }
+  return out;
+}
+
 function thin(ring: Ring, max: number): Ring {
   if (ring.length <= max) return ring;
   const step = Math.ceil(ring.length / max);
   const out: Ring = [];
   for (let i = 0; i < ring.length; i += step) out.push(ring[i]);
-  // A coastline ring must stay closed, or the point-in-polygon test that
-  // decides land or sea starts answering at random near the seam.
   const first = ring[0];
   const last = out[out.length - 1];
   if (last[0] !== first[0] || last[1] !== first[1]) out.push(first);
   return out;
 }
 
-// Outer rings only. Holes in Natural Earth's land layer are inland water, and
-// the device's pointInRings treats every ring as an independent boundary — a
-// hole fed to it would make a point inside a lake test as inside land twice.
-// Colouring a lake as land is the conservative error for a mineral app.
 const rings: Ring[] = [];
+
 for (const f of fc.features) {
   const parts: Ring[][] = f.geometry.type === "Polygon"
     ? [f.geometry.coordinates as Ring[]]
@@ -103,7 +152,9 @@ for (const f of fc.features) {
     const outer = part[0];
     if (!Array.isArray(outer) || outer.length < 4) continue;
     if (!overlaps(bboxOf(outer))) continue;
-    rings.push(thin(outer, MAX_RING_VERTICES));
+    const clipped = clipToBox(outer, BBOX);
+    if (clipped.length < 4) continue;
+    rings.push(thin(clipped, MAX_RING_VERTICES));
   }
 }
 
@@ -119,7 +170,11 @@ if (rings.length === 0) {
 // special case for it.
 const rows = rings.map((r, i) => ({
   bbox: bboxOf(r),
-  id: `land_${i}`,
+  // Distinctive on purpose. "land_0" collides with an Ionicons glyph name in
+  // the shipped bundle ("flight-land" + "_0"), so a grep for it returns a false
+  // positive — the same trap that once "proved" a button existed because
+  // Ionicons embeds every glyph name in every build. This id cannot collide.
+  id: `coastline_ne10m_${i}`,
   isPolygon: true,
   kind: "land",
   name: "land",

@@ -3,7 +3,10 @@
 // Reading is deliberately separate from verifying: nothing here re-checks
 // integrity, because verifyPack() must have already passed. Keeping them apart
 // means there is exactly one place that decides a pack is trustworthy.
-import { MANIFEST_FILE, PACK_FILES, type PackData, type PackManifest } from "./types.ts";
+import {
+  MANIFEST_FILE, PACK_FILES, packFileObject,
+  type PackData, type PackFile, type PackManifest,
+} from "./types.ts";
 
 export interface LoadedPack {
   manifest: PackManifest;
@@ -16,10 +19,10 @@ interface FileEnvelope {
   rows: unknown[];
 }
 
-function rowsOf(files: Record<string, string>, file: string, kind: string): unknown[] {
+function rowsOf(files: Record<string, PackFile>, file: string, kind: string): unknown[] {
   const raw = files[file];
   if (raw === undefined) return [];
-  const parsed = JSON.parse(raw) as FileEnvelope;
+  const parsed = packFileObject(raw) as unknown as FileEnvelope;
   if (!parsed || parsed.kind !== kind || !Array.isArray(parsed.rows)) {
     // A file whose envelope disagrees with its name means the pack was
     // assembled wrongly; an empty list would hide that as "no data here".
@@ -29,8 +32,8 @@ function rowsOf(files: Record<string, string>, file: string, kind: string): unkn
 }
 
 /** Parse a pack that has ALREADY passed verifyPack(). */
-export function readPack(files: Record<string, string>): LoadedPack {
-  const manifest = JSON.parse(files[MANIFEST_FILE]) as PackManifest;
+export function readPack(files: Record<string, PackFile>): LoadedPack {
+  const manifest = packFileObject(files[MANIFEST_FILE]) as unknown as PackManifest;
   return {
     manifest,
     data: {
