@@ -22,7 +22,7 @@ import {
 } from "../../shared/geo-core/gie/renderReport";
 import type { MissionFindings } from "../../shared/geo-core/gie/missionFindings";
 import type { EvidencePackage } from "./exploration/evidencePackage";
-import { localStamp } from "./exploration/format";
+import { commodityLabel, localStamp } from "./exploration/format";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -118,7 +118,7 @@ export function buildExplorationReportHtml(
       <tr><td class="k">${esc(t("reports.field.position"))}</td><td>${
         pkg.targetCentre.lat.toFixed(5)}, ${pkg.targetCentre.lng.toFixed(5)}</td></tr>
       <tr><td class="k">${esc(t("reports.field.commodity"))}</td><td>${
-        esc(pkg.commodity ? t(`commodity.${pkg.commodity}`) : t("reports.universal"))}</td></tr>
+        esc(pkg.commodity ? commodityLabel(pkg.commodity) : t("reports.universal"))}</td></tr>
       <tr><td class="k">${esc(t("reports.field.mission"))}</td><td>${esc(pkg.missionId)}</td></tr>
       <tr><td class="k">${esc(t("reports.field.collected"))}</td><td>${
         esc(t("reports.collectedSummary", {

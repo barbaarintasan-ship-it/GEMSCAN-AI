@@ -207,3 +207,23 @@ export function localStamp(ms: number, withTime = true): string {
   const day = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   return withTime ? `${day} ${p(d.getHours())}:${p(d.getMinutes())}` : day;
 }
+
+/**
+ * A commodity's name, from its code.
+ *
+ * NOT an i18n lookup, and that is the fix rather than an omission. Commodity
+ * names live in the PACK — `CommodityChooser` reads `p.name` from it — so there
+ * is no `commodity.*` block in the locale files and there never was. Three
+ * screens called `t(`commodity.${code}`)` anyway, so a finished report showed
+ * `commodity.gold` where it should have said Gold, on the line naming what the
+ * whole assessment was about.
+ *
+ * Title-casing the code rather than reaching for the pack keeps this usable
+ * where the pack is not: the PDF builder takes no pack dependency, and a report
+ * opened months later must still name its commodity. Codes are plain words
+ * (`gold`, `chromium`, `rare_earth`), so the result is the real name.
+ */
+export function commodityLabel(code: string): string {
+  const s = code.replace(/[_-]+/g, " ").trim();
+  return s.length === 0 ? code : s[0].toUpperCase() + s.slice(1);
+}

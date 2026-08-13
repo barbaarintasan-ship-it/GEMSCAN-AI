@@ -18,7 +18,7 @@
 // network. What the network adds is the assessment, collected by the sync loop.
 import React from "react";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { localStamp } from "../../../lib/exploration/format";
+import { commodityLabel, localStamp } from "../../../lib/exploration/format";
 import type { PhotoStateCounts } from "../../../lib/sync/photoUploadQueue";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -143,7 +143,7 @@ function ReportRow({
     >
       <View style={styles.rowMain}>
         <Text style={styles.rowTitle} numberOfLines={1}>
-          {pkg.commodity ? t(`commodity.${pkg.commodity}`) : t("reports.universal")}
+          {pkg.commodity ? commodityLabel(pkg.commodity) : t("reports.universal")}
           {"  ·  "}
           <Text style={styles.rowCell}>{pkg.targetCell}</Text>
         </Text>

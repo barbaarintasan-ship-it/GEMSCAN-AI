@@ -89,7 +89,21 @@ export interface TrackConfig {
    *  the staleness readout both need. Every fix therefore reaches this recorder,
    *  and this is what decides whether one becomes a point on the traverse. */
   minDistanceM: number;
-  /** Movement must also clear accuracy × this, so a ±40 m fix cannot fake a walk. */
+  /**
+   * Movement must also clear accuracy × this, so a poor fix cannot fake a walk.
+   *
+   * MEASURED, AND THE REASON THIS IS NO LONGER 0.5. A phone lying on a desk with
+   * a ±13 m fix drew about sixty metres of traverse and reported "moving
+   * 4.1 km/h". The gate was `max(10, accuracy × 0.5)` = `max(10, 6.5)` = 10 m
+   * flat: at any accuracy a field receiver actually achieves, the accuracy term
+   * never won, and ±13 m noise clears ten metres routinely.
+   *
+   * 1.4 is not a taste. Two fixes each uncertain by about `a` give a DISPLACEMENT
+   * uncertain by about `a·√2`, so requiring more than 1.4 × accuracy is requiring
+   * the movement to be larger than the error in measuring it. At ±13 m that is
+   * ~18 m — about fifteen seconds of walking, and more than jitter sustains,
+   * because noise oscillates around a mean while walking does not.
+   */
   accuracyGateFactor: number;
   /** Hard reject above this. Phase 1 only FLAGS at LOW_ACCURACY_M; a map line
    *  needs a stricter gate than a readout, but not so strict that a canopy or
@@ -117,7 +131,7 @@ export const DEFAULT_TRACK_CONFIG: TrackConfig = {
   // or a phone standing still with a ±3 m fix scribbles GPS wander onto the map
   // and calls it walking.
   minDistanceM: 10,
-  accuracyGateFactor: 0.5,
+  accuracyGateFactor: 1.4,   // a·√2 — see the field reading on the field above
   maxAccuracyM: LOW_ACCURACY_M * 2, // 100 m
   maxSpeedMps: 15,                  // 54 km/h — far above any traverse on foot
   movingMinSpeedMps: 0.3,

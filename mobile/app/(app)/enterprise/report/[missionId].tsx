@@ -18,7 +18,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
-import { localStamp } from "../../../../lib/exploration/format";
+import { commodityLabel, localStamp } from "../../../../lib/exploration/format";
 import { shareExplorationReportPdf } from "../../../../lib/explorationReportPdf";
 import { colors, radius, spacing } from "../../../../lib/theme";
 import { useExploration } from "../../../../lib/exploration/provider";
@@ -94,7 +94,7 @@ export default function MissionReportScreen() {
             />
             <Field
               label={t("reports.field.commodity")}
-              value={pkg.commodity ? t(`commodity.${pkg.commodity}`) : t("reports.universal")}
+              value={pkg.commodity ? commodityLabel(pkg.commodity) : t("reports.universal")}
             />
             <Field label={t("reports.field.mission")} value={pkg.missionId} />
             <Field

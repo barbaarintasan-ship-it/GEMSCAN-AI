@@ -60,8 +60,49 @@ export interface Deps {
  * will fail identically for ever. Telling the device so lets it stop asking —
  * and, crucially, stop holding a queue slot open on a phone in the field.
  */
-function isPermanent(message: string): boolean {
-  return /no_data_found|invalid_parameter_value|not found|at least two points|invalid input|violates check/i.test(message);
+/**
+ * Errors that are the ENTRY'S OWN FAULT, and only those.
+ *
+ * A track with one point will fail identically for ever, so telling the device to
+ * stop asking is a kindness. Everything else must keep its place in the queue,
+ * because a queue entry retired by mistake is field evidence deleted — the
+ * photographs stay in R2 and the observation is never assessed again.
+ */
+const DATA_FAULTS = [
+  /no_data_found/i,             // the parent record genuinely does not exist
+  /invalid_parameter_value/i,
+  /at least two points/i,       // a track that is a single fix
+  /invalid input/i,
+  /violates check/i,
+];
+
+/**
+ * Errors that are OURS, and must never retire an entry however they read.
+ *
+ * Checked FIRST, and this order is the fix. `isPermanent` used to match
+ * `/not found/i`, and PostgREST's message for a missing function is "Could not
+ * find the function enterprise.upsert_mission_package in the schema cache" —
+ * "not find", not "not found". One letter stood between a schema-name mistake
+ * and every finished section on every phone being silently discarded, and that
+ * mistake was made three times today.
+ *
+ * Authorization is here on purpose, against the obvious reading. A token without
+ * the entitlement is not the observation's fault and it is not for ever: the
+ * account is enabled, the geologist signs in again, and the queue should still
+ * be holding the day's work when it is.
+ */
+const OURS_NEVER_PERMANENT = [
+  /could not find the function/i,   // PostgREST: wrong schema, or not deployed
+  /schema cache/i,
+  /permission denied/i,             // a missing GRANT is an operator error
+  /jwt|unauthorized|forbidden|not enabled/i,
+  /timeout|timed out|network|fetch failed|socket|connection/i,
+  /5\d\d/,                          // any upstream server error
+];
+
+export function isPermanent(message: string): boolean {
+  if (OURS_NEVER_PERMANENT.some((re) => re.test(message))) return false;
+  return DATA_FAULTS.some((re) => re.test(message));
 }
 
 export const defaultDeps: Deps = {

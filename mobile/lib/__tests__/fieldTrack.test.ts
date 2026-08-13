@@ -134,10 +134,15 @@ describe("TrackRecorder ingest", () => {
 
   test("an uncertain fix must move further to count", () => {
     const r = recorder();
+    // Written against the CONSTANT, not a number copied out of it. The factor
+    // moved from 0.5 to 1.4 when a phone on a desk was found drawing sixty metres
+    // of traverse, and this test asserted the old arithmetic rather than the rule.
+    const gate = 80 * DEFAULT_TRACK_CONFIG.accuracyGateFactor;   // 112 m
     r.addFix(north(0, 1_000, { accuracy: 80 }));
-    // 20 m clears the 10 m floor but not 80 m × 0.5 = 40 m.
+    // Clears the 10 m floor, nowhere near the uncertainty of an 80 m fix.
     expect(rejection(r.addFix(north(20, 11_000, { accuracy: 80 })))).toBe("stationary");
-    expect(r.addFix(north(45, 21_000, { accuracy: 80 })).accepted).toBe(true);
+    expect(rejection(r.addFix(north(gate - 5, 21_000, { accuracy: 80 })))).toBe("stationary");
+    expect(r.addFix(north(gate + 20, 31_000, { accuracy: 80 })).accepted).toBe(true);
   });
 
   test("standing still still leaves one point per idle window", () => {
