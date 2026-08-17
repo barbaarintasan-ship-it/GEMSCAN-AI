@@ -427,17 +427,11 @@ export class Outbox {
   }
 
   private async persist(): Promise<void> {
-    // INVESTIGATION: batching (applyResults) cut this from up to 12 calls per
-    // drain to exactly 1, confirmed live — but the ONE remaining call still
-    // took ~52-64s on device, same as before. The stringify step never once
-    // self-reports as slow (<250ms every time), so the cost is inside
-    // storage.setItem() itself. This app runs the OLD bridge
-    // (newArchEnabled=false, android/gradle.properties): every native call's
-    // arguments are re-serialised by the bridge's own MessageQueue, a SECOND
-    // pass over the string that is invisible to our own instrumentation. Logged
-    // unconditionally, not threshold-gated, to get the real byte count instead
-    // of guessing — and setItem is timed on its own to confirm the write
-    // itself, not the writing-chain queue, is where the time goes.
+    // INVESTIGATION: pushOutbox's per-entry ack loop calls markSent/markFailed/
+    // markRejected once per due entry, and each of those calls persist() — a
+    // full JSON.stringify + AsyncStorage.setItem of EVERY entry this device is
+    // holding, not just the ones being updated. Named with the current size so
+    // a slow persist is attributed by exactly how much it was serialising.
     const donePersist = markPhase(`outbox.persist[${this.entries.length}]`);
     const env: Envelope = { version: 1, entries: this.entries };
     const write = this.writing.then(async () => {
@@ -445,11 +439,7 @@ export class Outbox {
         const doneStringify = markPhase(`outbox.persist.stringify[${this.entries.length}]`);
         const json = JSON.stringify(env);
         doneStringify();
-        // eslint-disable-next-line no-console
-        console.warn(`[outboxSize] entries=${this.entries.length} chars=${json.length}`);
-        const doneWrite = markPhase(`outbox.persist.setItem[${json.length}]`);
         await this.storage.setItem(OUTBOX_STORAGE_KEY, json);
-        doneWrite();
       } catch {
         // Out of storage, or the platform refused. The entries are still in
         // memory and the next write may succeed; the session is not interrupted.
