@@ -210,7 +210,28 @@ export function MapWorkspaceProvider({ children }: { children: React.ReactNode }
   const cameraRef = React.useRef<MapCamera | null>(null);
   const cameraTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const cameraPushedAt = React.useRef(0);
+  // Perf-guard telemetry, [jsStall]-style so it greps alongside it — sourced
+  // from the map surface's own frame timing, since this app's memory
+  // footprint is not observable from inside the WebView that draws it.
+  // Logged on a pressure-level change (the guard reacting) or a genuinely
+  // slow frame, never every message — report() already fires up to ten times
+  // a second while panning.
+  const lastPressureLevel = React.useRef(0);
+  const lastPerfLogAt = React.useRef(0);
   const onCamera = React.useCallback((c: MapCamera) => {
+    if (c.pressureLevel !== lastPressureLevel.current) {
+      lastPressureLevel.current = c.pressureLevel;
+      console.warn(
+        `[mapPerf] pressureLevel -> ${c.pressureLevel} (drawMs=${c.drawMs} imgMax=${c.imgMax}` +
+        ` demStride=${c.demStride} imagesHeld=${c.imagesHeld})`,
+      );
+    } else if (c.drawMs > 250 && Date.now() - lastPerfLogAt.current > 1000) {
+      lastPerfLogAt.current = Date.now();
+      console.warn(
+        `[mapPerf] slow frame drawMs=${c.drawMs} imgMax=${c.imgMax}` +
+        ` demStride=${c.demStride} pressureLevel=${c.pressureLevel} imagesHeld=${c.imagesHeld}`,
+      );
+    }
     cameraRef.current = c;
     if (cameraTimer.current) clearTimeout(cameraTimer.current);
     const push = () => {

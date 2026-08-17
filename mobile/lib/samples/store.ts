@@ -13,6 +13,7 @@ import { AppState } from "react-native";
 import { LocalSampleStore } from "./localSampleStore";
 import { pushPendingSamples } from "./pendingSampleSync";
 import { useIsOnline } from "../network";
+import { markPhase } from "../diagnostics/jsStall";
 
 let instance: LocalSampleStore | null = null;
 
@@ -63,6 +64,14 @@ export function useSampleSync(): SampleSyncState {
 
     const drain = async () => {
       if (!alive || busy.current || !isOnline) return;
+      // INVESTIGATION: same class of check as expeditionSync.drain — this fires
+      // on its own DRAIN_INTERVAL_MS=90_000 timer, mounted at the map workspace
+      // root (workspace.tsx), so it runs regardless of screen. Its own upload
+      // path (pendingSampleSync -> enterpriseSamples.uploadSampleMedia) reads a
+      // photo and base64-encodes it with no timeout at all, unlike the six fixed
+      // call sites — a real candidate for sustained CPU + large allocations.
+      const doneDrain = markPhase(`sampleSync.drain[${store.pending().length}]`);
+      try {
       await store.load();
       if (store.pending().length === 0) return;
       busy.current = true;
@@ -75,6 +84,9 @@ export function useSampleSync(): SampleSyncState {
           const s = store.stats();
           setState({ pending: s.pending, failed: s.failed, uploading: false });
         }
+      }
+      } finally {
+        doneDrain();
       }
     };
 

@@ -9,6 +9,20 @@
 // set app_config.latest_build to that build's number (shown in EAS / Play).
 import * as Application from "expo-application";
 import { supabase } from "./supabase";
+import { markPhase } from "./diagnostics/jsStall";
+
+/**
+ * A second unbounded cold-start network call, found the same way the
+ * getSession() one was: this query carries no timeout either, and UpdateGate
+ * (components/UpdateGate.tsx) fires it from the app ROOT on every launch,
+ * concurrently with sign-in and the exploration engine's own startup. It does
+ * not gate rendering the way auth's `isLoading` did, but a stalled connection
+ * here still ties up a request that never resolves — the fix is the same
+ * shape as pushOutbox's SYNC_TIMEOUT_MS and auth's AUTH_TIMEOUT_MS: whichever
+ * settles first wins, and "the check never finished" is indistinguishable
+ * from "offline", which this module already treats as fail-open.
+ */
+export const UPDATE_CHECK_TIMEOUT_MS = 8_000;
 
 export type AppUpdateInfo = {
   updateAvailable: boolean;
@@ -35,11 +49,23 @@ export async function checkForUpdate(): Promise<AppUpdateInfo | null> {
     const build = currentBuild();
     if (!build) return null; // Unknown build → never prompt.
 
-    const { data, error } = await supabase
-      .from("app_config")
-      .select("latest_build, min_build, update_message_en, update_message_so, store_url")
-      .limit(1)
-      .maybeSingle();
+    const done = markPhase("appUpdate.check");
+    const timedOut = Symbol("appUpdate.check timed out");
+    const result = await Promise.race([
+      supabase
+        .from("app_config")
+        .select("latest_build, min_build, update_message_en, update_message_so, store_url")
+        .limit(1)
+        .maybeSingle(),
+      new Promise<typeof timedOut>((resolve) => {
+        setTimeout(() => resolve(timedOut), UPDATE_CHECK_TIMEOUT_MS);
+      }),
+    ]);
+    done();
+    // A stalled connection never answers at all — indistinguishable from
+    // offline, which this module already treats as fail-open, above.
+    if (result === timedOut) return null;
+    const { data, error } = result;
 
     if (error || !data) return null;
 

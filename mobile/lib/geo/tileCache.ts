@@ -34,8 +34,25 @@
 //   on the map, which is why ATTRIBUTION is exported rather than left as a
 //   comment.
 import * as FileSystem from "expo-file-system";
+import { withTimeout } from "../withTimeout";
 
 export const ATTRIBUTION = "Imagery © Esri, Maxar, Earthstar Geographics";
+
+/**
+ * THE ROOT CAUSE, CONFIRMED ON DEVICE. FileSystem.downloadAsync() carries no
+ * timeout of its own, and unlike the four Supabase calls already bounded
+ * (lib/auth.tsx, lib/appUpdate.ts, lib/sync/pushOutbox.ts, pullAnalysis.ts,
+ * pushPhotos.ts), it is reached only when a raster layer is actually on —
+ * which is exactly why the freeze correlated with satellite/roads/labels and
+ * not with the others. A/B'd on the device: those three OFF, cold start after
+ * cold start, never froze; back on, it did. One worker stuck on one stalled
+ * tile blocks that whole downloadMissing() pass — see the worker loop below —
+ * and CONCURRENCY workers each awaiting their own unbounded download is a lot
+ * of surface area for exactly one to stall.
+ */
+export const TILE_DOWNLOAD_TIMEOUT_MS = 10_000;
+/** Distinguishable from any real FileSystem.DownloadResult. */
+const TIMED_OUT = Symbol("tile download timed out");
 
 /** Which backdrop a tile belongs to. Each is cached and toggled independently. */
 export type TileSourceId = "imagery" | "hillshade" | "roads" | "labels";
@@ -311,9 +328,24 @@ export async function downloadMissing(
         .replace("{x}", String(t.x))
         .replace("{y}", String(t.y));
       try {
-        const res = await FileSystem.downloadAsync(url, path);
-        if (res.status !== 200) {
-          // Leave nothing behind that would later look like a valid tile.
+        // A stalled connection to Esri neither resolves nor rejects
+        // downloadAsync at all — no timeout of its own, see
+        // TILE_DOWNLOAD_TIMEOUT_MS above. Raced against a ceiling so ONE
+        // stuck tile cannot hold this worker, and every worker behind it in
+        // the queue, for the rest of the session. The map draws whatever the
+        // pack and the disk cache already have regardless — this only
+        // decides how long a fresh tile is worth waiting for.
+        const res = await withTimeout<FileSystem.FileSystemDownloadResult | typeof TIMED_OUT>(
+          FileSystem.downloadAsync(url, path),
+          TILE_DOWNLOAD_TIMEOUT_MS,
+          TIMED_OUT,
+        );
+        if (res === TIMED_OUT || res.status !== 200) {
+          // Leave nothing behind that would later look like a valid tile —
+          // downloadAsync may still be writing to `path` in the background
+          // after a timeout, so this is best-effort, not a guarantee; onDisk()
+          // below independently checks the file is actually complete before
+          // ever treating it as cached.
           await FileSystem.deleteAsync(path, { idempotent: true }).catch(() => {});
           missing.add(path);
           continue;

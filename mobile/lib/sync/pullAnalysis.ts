@@ -15,6 +15,16 @@
 // model — so asking repeatedly costs one small request and never a second reading.
 import type { PackageStore } from "../exploration/packageStore";
 import type { PackageAnalysis } from "../exploration/evidencePackage";
+import { withTimeout } from "../withTimeout";
+
+/**
+ * supabase.functions.invoke() reads the current session to sign its request,
+ * the same call that carried no timeout in lib/auth.tsx, lib/appUpdate.ts and
+ * lib/sync/pushOutbox.ts — each of which produced a MEASURED 51-52 second
+ * freeze before being bounded. This call reaches the network on every sync
+ * pass, not just cold start, so it gets the same ceiling on principle.
+ */
+export const INVOKE_TIMEOUT_MS = 8_000;
 
 /** What the analyze-mission function answers with. */
 interface AnalyzeResponse {
@@ -70,9 +80,11 @@ export async function pullAnalysis(
     // this module — and its tests — unloadable without a network stack.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { supabase } = require("../supabase");
-    const { data, error } = await supabase.functions.invoke("analyze-mission", {
-      body: { missionId },
-    });
+    const { data, error } = await withTimeout(
+      supabase.functions.invoke("analyze-mission", { body: { missionId } }),
+      INVOKE_TIMEOUT_MS,
+      { data: null, error: new Error("analyze-mission timed out") },
+    );
     if (error) {
       // The STATUS is the answer here, not the message. 409 means the photographs
       // have not all arrived — an ordinary, temporary state that must not be

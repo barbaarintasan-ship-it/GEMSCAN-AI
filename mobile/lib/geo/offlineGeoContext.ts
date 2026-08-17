@@ -27,6 +27,13 @@ export interface OfflineContextResult {
   hasKnowledge: boolean;
 }
 
+/** One position, scored against whichever engine/gateway `openBatch()` built. */
+export type GeoContextQuery = (
+  lat: number,
+  lng: number,
+  opts?: { radiusM?: number; sample?: GeoQuery["sample"]; mineralHint?: string },
+) => Promise<OfflineContextResult>;
+
 /**
  * Runs the geological context for a position, entirely on the device.
  *
@@ -53,11 +60,30 @@ export class OfflineGeoContextService {
     return cellFor(lat, lng, H3_RESOLUTION);
   }
 
-  async contextAt(
-    lat: number,
-    lng: number,
-    opts: { radiusM?: number; sample?: GeoQuery["sample"]; mineralHint?: string } = {},
-  ): Promise<OfflineContextResult> {
+  /**
+   * Build the engine once and hand back a function that queries it as many
+   * times as the caller needs — the SAME providers and the SAME gateway,
+   * over the SAME pack snapshot, for every position.
+   *
+   * `rank()` used to get this by calling `contextAt()` once per candidate
+   * cell — up to 1 + kRing(rings) times per ranking, 37 for the default 3
+   * rings — and `contextAt()` rebuilt the engine and gateway from scratch
+   * every time. Rebuilding is cheap; what is not cheap is that several
+   * providers (map layers, terrain, and prospectivityEvidence's own structural
+   * and drainage checks in targeting.ts) scan the FULL mapFeatures array —
+   * 18,504 rows in the current pack — with no spatial index. Measured on an
+   * SM-A165F: ~37 of those scans back to back is tens of seconds of the JS
+   * thread doing nothing else, which is why cold start and every GPS-driven
+   * re-target could freeze the app for 50+ seconds with no network call, no
+   * timeout, and no open markPhase to blame (see targeting.ts rank()).
+   *
+   * This changes nothing about WHAT is computed — same providers, same
+   * gateway methods, same query shape per cell, so scoring output is
+   * unchanged (targeting.test.ts "ranking is deterministic" and the rest of
+   * that suite pin this down). It only shares the construction cost across
+   * every position scored in the same batch instead of paying it per cell.
+   */
+  async openBatch(): Promise<GeoContextQuery> {
     await this.packs.load();
 
     const gateway = makePackGateway(this.packs.getData());
@@ -75,19 +101,36 @@ export class OfflineGeoContextService {
       engineVersion: this.engineVersion,
     });
 
-    const query: GeoQuery = {
-      lat,
-      lng,
-      radiusM: opts.radiusM ?? DEFAULT_CONTEXT_RADIUS_M,
-      h3: this.cellFor(lat, lng),
-      ...(opts.mineralHint ? { mineralHint: opts.mineralHint } : {}),
-      ...(opts.sample ? { sample: opts.sample } : {}),
-    };
+    return async (lat, lng, opts = {}) => {
+      const query: GeoQuery = {
+        lat,
+        lng,
+        radiusM: opts.radiusM ?? DEFAULT_CONTEXT_RADIUS_M,
+        h3: this.cellFor(lat, lng),
+        ...(opts.mineralHint ? { mineralHint: opts.mineralHint } : {}),
+        ...(opts.sample ? { sample: opts.sample } : {}),
+      };
 
-    return {
-      context: await engine.run(query),
-      provenance: this.packs.provenance(),
-      hasKnowledge: this.packs.isReady(),
+      return {
+        context: await engine.run(query),
+        provenance: this.packs.provenance(),
+        hasKnowledge: this.packs.isReady(),
+      };
     };
+  }
+
+  /**
+   * One position, one query. Built on `openBatch()` so a single-shot caller
+   * (targetAt, useGeoReadout, this file's own tests) and a batch caller
+   * (rank()) run through the exact same code — there is no second
+   * implementation to drift out of sync with this one.
+   */
+  async contextAt(
+    lat: number,
+    lng: number,
+    opts: { radiusM?: number; sample?: GeoQuery["sample"]; mineralHint?: string } = {},
+  ): Promise<OfflineContextResult> {
+    const query = await this.openBatch();
+    return query(lat, lng, opts);
   }
 }

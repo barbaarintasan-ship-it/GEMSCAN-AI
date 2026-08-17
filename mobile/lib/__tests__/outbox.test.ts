@@ -6,6 +6,7 @@
 import {
   Outbox, retryDelayMs, RETRY_BASE_MS, RETRY_MAX_MS, OUTBOX_MAX_ENTRIES,
   OUTBOX_STORAGE_KEY, outboxStateOf, FAILING_ATTEMPTS, type KeyValueAdapter,
+  type OutboxAckOutcome,
 } from "../sync/outbox";
 
 function fakeStorage(initial: string | null = null) {
@@ -16,6 +17,17 @@ function fakeStorage(initial: string | null = null) {
     setItem: async (k, v) => { store.set(k, v); },
   };
   return { adapter, store };
+}
+
+/** Same shape as fakeStorage, but counts every setItem call. */
+function countingStorage(initial: string | null = null) {
+  const { adapter, store } = fakeStorage(initial);
+  let writes = 0;
+  const counted: KeyValueAdapter = {
+    getItem: adapter.getItem,
+    setItem: async (k, v) => { writes++; await adapter.setItem(k, v); },
+  };
+  return { adapter: counted, store, writes: () => writes };
 }
 
 /** A clock the test drives, so backoff can be exercised without waiting. */
@@ -329,5 +341,104 @@ describe("no record is lost, whatever happens to it", () => {
     }
     expect(b.stats().stored).toBe(OUTBOX_MAX_ENTRIES + 25);
     expect(b.stats().pending).toBe(OUTBOX_MAX_ENTRIES + 25);
+  });
+});
+
+// ── Batched acknowledgement (applyResults) ───────────────────────────────────
+//
+// THE ~52 SECOND FREEZE THIS FIXES. markSent/markFailed/markRejected each
+// persist immediately — a full JSON.stringify + AsyncStorage.setItem of the
+// WHOLE outbox — which is right for a single, isolated update but was also
+// what pushOutbox() did once per entry in a batch it just heard back on, up to
+// BATCH_SIZE (200) times per drain. Measured on an SM-A165F with an 87-entry
+// outbox: one persist took ~52 seconds, and a 12-entry drain called it 12
+// times. applyResults() applies every outcome in memory and persists once.
+describe("batched acknowledgement (applyResults)", () => {
+  test("multiple acknowledgements cause only one persist write", async () => {
+    const { adapter, writes } = countingStorage();
+    const box = new Outbox({ storage: adapter });
+    const ids = Array.from({ length: 12 }, (_, i) => "wp-" + i);
+    for (const id of ids) await box.enqueue("observation", "ex-1", id, { n: id });
+
+    const before = writes();
+    const outcomes: OutboxAckOutcome[] = ids.map((id, i) =>
+      i % 3 === 0
+        ? { localId: id, kind: "observation", result: "sent" }
+        : i % 3 === 1
+          ? { localId: id, kind: "observation", result: "failed", error: "server busy" }
+          : { localId: id, kind: "observation", result: "rejected", error: "no_data_found" });
+    await box.applyResults(outcomes);
+
+    // Exactly one write for the whole batch, whatever its size — not one per
+    // acknowledged entry (that would be 12 here, on top of the 12 enqueues).
+    expect(writes() - before).toBe(1);
+  });
+
+  test("an empty batch persists nothing at all", async () => {
+    const { adapter, writes } = countingStorage();
+    const box = new Outbox({ storage: adapter });
+    await box.enqueue("observation", "ex-1", "wp-1", {});
+    const before = writes();
+    await box.applyResults([]);
+    expect(writes()).toBe(before);
+  });
+
+  test("failed entries remain queued correctly after a batched ack", async () => {
+    const c = clock();
+    const box = new Outbox({ storage: fakeStorage().adapter, now: c.now });
+    await box.enqueue("observation", "ex-1", "wp-1", {});
+    await box.enqueue("observation", "ex-1", "wp-2", {});
+
+    await box.applyResults([
+      { localId: "wp-1", kind: "observation", result: "failed", error: "timeout" },
+      { localId: "wp-2", kind: "observation", result: "sent" },
+    ]);
+
+    // The failed one is still owed, still in the queue, and holds its reason —
+    // exactly as a single markFailed call would leave it.
+    expect(box.pending().map((e) => e.localId)).toEqual(["wp-1"]);
+    const failed = box.all().find((e) => e.localId === "wp-1")!;
+    expect(failed.attempts).toBe(1);
+    expect(failed.lastError).toBe("timeout");
+    expect(failed.sentAt).toBeNull();
+
+    // Immediately after, it is backed off, same as the single-entry path.
+    expect(box.due().map((e) => e.localId)).toEqual([]);
+    c.advance(RETRY_BASE_MS);
+    expect(box.due().map((e) => e.localId)).toEqual(["wp-1"]);
+  });
+
+  test("sent and rejected states from a batch are byte-identical to the single-call path", async () => {
+    const now = () => 1_000_000;
+
+    // Reference: the existing per-call methods, one persist each.
+    const single = new Outbox({ storage: fakeStorage().adapter, now });
+    await single.enqueue("observation", "ex-1", "sent-1", {});
+    await single.enqueue("observation", "ex-1", "rejected-1", {});
+    await single.markSent("sent-1", "observation");
+    await single.markRejected("rejected-1", "observation", "no_data_found");
+
+    // Same two outcomes, applied as one batch.
+    const batched = new Outbox({ storage: fakeStorage().adapter, now });
+    await batched.enqueue("observation", "ex-1", "sent-1", {});
+    await batched.enqueue("observation", "ex-1", "rejected-1", {});
+    await batched.applyResults([
+      { localId: "sent-1", kind: "observation", result: "sent" },
+      { localId: "rejected-1", kind: "observation", result: "rejected", error: "no_data_found" },
+    ]);
+
+    expect(batched.all()).toEqual(single.all());
+    expect(batched.stats()).toEqual(single.stats());
+  });
+
+  test("an outcome for an entry that no longer exists is skipped, not an error", async () => {
+    const box = new Outbox({ storage: fakeStorage().adapter });
+    await box.enqueue("observation", "ex-1", "wp-1", {});
+    await expect(box.applyResults([
+      { localId: "wp-1", kind: "observation", result: "sent" },
+      { localId: "ghost", kind: "observation", result: "sent" },
+    ])).resolves.toBeUndefined();
+    expect(box.all()).toHaveLength(1);
+    expect(box.all()[0].sentAt).not.toBeNull();
   });
 });

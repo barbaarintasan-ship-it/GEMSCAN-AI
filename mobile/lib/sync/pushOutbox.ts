@@ -14,10 +14,44 @@
 //
 // It never throws at the caller. A drain that cannot happen is not an error the
 // geologist should see; the queue simply stays full and the status line says so.
-import type { Outbox, OutboxEntry } from "./outbox";
+import type { Outbox, OutboxAckOutcome, OutboxEntry } from "./outbox";
+import { withTimeout } from "../withTimeout";
+import { markPhase } from "../diagnostics/jsStall";
 
 // Read the same way every other API module in this app reads it.
 const FUNCTIONS_URL = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL!;
+
+/**
+ * THE THIRD ~52 SECOND FREEZE. SYNC_TIMEOUT_MS (below) bounds postSync's
+ * fetch, but this module reads its OWN session — a second, independent call
+ * to supabase-js's getSession(), not the one AuthProvider already bounds
+ * (lib/auth.tsx) — and it carried no ceiling of its own. MEASURED: fixing
+ * the first two unbounded cold-start calls still left a drain stalling for
+ * 51-52 seconds on this one.
+ */
+const GET_SESSION_TIMEOUT_MS = 8_000;
+
+/**
+ * THE ~52 SECOND FREEZE THIS FIXES.
+ *
+ * `postSync`'s fetch carried no timeout, so a request that never got an answer —
+ * a stalled connection, a server that accepted the socket and then said
+ * nothing — simply never resolved. MEASURED on a device in the field: five
+ * session-resumes in a row each sat for 51,000-52,000 ms with the app
+ * unresponsive, because `useExpeditionSync`'s drain runs "now" on mount and
+ * `isOnline` flipping (a real signal underfoot) re-ran it again each time,
+ * every attempt hanging on the same unbounded request.
+ *
+ * The fix is a ceiling, not a retry policy — the outbox already has one
+ * (`markFailed`'s backoff). This only makes sure ONE attempt cannot hold the
+ * geologist's phone hostage: a request that has not answered by the deadline
+ * is aborted, counted as an ordinary transport failure, and the record it was
+ * carrying is exactly where it was before — durable on the device, still
+ * queued, and never lost. Fifteen seconds is long enough for a genuinely slow
+ * link to still succeed and short enough that a stalled one never reads as a
+ * frozen app.
+ */
+export const SYNC_TIMEOUT_MS = 15_000;
 
 /**
  * The network client, loaded only when there is actually something to push.
@@ -106,9 +140,20 @@ export async function pushOutbox(
   // getSession() reaches storage and can reject. This module promises never to
   // throw at the caller, and it used to break that promise here — an unhandled
   // rejection that left the drain flag set and the reason unrecorded.
+  //
+  // A stalled connection neither resolves nor rejects at all — see
+  // GET_SESSION_TIMEOUT_MS above — so it is raced against a ceiling. A
+  // timeout answers exactly like an empty session: no token, "not signed
+  // in", queue stays full, drain retried on the outbox's own backoff.
   let token: string | undefined;
   try {
-    const { data } = await client.auth.getSession();
+    const doneAuthPhase = markPhase("pushOutbox.getSession");
+    const { data } = await withTimeout(
+      client.auth.getSession(),
+      GET_SESSION_TIMEOUT_MS,
+      { data: { session: null } },
+    );
+    doneAuthPhase();
     token = data.session?.access_token;
   } catch (err) {
     return {
@@ -136,7 +181,11 @@ export async function pushOutbox(
     // granted while the phone is in a pocket — but never again described as a
     // network fault.
     const authRefused = status === 401 || status === 403;
-    for (const e of due) await outbox.markFailed(e.localId, e.kind, message);
+    // One persist for the whole batch, not one per entry — see
+    // Outbox.applyResults() for why that distinction is load-bearing.
+    await outbox.applyResults(
+      due.map((e) => ({ localId: e.localId, kind: e.kind, result: "failed" as const, error: message })),
+    );
     return {
       attempted: due.length,
       accepted: 0,
@@ -148,43 +197,58 @@ export async function pushOutbox(
 
   const byKey = new Map(results.map((r) => [r.kind + " " + r.localId, r]));
   let accepted = 0, rejected = 0;
+  const outcomes: OutboxAckOutcome[] = [];
 
   for (const e of due) {
     const r = byKey.get(e.kind + " " + e.localId);
     if (!r) {
       // The server said nothing about this entry. Treat it as unfinished — never
       // as done, because "no answer" is not "accepted".
-      await outbox.markFailed(e.localId, e.kind, "no result returned");
+      outcomes.push({ localId: e.localId, kind: e.kind, result: "failed", error: "no result returned" });
       rejected++;
       continue;
     }
     if (r.ok) {
-      await outbox.markSent(e.localId, e.kind);
+      outcomes.push({ localId: e.localId, kind: e.kind, result: "sent" });
       accepted++;
     } else if (r.permanent) {
       // Retrying will fail identically. Retired from the queue WITH its reason,
       // so the failure stays visible in diagnostics instead of vanishing.
-      await outbox.markRejected(e.localId, e.kind, r.error ?? "rejected");
+      outcomes.push({ localId: e.localId, kind: e.kind, result: "rejected", error: r.error ?? "rejected" });
       rejected++;
     } else {
-      await outbox.markFailed(e.localId, e.kind, r.error ?? "rejected");
+      outcomes.push({ localId: e.localId, kind: e.kind, result: "failed", error: r.error ?? "rejected" });
       rejected++;
     }
   }
+  // Every acknowledgement from this batch applied in memory, then ONE persist —
+  // this drain used to call markSent/markFailed/markRejected per entry here,
+  // each persisting the whole outbox on its own. See Outbox.applyResults().
+  await outbox.applyResults(outcomes);
 
   return { attempted: due.length, accepted, rejected, blocked: null, reason: null };
 }
 
 async function postSync(entries: OutboxEntry[], token: string): Promise<ServerResult[]> {
-  const res = await fetch(`${FUNCTIONS_URL}/expeditions/sync`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      entries: entries.map((e) => ({
-        localId: e.localId, kind: e.kind, sessionId: e.sessionId, payload: e.payload,
-      })),
-    }),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${FUNCTIONS_URL}/expeditions/sync`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        entries: entries.map((e) => ({
+          localId: e.localId, kind: e.kind, sessionId: e.sessionId, payload: e.payload,
+        })),
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    // Cleared on every exit, not just success — an aborted or rejected fetch
+    // must not leave a timer pinned for SYNC_TIMEOUT_MS with nothing left to fire.
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new SyncHttpError(res.status, `sync failed (${res.status}) ${body.slice(0, 200)}`);

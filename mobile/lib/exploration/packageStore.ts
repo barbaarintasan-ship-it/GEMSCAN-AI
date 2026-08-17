@@ -23,6 +23,7 @@ import { Outbox, type KeyValueAdapter } from "../sync/outbox";
 import {
   isDeliverable, type EvidencePackage, type PackageAnalysis,
 } from "./evidencePackage";
+import { markPhase } from "../diagnostics/jsStall";
 
 export const PACKAGE_STORAGE_KEY = "exploration.packages.v1";
 /** The outbox kind. The server dispatches on this string. */
@@ -218,7 +219,22 @@ export class PackageStore {
     this.queue = this.queue.then(async () => {
       mutate();
       this.prune();
-      await this.storage.setItem(PACKAGE_STORAGE_KEY, JSON.stringify(this.packages));
+      // INVESTIGATION: same shared AsyncStorage native module as Outbox
+      // (lib/sync/outbox.ts), a different key. outbox.persist.setItem[43777]
+      // measured ~53s for a 43KB write — far too slow to be about payload size
+      // — which points at contention on AsyncStorage itself rather than
+      // anything specific to the outbox. This writes on the same drain pass
+      // (expeditionSync.drain.pullAnalysis runs right after pushOutbox), so
+      // logged the same way to see whether ITS write is what is actually
+      // holding the lock.
+      const doneStringify = markPhase("packageStore.write.stringify");
+      const json = JSON.stringify(this.packages);
+      doneStringify();
+      // eslint-disable-next-line no-console
+      console.warn(`[packageStoreSize] packages=${this.packages.length} chars=${json.length}`);
+      const doneWrite = markPhase(`packageStore.write.setItem[${json.length}]`);
+      await this.storage.setItem(PACKAGE_STORAGE_KEY, json);
+      doneWrite();
       this.notify();
     });
     return this.queue;

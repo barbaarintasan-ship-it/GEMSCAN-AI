@@ -32,6 +32,7 @@ import { haversineM } from "../../../shared/geo-core/geo/spatial.ts";
 import { currentIdentity } from "../currentIdentity";
 import type { Waypoint } from "../field/waypointTypes";
 import type { TrackStats } from "../field/trackRecorder";
+import { markPhase } from "../diagnostics/jsStall";
 
 /** How often a running session tries to drain, when there is a connection. */
 const DRAIN_INTERVAL_MS = 60_000;
@@ -255,6 +256,15 @@ export function useExpeditionSync(input: {
 
     const drain = async () => {
       if (!alive || syncing.current || !isOnline) return;
+      // INVESTIGATION: two ~52s unattributed JS-thread freezes recur roughly
+      // every 60s once TargetingEngine.rank() was ruled out (it now runs once,
+      // ~2.4s). This fires on the same DRAIN_INTERVAL_MS=60_000 timer, so it is
+      // the next suspect. Instrumented end to end, including the synchronous
+      // .due()/.stats()/.awaitingAnalysis() reads, to find which part is slow
+      // rather than guess.
+      const doneDrain = markPhase("expeditionSync.drain");
+      try {
+      const doneDue = markPhase("expeditionSync.drain.due");
       // Photographs are checked alongside the metadata queue: a finished section
       // is not delivered until both have gone, and a drain that only looked at the
       // outbox would leave the evidence itself sitting on the phone for ever.
@@ -262,7 +272,9 @@ export function useExpeditionSync(input: {
       // A package whose evidence is all delivered still has an assessment to
       // collect, and nothing else in this condition would ever wake for it.
       const analysesDue = packages?.awaitingAnalysis().length ?? 0;
-      if (outbox.due().length === 0 && photosDue === 0 && analysesDue === 0) return;
+      const outboxDue = outbox.due().length;
+      doneDue();
+      if (outboxDue === 0 && photosDue === 0 && analysesDue === 0) return;
       syncing.current = true;
       setState((s) => ({ ...s, syncing: true }));
       // pushOutbox is documented never to throw, and is now written so that it
@@ -271,7 +283,9 @@ export function useExpeditionSync(input: {
       let blocked: ExpeditionSyncState["blocked"] = null;
       let blockedReason: string | null = null;
       try {
+        const doneOutbox = markPhase(`expeditionSync.drain.pushOutbox[${outboxDue}]`);
         const r = await pushOutbox(outbox, isOnline);
+        doneOutbox();
         blocked = r.blocked;
         blockedReason = r.reason;
 
@@ -279,9 +293,11 @@ export function useExpeditionSync(input: {
         // filed successfully still has nothing to analyse until its images are in
         // R2, and a photo upload failing must not undo the rows that did land.
         if (photoQueue) {
+          const donePhotos = markPhase(`expeditionSync.drain.pushPhotos[${photosDue}]`);
           const p = await pushPhotos(photoQueue, isOnline, {
             onUploaded: (id, key) => onPhotoUploaded.current?.(id, key),
           });
+          donePhotos();
           if (p.blocked && !blocked) {
             blocked = p.blocked === "unconfigured" ? "transport" : p.blocked;
             blockedReason = p.reason;
@@ -292,7 +308,9 @@ export function useExpeditionSync(input: {
         // sends — an analysis cannot exist until its evidence has arrived, so
         // asking first would just be a wasted request every pass.
         if (packages) {
+          const doneAnalysis = markPhase(`expeditionSync.drain.pullAnalysis[${analysesDue}]`);
           const a = await pullAnalysis(packages, isOnline);
+          doneAnalysis();
           if (a.blocked && !blocked) {
             blocked = a.blocked === "unconfigured" ? "transport" : a.blocked;
             blockedReason = a.reason;
@@ -304,11 +322,17 @@ export function useExpeditionSync(input: {
       } finally {
         syncing.current = false;
         if (alive) {
+          const doneStats = markPhase("expeditionSync.drain.finalStats");
+          const stats = outbox.stats();
+          doneStats();
           setState((s) => ({
-            ...s, ...outbox.stats(), syncing: false,
+            ...s, ...stats, syncing: false,
             blocked, blockedReason, lastDrainAt: Date.now(),
           }));
         }
+      }
+      } finally {
+        doneDrain();
       }
     };
 

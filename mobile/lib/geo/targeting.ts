@@ -17,7 +17,10 @@ import { bearingDeg, compassPoint, haversineM } from "../../../shared/geo-core/g
 import { bandFor, computeConfidence } from "../../../shared/geo-core/confidence.ts";
 import type { ConfidenceBand, EvidenceItem, GeoContext } from "../../../shared/geo-core/types.ts";
 import { cellCentre, cellFor, kRing } from "./h3.ts";
-import { DEFAULT_CONTEXT_RADIUS_M, type OfflineGeoContextService } from "./offlineGeoContext.ts";
+import {
+  DEFAULT_CONTEXT_RADIUS_M, type GeoContextQuery, type OfflineGeoContextService,
+} from "./offlineGeoContext.ts";
+import { markPhase } from "../diagnostics/jsStall";
 import type { LocalEvidenceSource } from "../exploration/localEvidence.ts";
 import { featuresNear, intersectionsOf } from "./terrainProviders.ts";
 import type { PackData } from "../../../shared/geo-core/pack/types.ts";
@@ -604,10 +607,15 @@ export class TargetingEngine {
     radiusM: number,
     scoringOpts: ProspectivityOptions,
     packData: PackData | undefined,
+    // Shared across every candidate in one rank() call — see rank()'s own
+    // comment. Omitted by targetAt(), which scores exactly one cell and gets
+    // nothing from batching, so it keeps calling contextAt() directly.
+    query?: GeoContextQuery,
   ): Promise<ExplorationTarget | null> {
     const centre = cellCentre(cell);
     const distanceM = haversineM(from, centre);
-    const { context } = await this.geo.contextAt(centre.lat, centre.lng, { radiusM });
+    const run = query ?? ((lat, lng, opts) => this.geo.contextAt(lat, lng, opts));
+    const { context } = await run(centre.lat, centre.lng, { radiusM });
     const scored = prospectivityEvidence(context, radiusM, this.local, packData, scoringOpts);
     const score = computeConfidence(collapseGroups(scored)).score;
     const reasons = reasonsFor(context, scored);
@@ -653,47 +661,61 @@ export class TargetingEngine {
   async rank(lat: number, lng: number, opts: TargetingOptions = {}): Promise<TargetingResult> {
     const o = { ...DEFAULT_TARGETING, ...opts };
     const here = cellFor(lat, lng);
-
     const radiusM = opts.radiusM ?? DEFAULT_CONTEXT_RADIUS_M;
-    // AFTER the first contextAt, never before: the geo service is what loads the
-    // pack, and reading it earlier hands back an empty one. Hoisting this out of
-    // the loop for tidiness silently removed every structural target.
-    const currentResult = await this.geo.contextAt(lat, lng, { radiusM });
-    const packData = this.pack?.();
-    // One options object for the cell under foot and every candidate: a target
-    // ranked for a different commodity than the ground it is compared against
-    // would be a comparison of two different questions.
-    const scoringOpts: ProspectivityOptions = { commodity: opts.commodity ?? null };
-    const currentScored = prospectivityEvidence(
-      currentResult.context, radiusM, this.local, packData, scoringOpts,
-    );
-    const currentScore = computeConfidence(collapseGroups(currentScored)).score;
-    const currentCoverage = coverageFor(packData, currentScored, { lat, lng });
-
     const candidates = kRing(here, o.rings).filter((c) => c !== here);
-    const targets: ExplorationTarget[] = [];
 
-    for (const cell of candidates) {
-      const built = await this.buildTarget(cell, { lat, lng }, radiusM, scoringOpts, packData);
-      if (!built) continue;
-      if (built.distanceM > o.maxDistanceM) continue;
-      if (built.score < o.minScore) continue; // nothing indicating mineralisation
-      targets.push(built);
+    // PERF (not scoring): one engine/gateway for the current cell AND every
+    // candidate, instead of one per contextAt() call — see openBatch()'s own
+    // comment for the measured cost this replaces. `query` runs the identical
+    // providers/gateway/query-shape contextAt() always has; only the
+    // construction is shared, so this changes nothing about what is computed.
+    // Named with the candidate count so a slow ranking is attributed to a
+    // ring size, not just to "targeting.rank" in general.
+    const done = markPhase(`targeting.rank[${candidates.length + 1}]`);
+    try {
+      const query = await this.geo.openBatch();
+
+      // AFTER the first query, never before: the geo service is what loads the
+      // pack, and reading it earlier hands back an empty one. Hoisting this out
+      // of the loop for tidiness silently removed every structural target.
+      const currentResult = await query(lat, lng, { radiusM });
+      const packData = this.pack?.();
+      // One options object for the cell under foot and every candidate: a target
+      // ranked for a different commodity than the ground it is compared against
+      // would be a comparison of two different questions.
+      const scoringOpts: ProspectivityOptions = { commodity: opts.commodity ?? null };
+      const currentScored = prospectivityEvidence(
+        currentResult.context, radiusM, this.local, packData, scoringOpts,
+      );
+      const currentScore = computeConfidence(collapseGroups(currentScored)).score;
+      const currentCoverage = coverageFor(packData, currentScored, { lat, lng });
+
+      const targets: ExplorationTarget[] = [];
+
+      for (const cell of candidates) {
+        const built = await this.buildTarget(cell, { lat, lng }, radiusM, scoringOpts, packData, query);
+        if (!built) continue;
+        if (built.distanceM > o.maxDistanceM) continue;
+        if (built.score < o.minScore) continue; // nothing indicating mineralisation
+        targets.push(built);
+      }
+
+      // Best first; nearer wins a tie, so a geologist is never sent further for
+      // the same expected value.
+      targets.sort((a, b) => (b.score - a.score) || (a.distanceM - b.distanceM));
+
+      const best = targets[0];
+      return {
+        current: {
+          cell: here, context: currentResult.context,
+          score: currentScore, coverage: currentCoverage,
+        },
+        targets: targets.slice(0, o.limit),
+        hasKnowledge: currentResult.hasKnowledge,
+        bestIsHere: !best || currentScore >= best.score,
+      };
+    } finally {
+      done();
     }
-
-    // Best first; nearer wins a tie, so a geologist is never sent further for
-    // the same expected value.
-    targets.sort((a, b) => (b.score - a.score) || (a.distanceM - b.distanceM));
-
-    const best = targets[0];
-    return {
-      current: {
-        cell: here, context: currentResult.context,
-        score: currentScore, coverage: currentCoverage,
-      },
-      targets: targets.slice(0, o.limit),
-      hasKnowledge: currentResult.hasKnowledge,
-      bestIsHere: !best || currentScore >= best.score,
-    };
   }
 }

@@ -25,6 +25,7 @@
 //      unsent work, that is a signal to surface, not data to throw away.
 //
 // This module knows nothing about geology, HTTP, or what the entries mean.
+import { markPhase } from "../diagnostics/jsStall";
 
 /** What kind of field record an entry carries. */
 export type OutboxKind =
@@ -61,6 +62,12 @@ export interface KeyValueAdapter {
   getItem(key: string): Promise<string | null>;
   setItem(key: string, value: string): Promise<void>;
 }
+
+/** One entry's outcome from a drain pass — see Outbox.applyResults(). */
+export type OutboxAckOutcome =
+  | { localId: string; kind: OutboxKind; result: "sent" }
+  | { localId: string; kind: OutboxKind; result: "failed"; error: string }
+  | { localId: string; kind: OutboxKind; result: "rejected"; error: string };
 
 interface Envelope {
   version: 1;
@@ -259,19 +266,12 @@ export class Outbox {
   }
 
   async markSent(localId: string, kind: OutboxKind): Promise<void> {
-    const e = this.find(localId, kind);
-    if (!e) return;
-    e.sentAt = this.now();
-    e.lastError = null;
+    this.applyOutcome({ localId, kind, result: "sent" });
     await this.persist();
   }
 
   async markFailed(localId: string, kind: OutboxKind, error: string): Promise<void> {
-    const e = this.find(localId, kind);
-    if (!e) return;
-    e.attempts += 1;
-    e.lastAttemptAt = this.now();
-    e.lastError = error.slice(0, 300);
+    this.applyOutcome({ localId, kind, result: "failed", error });
     await this.persist();
   }
 
@@ -286,12 +286,59 @@ export class Outbox {
    * point would silently lose it.
    */
   async markRejected(localId: string, kind: OutboxKind, error: string): Promise<void> {
-    const e = this.find(localId, kind);
+    this.applyOutcome({ localId, kind, result: "rejected", error });
+    await this.persist();
+  }
+
+  /**
+   * The mutation markSent/markFailed/markRejected each make, WITHOUT
+   * persisting — so a caller acknowledging many entries in one pass (see
+   * applyResults) can apply them all in memory and pay for exactly one
+   * serialise-and-write, not one per entry.
+   */
+  private applyOutcome(o: OutboxAckOutcome): void {
+    const e = this.find(o.localId, o.kind);
     if (!e) return;
-    e.attempts += 1;
-    e.lastAttemptAt = this.now();
-    e.sentAt = this.now();
-    e.lastError = (PERMANENT_PREFIX + error).slice(0, 300);
+    if (o.result === "sent") {
+      e.sentAt = this.now();
+      e.lastError = null;
+    } else if (o.result === "failed") {
+      e.attempts += 1;
+      e.lastAttemptAt = this.now();
+      e.lastError = o.error.slice(0, 300);
+    } else {
+      e.attempts += 1;
+      e.lastAttemptAt = this.now();
+      e.sentAt = this.now();
+      e.lastError = (PERMANENT_PREFIX + o.error).slice(0, 300);
+    }
+  }
+
+  /**
+   * Apply every acknowledgement from ONE DRAIN PASS, then persist once.
+   *
+   * THE BUG THIS FIXES. pushOutbox() used to call markSent/markFailed/
+   * markRejected once per entry in the batch it just heard back on — up to
+   * BATCH_SIZE (200) times per drain — and each of those persisted
+   * immediately: a full JSON.stringify and AsyncStorage.setItem of the WHOLE
+   * outbox, not just the entries that changed. Measured on an SM-A165F with an
+   * 87-entry outbox: `outbox.persist` took ~52 SECONDS per call, and a drain
+   * acknowledging 12 entries called it 12 times — the app-wide freeze this was
+   * chasing, misattributed at first to targeting.rank() and then to the drain
+   * itself, because nothing inside persist() had ever been measured on its own.
+   *
+   * Safe to batch: every entry carries a stable localId and the server upserts
+   * on it (see the module header), so acknowledging N entries with one persist
+   * instead of N changes nothing about correctness — only how many times the
+   * SAME final state gets written to disk. If the app is killed before this
+   * resolves, no entry's outcome was written, so every one of them is still
+   * "due" next launch and gets retried — which the idempotent upsert already
+   * makes safe, and is exactly what already happens for a drain that never
+   * got a server response at all (a dropped connection mid-request).
+   */
+  async applyResults(outcomes: readonly OutboxAckOutcome[]): Promise<void> {
+    if (outcomes.length === 0) return;
+    for (const o of outcomes) this.applyOutcome(o);
     await this.persist();
   }
 
@@ -380,10 +427,29 @@ export class Outbox {
   }
 
   private async persist(): Promise<void> {
+    // INVESTIGATION: batching (applyResults) cut this from up to 12 calls per
+    // drain to exactly 1, confirmed live — but the ONE remaining call still
+    // took ~52-64s on device, same as before. The stringify step never once
+    // self-reports as slow (<250ms every time), so the cost is inside
+    // storage.setItem() itself. This app runs the OLD bridge
+    // (newArchEnabled=false, android/gradle.properties): every native call's
+    // arguments are re-serialised by the bridge's own MessageQueue, a SECOND
+    // pass over the string that is invisible to our own instrumentation. Logged
+    // unconditionally, not threshold-gated, to get the real byte count instead
+    // of guessing — and setItem is timed on its own to confirm the write
+    // itself, not the writing-chain queue, is where the time goes.
+    const donePersist = markPhase(`outbox.persist[${this.entries.length}]`);
     const env: Envelope = { version: 1, entries: this.entries };
     const write = this.writing.then(async () => {
       try {
-        await this.storage.setItem(OUTBOX_STORAGE_KEY, JSON.stringify(env));
+        const doneStringify = markPhase(`outbox.persist.stringify[${this.entries.length}]`);
+        const json = JSON.stringify(env);
+        doneStringify();
+        // eslint-disable-next-line no-console
+        console.warn(`[outboxSize] entries=${this.entries.length} chars=${json.length}`);
+        const doneWrite = markPhase(`outbox.persist.setItem[${json.length}]`);
+        await this.storage.setItem(OUTBOX_STORAGE_KEY, json);
+        doneWrite();
       } catch {
         // Out of storage, or the platform refused. The entries are still in
         // memory and the next write may succeed; the session is not interrupted.
@@ -392,6 +458,7 @@ export class Outbox {
     this.writing = write;
     await write;
     this.emit();
+    donePersist();
   }
 
   private emit(): void {

@@ -13,6 +13,16 @@ import { supabase } from "../supabase";
 import {
   createFileSystemPut, PermanentRefusal, type PhotoUploadQueue,
 } from "./photoUploadQueue";
+import { withTimeout } from "../withTimeout";
+
+/**
+ * supabase.functions.invoke() reads the current session to sign its request,
+ * the same call that carried no timeout in lib/auth.tsx, lib/appUpdate.ts and
+ * lib/sync/pushOutbox.ts — each of which produced a MEASURED 51-52 second
+ * freeze before being bounded. This call reaches the network on every sync
+ * pass, not just cold start, so it gets the same ceiling on principle.
+ */
+export const INVOKE_TIMEOUT_MS = 8_000;
 
 /**
  * Statuses that mean the server REFUSED, not that it failed.
@@ -62,9 +72,11 @@ export async function pushPhotos(
   const invoke = deps.invoke ?? (async (missionId, photos) => {
     // The user's own JWT: the function re-verifies it and geo.claim_mission
     // decides whether this caller may write into that mission's prefix.
-    const { data, error } = await supabase.functions.invoke("r2-presign/upload", {
-      body: { missionId, photos },
-    });
+    const { data, error } = await withTimeout(
+      supabase.functions.invoke("r2-presign/upload", { body: { missionId, photos } }),
+      INVOKE_TIMEOUT_MS,
+      { data: null, error: new Error("r2-presign/upload timed out") },
+    );
     if (error) {
       // The status, not the message. supabase-js gives every non-2xx the same
       // generic text ("Edge Function returned a non-2xx status code"), so reading

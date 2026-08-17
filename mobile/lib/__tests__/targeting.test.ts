@@ -174,6 +174,64 @@ describe("TargetingEngine", () => {
       .toEqual(a.targets.map((t) => [t.cell, t.score, Math.round(t.distanceM)]));
   });
 
+  /**
+   * PINNED OUTPUT — guards the perf refactor in offlineGeoContext.ts/targeting.ts
+   * that made rank() build one GeoContextEngine/PackGateway per call (via
+   * openBatch()) and reuse it for the current cell and every candidate, instead
+   * of rebuilding both from scratch on each of up to ~37 contextAt() calls.
+   *
+   * These exact values were captured from rank() BEFORE that refactor, against
+   * this same fixture. Same providers, same gateway, same query shape per cell —
+   * only the construction is shared — so every cell, score, distance, bearing,
+   * compass point and commodity list below must come out byte-for-byte
+   * identical. Any change here means the refactor altered what is computed, not
+   * just how fast it runs, and must be treated as a scoring regression.
+   */
+  test("PINNED: candidate ordering and scores are byte-identical to the pre-refactor baseline", async () => {
+    const result = await engineFor(dataWithNeCluster()).rank(MOG.lat, MOG.lng);
+
+    expect(result.targets.map((t) => [
+      t.cell, t.score, Math.round(t.distanceM), Math.round(t.bearingDeg), t.compass, t.commodities,
+    ])).toEqual([
+      ["877a1c704ffffff", 1, 3772, 56, "NE", ["gold"]],
+      ["877a1c700ffffff", 0.99, 4674, 24, "NE", ["gold"]],
+      ["877a1c706ffffff", 0.99, 5941, 46, "NE", ["gold"]],
+      ["877a1c705ffffff", 0.98, 2394, 18, "N", ["gold"]],
+      ["877a1c731ffffff", 0.98, 5844, 70, "E", ["gold"]],
+      ["877a1c723ffffff", 0.97, 1954, 86, "E", ["gold"]],
+    ]);
+    expect({
+      currentCell: result.current.cell,
+      currentScore: result.current.score,
+      hasKnowledge: result.hasKnowledge,
+      bestIsHere: result.bestIsHere,
+      count: result.targets.length,
+    }).toEqual({
+      currentCell: "877a1c72effffff", currentScore: 0.93,
+      hasKnowledge: true, bestIsHere: false, count: 6,
+    });
+  });
+
+  test("PERF: rank() builds the engine/gateway once per call, not once per candidate", async () => {
+    let opens = 0;
+    const store = new PackStore(
+      createBundledPackSource(() => buildPack(dataWithNeCluster(), BUILD_OPTS).files),
+      () => NOW,
+    );
+    const geo = new OfflineGeoContextService(store);
+    const originalOpenBatch = geo.openBatch.bind(geo);
+    geo.openBatch = async (...args: Parameters<typeof originalOpenBatch>) => {
+      opens++;
+      return originalOpenBatch(...args);
+    };
+    const engine = new TargetingEngine(geo);
+    await engine.rank(MOG.lat, MOG.lng);
+    // Exactly one batch open per rank() call — previously this path opened a
+    // fresh engine/gateway once for the current cell plus once per candidate
+    // (up to ~37 for the default 3 rings).
+    expect(opens).toBe(1);
+  });
+
   test("a target names the commodity its evidence points at", async () => {
     const result = await engineFor(dataWithNeCluster()).rank(MOG.lat, MOG.lng);
     const occ = result.targets[0].reasons.find((r) => r.kind === "occurrence");

@@ -13,6 +13,11 @@ import { installCrashDiagnostics } from "../lib/scanDiag";
 // report. Scrolling is native and continues while JavaScript is blocked; a tap
 // cannot. Logging only; see lib/diagnostics/jsStall.ts.
 import { markPhase, startStallWatch } from "../lib/diagnostics/jsStall";
+// TEMPORARY: outbox.persist() ~52s freeze investigation — fresh-key write
+// probe + backup of the outbox/package/sample store keys. Fire-and-forget,
+// non-blocking, non-destructive. Remove with lib/diagnostics/storageProbe.ts
+// once the investigation concludes.
+import { runStorageDiagnostic } from "../lib/diagnostics/storageProbe";
 import UpdateGate from "../components/UpdateGate";
 import "../lib/i18n";
 import { DEV_INDICATOR_ENABLED } from "../lib/devIndicator";
@@ -26,6 +31,8 @@ installCrashDiagnostics();
 // Started at module scope, before the first component mounts, so a stall during
 // the very first render is measured rather than missed.
 startStallWatch();
+// Fire-and-forget: never blocks boot, never throws past its own try/catch.
+void runStorageDiagnostic();
 const bootPhase = markPhase("app.boot");
 // Ended on the next macrotask: by then the initial synchronous render has run,
 // and anything still blocking belongs to whatever started it, not to boot.

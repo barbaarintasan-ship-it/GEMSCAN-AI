@@ -165,6 +165,18 @@ export interface MapCamera {
   /** Latitude span of the widest tile painted — what `tileStrips` was decided from. */
   tileSpanDeg: number;
   tilesPainted: number;
+  /**
+   * The adaptive rendering budgets, for diagnostics — see imgCapFor/demStride
+   * in the page script. `pressureLevel` above 0 means the reactive guard has
+   * already trimmed the image cache and widened the DEM stride on its own;
+   * that is expected under a heavy layer set and not itself a bug report.
+   */
+  drawMs: number;
+  imgMax: number;
+  demStride: number;
+  pressureLevel: number;
+  /** Decoded tile images the page is holding right now — always sent, always typed. */
+  imagesHeld: number;
   /** What the screen currently covers. Drives which tiles are worth fetching. */
   bbox: [number, number, number, number];
 }
@@ -456,9 +468,95 @@ var IMG_USED = {};
 // that in place the real bound is the screenful — four sources at sixty tiles is
 // 240 — and this only has to sit a little above it, so a pan can hold the
 // outgoing and incoming screens for one frame.
+//
+// ADAPTIVE CEILING. 288 was still sized for the worst RASTER case alone. A
+// THIRD freeze — 50+ SECOND stalls, not the ~300ms kind above — showed up
+// with every layer on at once: four raster sources at their old 288 AND
+// every geology, contact, fault, drainage and DEM layer drawing over them.
+// The tiles in this cache cost nothing extra when vector and DEM layers are
+// what changed — they are typed arrays and canvas fills, not decoded Images —
+// but they compete for the same device memory and the same frame budget, and
+// that combination is what the field report actually was. So the CUSHION
+// above the screenful floor shrinks as more non-raster layers stack up; the
+// floor — rule 1 above — never does. See imgCapFor().
 var IMG_MAX = 288;
 // Bumped once per painted frame, so "used this frame" is a number comparison.
 var FRAME = 0;
+
+/**
+ * How many tile sources the current layer set can actually fill a screen
+ * with. The one number imgCapFor() is never allowed to undercut.
+ */
+function activeTileSources(l){
+  var n = 0;
+  if (l.satellite) n++;
+  if (l.hillshade) n++;
+  if (l.roads) n++;
+  if (l.labels) n++;
+  return n;
+}
+
+/**
+ * Relative drawing cost of one active layer, for the CUSHION only — never
+ * the floor. Weighted by what actually competes for memory and frame time:
+ * a filled polygon or a DEM cell over a whole scene costs more than a sparse
+ * point layer or a session overlay (track, waypoints, target, accuracy,
+ * compass, grid) that is never more than a handful of shapes.
+ */
+var LAYER_WEIGHT = {
+  geology:2, geologyLabels:1, contacts:1, faults:1, drainage:1, lineaments:1,
+  occurrences:0.5, terrain:2, slope:2, aspect:2, land:0.5,
+};
+function nonRasterHeaviness(l){
+  var h = 0;
+  for (var k in LAYER_WEIGHT) if (l[k]) h += LAYER_WEIGHT[k];
+  return h;
+}
+
+/**
+ * The image cache ceiling for the CURRENT layer set.
+ *
+ * Not a layer count limit — Field Reliability Contract: a geologist decides
+ * which layers matter, this only decides how generously the cache may hold
+ * on to tiles while they do. Two terms, added rather than multiplied so
+ * neither can push the other below the floor: a screenful of the active
+ * raster sources (rule 1, unconditional), plus a cushion that a heavier
+ * vector/DEM set is allowed to spend less of.
+ */
+function imgCapFor(l){
+  var floor = Math.max(60, activeTileSources(l) * 60);
+  var cushion = Math.max(24, 108 - nonRasterHeaviness(l) * 6);
+  return Math.min(288, floor + cushion);
+}
+
+/**
+ * Reactive pressure guard — the one thing the static budgets above cannot
+ * see: how the DEVICE is actually coping. There is no API inside a WebView
+ * for this app's own memory footprint, so this reads the only two things
+ * drawing itself produces: how long a frame took, and how many tiles are
+ * decoded right now. pressureLevel widens the DEM stride (demStride, below)
+ * and narrows the image cache (pressureImgMax) a step at a time under a
+ * SUSTAINED run of slow frames — a single bad one (a GC pause, a tile
+ * decode's onload) must not trip it.
+ */
+var frameMsHistory = [];
+var pressureLevel = 0;
+function notePressure(frameMs){
+  frameMsHistory.push(frameMs);
+  if (frameMsHistory.length > 20) frameMsHistory.shift();
+  if (frameMsHistory.length < 6) return;
+  var sum = 0;
+  for (var i=0;i<frameMsHistory.length;i++) sum += frameMsHistory[i];
+  var avg = sum / frameMsHistory.length;
+  if (avg > 120 && pressureLevel < 3) pressureLevel++;
+  else if (avg < 40 && pressureLevel > 0) pressureLevel--;
+}
+/** imgCapFor()'s cushion, trimmed further per pressure level — floor untouched. */
+function pressureImgMax(baseCap, l){
+  var floor = Math.max(60, activeTileSources(l) * 60);
+  var cushion = Math.max(0, baseCap - floor);
+  return floor + Math.round(cushion * (1 - pressureLevel * 0.25));
+}
 
 function tileImg(uri){
   IMG_USED[uri] = FRAME;
@@ -666,9 +764,36 @@ function cellVisible(c, m){
  */
 function cellsWorthDrawing(){ return CELL_M * cam.scale >= 2; }
 
+/**
+ * DEM draw budget, shared across terrain/slope/aspect — computed ONCE per
+ * frame, not once per layer.
+ *
+ * The three layers read the SAME CELLS array; there is only ever one copy
+ * of the grid in memory. But each drew every cell in it independently, so
+ * switching on all three tripled the per-frame cost of one grid with nothing
+ * more shown. This throttles DRAWING ONLY — identifyAt() and every other
+ * measurement still reads the full grid regardless of what is on screen.
+ *
+ * Full resolution is kept at the zoom a geologist actually stands at:
+ * cellsWorthDrawing() already refuses anything below ~2px of screen size,
+ * and this adds nothing below ~6px, where a stride would visibly coarsen
+ * ground someone is standing on. The stride bites zoomed OUT — where the
+ * grid is denser than the screen can resolve anyway — and when more than one
+ * DEM layer is stacking the same cost on top of it. pressureLevel (below)
+ * can widen it further under sustained slow frames, on top of either reason.
+ */
+function demStride(){
+  var active = (LAYERS.terrain?1:0) + (LAYERS.slope?1:0) + (LAYERS.aspect?1:0);
+  var px = CELL_M * cam.scale;
+  var extra = Math.max(0, active - 1) + pressureLevel;
+  if (extra === 0 || px >= 6) return 1;           // walking zoom: full detail
+  return px >= 3 ? 1 + extra : 1 + extra * 2;
+}
+
 function drawTerrain(){
   if (!LAYERS.terrain || !CELLS.length || !cellsWorthDrawing()) return;
-  for (var i=0;i<CELLS.length;i++){
+  var stride = DEM_STRIDE;
+  for (var i=0;i<CELLS.length;i+=stride){
     var t = CELLS[i];
     if (!cellVisible(t, CELL_M)) continue;
     ctx.globalAlpha = 0.10 + t.shade * 0.32;
@@ -686,7 +811,8 @@ function slopeColor(deg){
 }
 function drawSlope(){
   if (!LAYERS.slope || !CELLS.length || !cellsWorthDrawing()) return;
-  for (var i=0;i<CELLS.length;i++){
+  var stride = DEM_STRIDE;
+  for (var i=0;i<CELLS.length;i+=stride){
     var t = CELLS[i];
     if (!cellVisible(t, CELL_M)) continue;
     ctx.globalAlpha = 0.42;
@@ -699,7 +825,8 @@ function drawSlope(){
 function drawAspect(){
   if (!LAYERS.aspect || !CELLS.length || !cellsWorthDrawing()) return;
   ctx.lineCap = "round";
-  for (var i=0;i<CELLS.length;i++){
+  var stride = DEM_STRIDE;
+  for (var i=0;i<CELLS.length;i+=stride){
     var t = CELLS[i];
     if (t.aspect == null) continue;      // flat ground has no downslope direction
     if (!cellVisible(t, CELL_M)) continue;
@@ -984,11 +1111,19 @@ function drawMe(){
 }
 
 var pending = false;
+// Recomputed once per frame — see imgCapFor/pressureImgMax and demStride
+// above. Cheap (a handful of boolean checks over the current layer set), and
+// reading them mid-frame from drawTiles/drawTerrain/drawSlope/drawAspect
+// would rebudget while the frame it is meant to bound is already drawing.
+var DEM_STRIDE = 1;
 function draw(){
   if (pending) return;
   pending = true;
   requestAnimationFrame(function(){
     pending = false;
+    var frameStart = (window.performance && performance.now) ? performance.now() : Date.now();
+    IMG_MAX = pressureImgMax(imgCapFor(LAYERS), LAYERS);
+    DEM_STRIDE = demStride();
     beginFrame();
     viewBox();
     ctx.fillStyle = "#07070A"; ctx.fillRect(0,0,W,H);
@@ -1014,6 +1149,9 @@ function draw(){
     drawWaypoints();
     drawSelected();
     drawMe();
+    var frameEnd = (window.performance && performance.now) ? performance.now() : Date.now();
+    lastDrawMs = frameEnd - frameStart;
+    notePressure(lastDrawMs);
     report();
   });
 }
@@ -1023,18 +1161,39 @@ function draw(){
 // fetching, so it must be reported — but a message per frame is a bridge
 // crossing per frame. Rounded to what the receivers can actually use, and
 // dropped when unchanged, a whole pan produces a handful of messages.
-var lastReport = "", postTimer = null, lastPostAt = 0;
+var lastReport = "", lastReportKey = "", postTimer = null, lastPostAt = 0;
 /** At most this often while the camera is moving. The last state always lands. */
 var REPORT_MS = 100;
+/** Set at the end of every frame — see draw(). Reported, never read for layout. */
+var lastDrawMs = 0;
 
 function report(){
   var c1 = toWorld(0, 0, [0,0]), c2 = toWorld(W, 0, [0,0]);
   var c3 = toWorld(0, H, [0,0]), c4 = toWorld(W, H, [0,0]);
   var xs = [c1[0],c2[0],c3[0],c4[0]], ys = [c1[1],c2[1],c3[1],c4[1]];
+  var rotationDeg = ((cam.rot*180/Math.PI)%360+360)%360;
+  var metresPerPx = 1/cam.scale;
+  var bbox = [
+    lngOf(Math.min.apply(null,xs)), latOf(Math.min.apply(null,ys)),
+    lngOf(Math.max.apply(null,xs)), latOf(Math.max.apply(null,ys))
+  ].map(function(v){ return Math.round(v*10000)/10000; });
+  // The identity a frame is deduped ON. Deliberately narrower than the
+  // message actually sent, below — drawMs moves by timing noise even when
+  // the camera and every layer are unchanged, and keying the dedupe to it
+  // would turn "dropped when unchanged" back into a message every frame,
+  // which is the exact bridge-crossing cost this function exists to avoid.
+  var key = JSON.stringify({
+    rotationDeg:rotationDeg, metresPerPx:metresPerPx, ringStepM:RING_STEP,
+    tileStrips:tileStrips, imagesHeld:IMG_ORDER.length,
+    tileSpanDeg: Math.round(tileSpanDeg * 1000) / 1000, tilesPainted:tilesPainted,
+    bbox:bbox,
+  });
+  if (key === lastReportKey) return;
+  lastReportKey = key;
   var msg = JSON.stringify({
     type:"camera",
-    rotationDeg: ((cam.rot*180/Math.PI)%360+360)%360,
-    metresPerPx: 1/cam.scale,
+    rotationDeg: rotationDeg,
+    metresPerPx: metresPerPx,
     ringStepM: RING_STEP,
     tileStrips: tileStrips,
     // How many decoded tile images the page is holding. Reported because it
@@ -1043,12 +1202,17 @@ function report(){
     imagesHeld: IMG_ORDER.length,
     tileSpanDeg: Math.round(tileSpanDeg * 1000) / 1000,
     tilesPainted: tilesPainted,
-    bbox: [
-      lngOf(Math.min.apply(null,xs)), latOf(Math.min.apply(null,ys)),
-      lngOf(Math.max.apply(null,xs)), latOf(Math.max.apply(null,ys))
-    ].map(function(v){ return Math.round(v*10000)/10000; })
+    // The adaptive budgets — diagnostics only, and excluded from the dedupe
+    // key above on purpose. RSS itself is not readable from inside a WebView, so this
+    // is the closest honest proxy: how long drawing took, how hard the
+    // guards are currently squeezing, and how many tiles are actually held
+    // right now (imagesHeld, above).
+    drawMs: Math.round(lastDrawMs * 10) / 10,
+    imgMax: IMG_MAX,
+    demStride: DEM_STRIDE,
+    pressureLevel: pressureLevel,
+    bbox: bbox,
   });
-  if (msg === lastReport) return;
   lastReport = msg;
 
   // Rate-limited, with a TRAILING send. A message per drawn frame is a bridge

@@ -17,6 +17,7 @@
 // result arrives on its own and the collection picks it up on the next read.
 import type { LocalSampleStore } from "./localSampleStore";
 import type { MediaRole, NewSampleInput, SampleMediaInput } from "../enterpriseSamples";
+import { markPhase } from "../diagnostics/jsStall";
 
 export interface SamplePushResult {
   attempted: number;
@@ -80,11 +81,18 @@ export async function pushPendingSamples(
       for (let i = 0; i < sample.photos.length; i++) {
         const p = sample.photos[i];
         if (p.storagePath) { media.push({ role: p.role, storage_path: p.storagePath }); continue; }
+        // INVESTIGATION: uploadPhoto (enterpriseSamples.uploadSampleMedia) shrinks
+        // the image then base64-encodes it with FileSystem.readAsStringAsync — a
+        // real CPU + allocation cost, and unlike the six already-fixed call
+        // sites, this one has no timeout of its own.
+        const doneUpload = markPhase(`pendingSample.uploadPhoto[${i}]`);
         const result = await api.uploadPhoto(p.localUri, p.role);
+        doneUpload();
         await store.markPhotoUploaded(sample.localId, i, result.storage_path);
         media.push(result);
       }
 
+      const doneSubmit = markPhase(`pendingSample.submit[media=${media.length}]`);
       const { sample_id } = await api.submit({
         ...sample.payload,
         media,
@@ -92,6 +100,7 @@ export async function pushPendingSamples(
         // repeat after an unknown outcome — which is what a timeout is.
         client_local_id: sample.localId,
       });
+      doneSubmit();
 
       await store.markUploaded(sample.localId, sample_id);
       uploaded++;

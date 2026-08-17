@@ -5,6 +5,28 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import { setCurrentIdentity } from "./currentIdentity";
+import { markPhase } from "./diagnostics/jsStall";
+
+/**
+ * THE UP-TO-209-SECOND FREEZE THIS GUARDS AGAINST.
+ *
+ * `app/index.tsx` and `app/(app)/_layout.tsx` both gate their ENTIRE screen on
+ * `isLoading`, showing only a spinner until it clears — and it used to clear
+ * only when `getSession()` resolved, with no ceiling on that wait.
+ * supabase-js's `getSession()` can itself wait on an internal token refresh
+ * that carries no timeout of its own, and a stalled connection to the auth
+ * endpoint left it unresolved for minutes at a time, MEASURED repeatedly on
+ * a cold app start / session resume — exactly the moment a geologist opens
+ * the app in the field. That is the one place this app is not allowed to
+ * wait on a network at all: an open expedition lease already makes every
+ * field screen work with no session (see expeditionLease.ts), so there was
+ * never a reason for the LOADING SCREEN ITSELF to require one.
+ *
+ * This is a ceiling on the WAIT, not on the call — getSession() keeps running
+ * underneath and still updates `session` normally if and when it resolves;
+ * the app is simply never held hostage until it does.
+ */
+const AUTH_TIMEOUT_MS = 8_000;
 
 type AuthContextValue = {
   session: Session | null;
@@ -55,7 +77,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let unmounted = false;
+    const doneAuthPhase = markPhase("auth.getSession");
+    // See AUTH_TIMEOUT_MS above: the loading screen may not wait on the
+    // network forever. getSession() is left running — a late answer still
+    // lands via the .then() below, whichever fires second is a no-op.
+    const timeout = setTimeout(() => {
+      if (!unmounted) setIsLoading(false);
+    }, AUTH_TIMEOUT_MS);
+
     supabase.auth.getSession().then(({ data }) => {
+      doneAuthPhase();
+      clearTimeout(timeout);
+      if (unmounted) return;
       setSession(data.session);
       publishIdentity(data.session);
       setIsLoading(false);
@@ -67,7 +101,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       publishIdentity(newSession);
     });
 
-    return () => subscription.subscription.unsubscribe();
+    return () => {
+      unmounted = true;
+      clearTimeout(timeout);
+      subscription.subscription.unsubscribe();
+    };
   }, []);
 
   // B6 (perf): stable identities so the context value below only changes when

@@ -9,6 +9,18 @@
 // checkout has already granted, server-side.
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "./auth";
+import { markPhase } from "./diagnostics/jsStall";
+
+/**
+ * Another unguarded cold-start call, found the same way as getSession(),
+ * appUpdate.check and the tile downloads: this fetch carries no timeout, and
+ * useSubscriptionStatus fires it automatically the moment a session becomes
+ * available — which is exactly when the app is opened. Same fix, same
+ * reasoning: fail open rather than hang. react-query's own retry/staleTime
+ * behaviour picks it back up on the next refetch; nothing here is a fetch
+ * this app cannot afford to lose once.
+ */
+export const SUBSCRIPTION_TIMEOUT_MS = 10_000;
 
 export type SubscriptionTier = "free" | "premium" | "lifetime" | "professional";
 
@@ -49,11 +61,21 @@ const EMPTY_DEEP_SCAN: DeepScanBalance = { allowance: 0, used: 0, purchased: 0, 
 
 const FUNCTIONS_URL = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL!;
 
-async function fetchSubscriptionStatus(accessToken: string): Promise<SubscriptionStatus> {
-  const res = await fetch(`${FUNCTIONS_URL}/verify-subscription`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+export async function fetchSubscriptionStatus(accessToken: string): Promise<SubscriptionStatus> {
+  const done = markPhase("subscription.fetch");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SUBSCRIPTION_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${FUNCTIONS_URL}/verify-subscription`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+    done();
+  }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

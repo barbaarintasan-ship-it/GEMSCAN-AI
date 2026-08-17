@@ -3,7 +3,10 @@
 // The rule here is the same one the upload path has: NEVER break the sync loop.
 // A geologist whose loop has stopped sees "waiting for analysis" for ever with no
 // indication that nothing is coming, and that is worse than an error.
-import { pullAnalysis, MAX_PER_PASS } from "../sync/pullAnalysis";
+const mockInvoke = jest.fn();
+jest.mock("../supabase", () => ({ supabase: { functions: { invoke: (...a: unknown[]) => mockInvoke(...a) } } }));
+
+import { pullAnalysis, MAX_PER_PASS, INVOKE_TIMEOUT_MS } from "../sync/pullAnalysis";
 import { PackageStore, PACKAGE_STORAGE_KEY } from "../exploration/packageStore";
 import {
   EVIDENCE_PACKAGE_VERSION, READABLE_PACKAGE_VERSIONS,
@@ -207,5 +210,33 @@ describe("a failure is recorded with its reason", () => {
     await s.load();
     expect(s.get("ms-1")?.analysisError).toBeNull();
     expect(s.get("ms-1")?.analysis).not.toBeNull();
+  });
+});
+
+describe("the real invoke, not a stub — the 52 second freeze this fixes", () => {
+  // supabase.functions.invoke() reads the current session to sign its request,
+  // the same call that carried no timeout in auth.tsx, appUpdate.ts and
+  // pushOutbox.ts, each producing a MEASURED 51-52 second freeze before being
+  // bounded. No `deps.invoke` override here — this drives the real default,
+  // wired to a mocked supabase client whose invoke() never answers.
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockInvoke.mockReset();
+  });
+  afterEach(() => { jest.useRealTimers(); });
+
+  test("a stalled connection resolves at the ceiling, not never", async () => {
+    mockInvoke.mockImplementation(() => new Promise(() => {}));
+    const s = store([pkg("ms-1")]);
+
+    const result = pullAnalysis(s, true);
+    await jest.advanceTimersByTimeAsync(INVOKE_TIMEOUT_MS);
+    const r = await result;
+
+    // A timeout is not a success, but it is not a broken loop either — the
+    // package is untouched and will be asked about again next pass.
+    expect(r.collected).toBe(0);
+    await s.load();
+    expect(s.get("ms-1")?.analysis).toBeNull();
   });
 });
