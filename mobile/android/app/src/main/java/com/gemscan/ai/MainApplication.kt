@@ -10,6 +10,7 @@ import com.facebook.react.ReactPackage
 import com.facebook.react.ReactHost
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.load
 import com.facebook.react.defaults.DefaultReactNativeHost
+import com.facebook.react.soloader.OpenSourceMergedSoMapping
 import com.facebook.soloader.SoLoader
 
 import expo.modules.ApplicationLifecycleDispatcher
@@ -40,7 +41,11 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
-    SoLoader.init(this, false)
+    // RN 0.79 merges its native libs into libreactnative.so; SoLoader needs the
+    // merged-so mapping to resolve the old per-lib names. The pre-0.76 boolean
+    // form `SoLoader.init(this, false)` compiles but crashes at startup with
+    // UnsatisfiedLinkError on the merged build.
+    SoLoader.init(this, OpenSourceMergedSoMapping)
     if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
       // If you opted-in for the New Architecture, we load the native entry point for this app.
       load()

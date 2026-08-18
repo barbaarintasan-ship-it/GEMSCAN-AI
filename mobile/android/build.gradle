@@ -6,18 +6,23 @@ buildscript {
         minSdkVersion = Integer.parseInt(findProperty('android.minSdkVersion') ?: '23')
         compileSdkVersion = Integer.parseInt(findProperty('android.compileSdkVersion') ?: '35')
         targetSdkVersion = Integer.parseInt(findProperty('android.targetSdkVersion') ?: '35')
-        kotlinVersion = findProperty('android.kotlinVersion') ?: '1.9.23'
+        kotlinVersion = findProperty('android.kotlinVersion') ?: '2.0.21'
 
-        ndkVersion = "26.1.10909125"
+        // NDK r27: makes 16 KB ELF alignment (-Wl,-z,max-page-size=16384) the
+        // linker default, so locally-compiled .so libs (expo-gl, expo-modules-core)
+        // satisfy Google Play's 16 KB page-size requirement. Bumped from r26b
+        // (26.1.10909125), which aligned to 4 KB. Matches Expo SDK 53.
+        ndkVersion = "27.1.12297006"
     }
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        // Pin AGP 8.6.0 (compatible with Gradle 8.8): compileSdk/targetSdk 35
-        // requires Android Gradle Plugin 8.6.0+, which Google Play now mandates.
-        classpath('com.android.tools.build:gradle:8.6.0')
+        // Pin AGP 8.8.2 (requires Gradle 8.10.2+; we run 8.13) — the Expo SDK 53 /
+        // React Native 0.79 baseline. compileSdk/targetSdk 36 stays via the
+        // android.* overrides in gradle.properties. Bumped from 8.6.0 (SDK 51).
+        classpath('com.android.tools.build:gradle:8.8.2')
         classpath('com.facebook.react:react-native-gradle-plugin')
         classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
     }
