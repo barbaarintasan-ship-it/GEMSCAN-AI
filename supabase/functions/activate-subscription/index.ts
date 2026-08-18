@@ -113,10 +113,15 @@ Deno.serve(async (req) => {
     }
 
     const planKey = String(body.plan ?? "").trim().toLowerCase();
+    // 12-month period by default; the plugin sends 6 for the standard plans and
+    // 12 for Enterprise (which is billed yearly, by agreement).
     const months = Number(body.months ?? 12) || 12;
     const method = String(body.method ?? "").trim();
     const reference = body.reference ? String(body.reference) : null;
-    const tier = PLAN_TIER[planKey];
+    const isEnterprise = planKey === "enterprise";
+    // Enterprise access is an ORGANIZATION entitlement, not a marketing tier — but
+    // the paying account still gets the top app tier alongside it.
+    const tier = isEnterprise ? "professional" : PLAN_TIER[planKey];
     if (!tier) return json({ error: "a valid plan is required" }, 400);
 
     // Resolve the account by email (profiles.id === auth user id).
@@ -131,6 +136,49 @@ Deno.serve(async (req) => {
     const end = new Date(now.getTime());
     end.setMonth(end.getMonth() + months);
     const source = ALLOWED_SOURCES.includes(method) ? method : null;
+
+    // ── ENTERPRISE: grant the org entitlement the enterprise gate checks ──────
+    // requireEnterprise() passes on an ACTIVE organization membership, not on a
+    // subscription tier. So activating Enterprise creates (or re-activates) the
+    // customer's organization and makes them its owner. Idempotent: re-running it
+    // (renewal) re-activates the same org instead of making a second one.
+    if (isEnterprise) {
+      // organization / organization_member live in the ENTERPRISE schema, not
+      // public — the default client would look for public.organization and fail
+      // ("Could not find the table 'public.organization' in the schema cache").
+      const ent = admin.schema("enterprise");
+
+      const { data: existingOrg } = await ent
+        .from("organization")
+        .select("id")
+        .eq("created_by", profile.id)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      let orgId = existingOrg?.id as string | undefined;
+      if (orgId) {
+        const { error: upErr } = await ent.from("organization")
+          .update({ status: "active", plan: "enterprise", updated_at: now.toISOString() })
+          .eq("id", orgId);
+        if (upErr) return json({ error: upErr.message }, 500);
+      } else {
+        const orgName = String(body.org_name ?? "").trim() || email;
+        const { data: created, error: orgErr } = await ent
+          .from("organization")
+          .insert({ name: orgName, plan: "enterprise", status: "active", created_by: profile.id })
+          .select("id")
+          .single();
+        if (orgErr) return json({ error: orgErr.message }, 500);
+        orgId = created!.id;
+      }
+
+      const { error: memErr } = await ent.from("organization_member").upsert(
+        { organization_id: orgId, user_id: profile.id, role: "owner" },
+        { onConflict: "organization_id,user_id" },
+      );
+      if (memErr) return json({ error: memErr.message }, 500);
+    }
 
     const { error } = await admin.from("subscriptions").upsert(
       {
@@ -147,7 +195,7 @@ Deno.serve(async (req) => {
     );
     if (error) return json({ error: error.message }, 500);
 
-    return json({ success: true, email, tier, expires: end.toISOString() });
+    return json({ success: true, email, tier: isEnterprise ? "enterprise" : tier, expires: end.toISOString() });
   } catch (err) {
     return json({ error: (err as Error).message }, 500);
   }

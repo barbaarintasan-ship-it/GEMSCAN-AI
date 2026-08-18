@@ -55,6 +55,10 @@ export type SubscriptionStatus = {
   source: string | null;
   features: SubscriptionFeatures;
   deepScan: DeepScanBalance;
+  // True when the account may use the enterprise platform (field exploration,
+  // samples) — the owner, OR a member of an active organization. Optional so an
+  // older backend that does not send it is read as `false`.
+  enterprise?: boolean;
 };
 
 const EMPTY_DEEP_SCAN: DeepScanBalance = { allowance: 0, used: 0, purchased: 0, remaining: 0 };
@@ -84,7 +88,7 @@ export async function fetchSubscriptionStatus(accessToken: string): Promise<Subs
 
   const json = (await res.json()) as SubscriptionStatus;
   // Default the balance so older backends (pre-credits) never crash the app.
-  return { ...json, deepScan: json.deepScan ?? EMPTY_DEEP_SCAN };
+  return { ...json, deepScan: json.deepScan ?? EMPTY_DEEP_SCAN, enterprise: json.enterprise ?? false };
 }
 
 export function useSubscriptionStatus() {

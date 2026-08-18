@@ -8,8 +8,10 @@
 import { loadBundledPackFiles } from "../geo/bundledPack.ts";
 import { PackStore, createBundledPackSource } from "../geo/packStore.ts";
 import { OfflineGeoContextService } from "../geo/offlineGeoContext.ts";
-import { TargetingEngine } from "../geo/targeting.ts";
+import { TargetingEngine, prospectivityEvidence } from "../geo/targeting.ts";
+import { coverageAt } from "../geo/evidenceCoverage.ts";
 import { readPack } from "../../../shared/geo-core/pack/read.ts";
+import type { GeoContext } from "../../../shared/geo-core/types.ts";
 
 const files = loadBundledPackFiles();
 const pack = files ? readPack(files) : null;
@@ -135,7 +137,38 @@ describe("bundled Somalia knowledge pack", () => {
     // from, the sampling resolution and the contributing-area threshold that
     // decided it was a channel.
     const kinds = new Set(d.mapFeatures.map((f) => f.kind));
-    expect([...kinds].sort()).toEqual(["contact", "drainage", "fault"]);
+    expect([...kinds].sort()).toEqual(["contact", "drainage", "fault", "lineament"]);
+
+    // Lineaments: INTERPRETED structure, extracted from the Copernicus GLO-30 DEM
+    // by this repo's own multi-azimuth hillshade → Hough pipeline, clipped to
+    // Somalia. Every one is stamped so nothing downstream can read it as a mapped
+    // fault: source copernicus_dem_derived, confidence "interpreted".
+    const lineaments = d.mapFeatures.filter((f) => f.kind === "lineament");
+    expect(lineaments.length).toBeGreaterThan(1000);
+    for (const f of lineaments.slice(0, 20)) {
+      expect(f.source).toBe("copernicus_dem_derived");
+      expect((f.attributes as Record<string, unknown>).confidence).toBe("interpreted");
+    }
+  });
+
+  // TEST MISSION: prove the engine READS the real pack's lineaments and surfaces
+  // them in the geological CONTEXT — standing on a real lineament reports it in the
+  // coverage panel as `not_scored` (present, held out of the number), never as a
+  // scored item (it is in ROLES_NOT_SCORED: it leaks 4.3x and restates terrain).
+  itPack("TEST MISSION: a real-pack lineament reaches the engine as CONTEXT (not scored)", () => {
+    const d = pack!.data;
+    const lineaments = d.mapFeatures.filter((f) => f.kind === "lineament");
+    const [lng, lat] = lineaments[0].lines[0][0];
+    // Coverage panel: the lineament layer is present here, as context.
+    const cov = coverageAt(d, new Set(), { lat, lng }, 5000);
+    expect(cov.roles.find((r) => r.role === "lineaments")!.state).toBe("not_scored");
+    // And it is NOT fed to the score: nothing attributes evidence to lineaments.
+    const ctx = {
+      location: { lat, lng },
+      knownOccurrences: [], commodityAssociations: [], communityEvidence: null,
+    } as unknown as GeoContext;
+    const items = prospectivityEvidence(ctx, 5000, undefined, d);
+    expect(items.some((i) => i.role === "lineaments")).toBe(false);
 
     // Contacts: boundaries between two named units of the Geological Map of
     // Somalia (Abbate et al., 1:1,500,000), digitized by UNESCO IHP-WINS. The
@@ -183,8 +216,10 @@ describe("bundled Somalia knowledge pack", () => {
     // Present in the pack is NOT the same as feeding the score — see
     // prospectivityBaseline: contacts leak 3.5x and are held in ROLES_NOT_SCORED.
     expect(d.mapFeatures.some((f) => f.kind === "contact")).toBe(true);
-    // Lineaments still have no source, and none is invented to fill the gap.
-    expect(d.mapFeatures.some((f) => f.kind === "lineament")).toBe(false);
+    // Lineaments are now present — but as INTERPRETED structure (Copernicus GLO-30
+    // DEM-derived, confidence "interpreted"), never as invented mapped faults. The
+    // source stamp is what keeps the distinction honest downstream.
+    expect(d.mapFeatures.some((f) => f.kind === "lineament")).toBe(true);
     // Terrain is country-wide now — Copernicus GLO-30, H3 resolution 6. The old
     // SRTM sampling was a k-ring around each known occurrence, which made its
     // coverage a 150x proxy for "somebody already found something here".

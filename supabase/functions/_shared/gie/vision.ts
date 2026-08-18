@@ -8,7 +8,8 @@
 //
 // The AI call is injected (VisionDeps) so buildVisionPrompt / parseVisionResponse /
 // visualEvidence stay pure and unit-testable without a key or network.
-import { encodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
+import { encodeBase64, decodeBase64 } from "https://deno.land/std@0.224.0/encoding/base64.ts";
+import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 import type { EvidenceInput } from "./types.ts";
 import { fetchWithTimeout, BUDGET_MS } from "../timeout.ts";
 
@@ -40,6 +41,13 @@ export interface VisionDeps {
    */
   probeSizeBytes?: (url: string) => Promise<number | null>;
   fetchImageBase64: (url: string) => Promise<VisionImage>;
+  /**
+   * Downscale one image so a full-frame field photo (5–7 MB) becomes something the
+   * isolate and Gemini can both hold. Injected so the resize is testable — a stub
+   * can shrink, pass through, or THROW (a resize failure must skip the photo, never
+   * strand the mission). Omitted → images are used as fetched.
+   */
+  resize?: (image: VisionImage) => Promise<VisionImage>;
   // Returns the model's raw text (expected to be JSON per the prompt).
   generate: (prompt: string, images: VisionImage[]) => Promise<string>;
 }
@@ -155,6 +163,21 @@ export const MAX_SINGLE_IMAGE_BYTES = envBytes("GIE_VISION_MAX_SINGLE_BYTES", 2 
 /** A last guard on count, so a thousand thumbnails cannot each cost a round trip. */
 export const MAX_VISION_IMAGES = envBytes("GIE_VISION_MAX_IMAGES", 3);
 
+/**
+ * The DECODE ceiling, in file bytes. Downscaling now admits the 5–7 MB field
+ * frames that the old size cap rejected outright — but a genuinely pathological
+ * file (a 60 MP panorama) is still refused BEFORE it is pulled and decoded, because
+ * ImageScript decodes to a full width×height×4 bitmap and that is what would blow
+ * the isolate. Comfortably above a phone frame, well below anything that OOMs.
+ */
+export const MAX_DECODE_BYTES = envBytes("GIE_VISION_MAX_DECODE_BYTES", 20 * 1024 * 1024);
+
+/** Longest side after downscale. 1024 px is plenty for texture/vein/alteration. */
+export const VISION_MAX_DIM = envBytes("GIE_VISION_MAX_DIM", 1024);
+
+/** JPEG quality (1..100) for the downscaled image. */
+export const VISION_JPEG_QUALITY = envBytes("GIE_VISION_JPEG_QUALITY", 70);
+
 export async function runVision(imageUrls: string[], deps: VisionDeps): Promise<VisualObservation[]> {
   if (imageUrls.length === 0) return [];
 
@@ -168,9 +191,10 @@ export async function runVision(imageUrls: string[], deps: VisionDeps): Promise<
   for (const u of imageUrls) {
     if (images.length >= MAX_VISION_IMAGES) break;
 
-    // ASK FIRST, DOWNLOAD SECOND. The encoded size is about a third larger than
-    // the file, so the declared length is scaled before it is judged. A probe
-    // that cannot answer returns null and the image is fetched as before —
+    // ASK FIRST, DOWNLOAD SECOND — but the question is now "is this too large to
+    // DECODE", not "too large to send". Downscaling handles ordinary big frames;
+    // the probe only refuses the pathological ones before they are pulled and
+    // decoded. A probe that cannot answer returns null and the image is fetched —
     // unknown size is not a reason to discard a photo.
     if (deps.probeSizeBytes) {
       let declared: number | null = null;
@@ -180,9 +204,18 @@ export async function runVision(imageUrls: string[], deps: VisionDeps): Promise<
         declared = null;
       }
       if (declared != null) {
-        const encoded = Math.ceil(declared * 4 / 3);
-        if (encoded > MAX_SINGLE_IMAGE_BYTES) continue;
-        if (bytes + encoded > MAX_VISION_BYTES) break;
+        if (deps.resize) {
+          // Resize will shrink whatever is downloaded, so the only thing worth
+          // refusing before download is a file too large to DECODE safely.
+          if (declared > MAX_DECODE_BYTES) continue;
+        } else {
+          // No resize: keep the original pre-skip so an oversized frame is never
+          // pulled into the isolate at all (the Qardho OOM incident). The encoded
+          // length is a third larger than the file, and the budget is on the wire.
+          const encoded = Math.ceil(declared * 4 / 3);
+          if (encoded > MAX_SINGLE_IMAGE_BYTES) continue;
+          if (bytes + encoded > MAX_VISION_BYTES) break;
+        }
       }
     }
 
@@ -195,8 +228,19 @@ export async function runVision(imageUrls: string[], deps: VisionDeps): Promise<
       continue;
     }
 
-    // Checked again on the real bytes: the probe may have been unavailable, and
-    // a declared length can disagree with what actually arrives.
+    // Downscale before it is measured or sent. A resize FAILURE skips this one
+    // photo — a corrupt or unsupported frame must not strand the whole mission.
+    if (deps.resize) {
+      try {
+        img = await deps.resize(img);
+      } catch {
+        continue;
+      }
+    }
+
+    // Checked on the REAL, post-resize bytes: after downscaling a phone frame is a
+    // couple of hundred KB, so this now guards against a resize that did not shrink
+    // enough rather than rejecting every full-frame photo up front.
     const size = img.base64.length;
     if (size > MAX_SINGLE_IMAGE_BYTES) continue;
     if (bytes + size > MAX_VISION_BYTES) break;
@@ -233,6 +277,20 @@ export const defaultVisionDeps: VisionDeps = {
     if (!res.ok) throw new Error(`image fetch failed (${res.status})`);
     const mimeType = res.headers.get("content-type") ?? "image/jpeg";
     return { base64: encodeBase64(new Uint8Array(await res.arrayBuffer())), mimeType };
+  },
+  resize: async (img) => {
+    // Decode → downscale longest side to VISION_MAX_DIM (keeping aspect) → re-encode
+    // JPEG. A 6 MB frame becomes a couple of hundred KB, which is what makes it safe
+    // to hold in the isolate and cheap to send. Works on photos ALREADY in R2, so it
+    // fixes the missions whose full-frame uploads were being skipped entirely.
+    const decoded = await Image.decode(decodeBase64(img.base64));
+    const longest = Math.max(decoded.width, decoded.height);
+    if (longest > VISION_MAX_DIM) {
+      if (decoded.width >= decoded.height) decoded.resize(VISION_MAX_DIM, Image.RESIZE_AUTO);
+      else decoded.resize(Image.RESIZE_AUTO, VISION_MAX_DIM);
+    }
+    const jpeg = await decoded.encodeJPEG(VISION_JPEG_QUALITY);
+    return { base64: encodeBase64(jpeg), mimeType: "image/jpeg" };
   },
   generate: async (prompt, images) => {
     const apiKey = Deno.env.get("GEMINI_API_KEY");

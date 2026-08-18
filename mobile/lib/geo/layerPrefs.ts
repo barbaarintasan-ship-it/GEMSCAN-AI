@@ -10,7 +10,12 @@
 // default instead of being read as "off".
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const KEY = "exploration.layers.v1";
+// Bumped v1 → v2 when satellite/roads/labels moved to off-by-default and the DEM
+// lineament layer to on-by-default. Bumped v2 → v3 to clear a stored set in which
+// the lineament layer had been toggled off (and stuck off, because mergeLayers lets
+// a stored key win): the rename re-applies the current defaults once — lineaments
+// ON — after which a fresh choice re-persists under v3.
+const KEY = "exploration.layers.v3";
 
 /**
  * The generic is bound to `object`, not to `Record<string, boolean>`.

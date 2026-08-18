@@ -17,6 +17,7 @@
 import type { Outbox, OutboxAckOutcome, OutboxEntry } from "./outbox";
 import { withTimeout } from "../withTimeout";
 import { markPhase } from "../diagnostics/jsStall";
+import { PACKAGE_OUTBOX_KIND } from "../exploration/packageStore";
 
 // Read the same way every other API module in this app reads it.
 const FUNCTIONS_URL = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL!;
@@ -117,6 +118,20 @@ interface ServerResult {
 }
 
 /**
+ * Has this entry's `permanent` verdict actually been confirmed?
+ *
+ * True only when the SAME reason was already recorded against this entry on a
+ * previous attempt — `entry` here still holds whatever the last drain
+ * persisted, since this is read before this pass's outcomes are applied. A
+ * fresh entry (`attempts: 0`) or one whose stored reason differs has not been
+ * confirmed, and a first-time-only `mission.package` rejection is not enough
+ * on its own — see the call site in `pushOutbox`.
+ */
+export function isConfirmedPermanent(entry: OutboxEntry, error: string | undefined): boolean {
+  return entry.attempts > 0 && entry.lastError === (error ?? "rejected");
+}
+
+/**
  * Push whatever is due.
  *
  * `isOnline` is passed in rather than read here: the caller already knows, and a
@@ -212,9 +227,26 @@ export async function pushOutbox(
       outcomes.push({ localId: e.localId, kind: e.kind, result: "sent" });
       accepted++;
     } else if (r.permanent) {
-      // Retrying will fail identically. Retired from the queue WITH its reason,
-      // so the failure stays visible in diagnostics instead of vanishing.
-      outcomes.push({ localId: e.localId, kind: e.kind, result: "rejected", error: r.error ?? "rejected" });
+      if (e.kind === PACKAGE_OUTBOX_KIND && !isConfirmedPermanent(e, r.error)) {
+        // A finished section's package is the one entry routed to a
+        // non-default schema (geo, not enterprise) — see expeditions/handler.ts
+        // — which made it the one kind a schema-routing mistake could hit. THE
+        // INCIDENT THIS GUARDS AGAINST: a wrong-schema deploy answered every
+        // mission.package with a 404 that read as "this entry's own fault",
+        // and the queue retired every one of them on the very first try, before
+        // anyone could tell a deploy mistake from a real rejection. Treated as
+        // an ordinary retryable failure instead: a genuine data fault reads
+        // identically next attempt and is retired then, one backoff cycle
+        // later; a deploy-window flake almost never reads the same way twice
+        // and this is what stops it from ever reaching a terminal state on a
+        // single bad response. Other kinds are unaffected — see
+        // isConfirmedPermanent.
+        outcomes.push({ localId: e.localId, kind: e.kind, result: "failed", error: r.error ?? "rejected" });
+      } else {
+        // Retrying will fail identically. Retired from the queue WITH its reason,
+        // so the failure stays visible in diagnostics instead of vanishing.
+        outcomes.push({ localId: e.localId, kind: e.kind, result: "rejected", error: r.error ?? "rejected" });
+      }
       rejected++;
     } else {
       outcomes.push({ localId: e.localId, kind: e.kind, result: "failed", error: r.error ?? "rejected" });

@@ -311,6 +311,20 @@ describe("prospectivity baseline — the real pack, the real scorer", () => {
       expect(ROLES_NOT_SCORED).toContain<EvidenceRole>("contacts");
     });
 
+    test("lineaments leak 4.3x — measured, and the reason they are not scored", () => {
+      // 5,960 Copernicus GLO-30 DEM-derived lineaments (Somalia nationwide). Present
+      // at ~69% of occurrences, ~16% of background — a 4.3x coverage ratio, above the
+      // limit. They are extracted FROM the DEM, and the engine already scores that
+      // DEM as `terrain`, so scoring lineament coverage double-counts the landform
+      // signal rather than adding an independent one. Held as context (map + coverage
+      // panel), never fed to the number. The threshold is not moved to let them in.
+      const lineaments = leakage.find((r) => r.role === "lineaments");
+      expect(lineaments).toBeDefined();
+      expect(lineaments!.leaks).toBe(true);
+      expect(lineaments!.ratio).toBeGreaterThan(LEAKAGE_RATIO_LIMIT);
+      expect(ROLES_NOT_SCORED).toContain<EvidenceRole>("lineaments");
+    });
+
     test("every layer that DOES feed the score is unbiased", () => {
       // The gate. A biased layer must not be scored, whatever it does to the AUC.
       // Read from ROLES_NOT_SCORED rather than a hand-kept list, so a role cannot be

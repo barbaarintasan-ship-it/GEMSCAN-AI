@@ -9,6 +9,7 @@
 // contribute nothing, which is the honest answer and the current state for
 // terrain (no DEM is ingested yet — §7.7 "Data status").
 import { terrainIndexFor } from "./terrainIndex";
+import { featureIndexFor, queryFeatureIndex } from "./featureIndex";
 import {
   bboxContains,
   bboxPadding,
@@ -62,7 +63,15 @@ export interface NearbyFeature {
   source: string | null;
 }
 
-/** Distance from a position to every map feature within the radius, nearest first. */
+/**
+ * Distance from a position to every map feature within the radius, nearest first.
+ *
+ * Backed by a lazily-built spatial index (featureIndex.ts) so this is O(features
+ * near the point) instead of O(all features). The RESULT is byte-identical to the
+ * old full scan: the index returns a superset of the bbox-overlapping features in
+ * ascending array order, and the exact same padded-bbox / polyline / radius filter
+ * and stable distance sort run below — see featureIndex.ts for the equivalence.
+ */
 export function featuresNear(
   features: PackMapFeature[],
   lat: number,
@@ -70,9 +79,13 @@ export function featuresNear(
   radiusM: number,
 ): NearbyFeature[] {
   const { dLat, dLng } = bboxPadding(lat, radiusM);
+  const index = featureIndexFor(features);
+  const candidates = queryFeatureIndex(index, lng - dLng, lat - dLat, lng + dLng, lat + dLat);
   const out: NearbyFeature[] = [];
-  for (const f of features) {
-    // Cheap bbox rejection first; the polyline test still decides.
+  for (let c = 0; c < candidates.length; c++) {
+    const f = features[candidates[c]];
+    // Cheap bbox rejection first; the polyline test still decides. Identical to the
+    // old scan — the index only narrowed WHICH features are tested, not HOW.
     const padded: [number, number, number, number] = [
       f.bbox[0] - dLng, f.bbox[1] - dLat, f.bbox[2] + dLng, f.bbox[3] + dLat,
     ];

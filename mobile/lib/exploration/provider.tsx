@@ -170,6 +170,11 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
       // that has to answer the geologist's first tap, and changes nothing about
       // what that pass computes.
       deferFirstRun: (fn) => { InteractionManager.runAfterInteractions(fn); },
+      // Every ranking run (not just the first) is moved past the current
+      // interaction, so tapping Start investigation / Finish section — or crossing
+      // a cell — never holds the tap while rank() scores 37 cells. Same result,
+      // same InteractionManager pattern as map.buildScene; only the timing moves.
+      deferRank: (fn) => { InteractionManager.runAfterInteractions(fn); },
     });
     built();
   }

@@ -23,6 +23,7 @@ import { Outbox, type KeyValueAdapter } from "../sync/outbox";
 import {
   isDeliverable, type EvidencePackage, type PackageAnalysis,
 } from "./evidencePackage";
+import { markPhase } from "../diagnostics/jsStall";
 
 export const PACKAGE_STORAGE_KEY = "exploration.packages.v1";
 /** The outbox kind. The server dispatches on this string. */
@@ -81,18 +82,36 @@ export class PackageStore {
 
   async load(): Promise<void> {
     if (this.loaded) return;
+    // INSTRUMENTATION ONLY — see lib/diagnostics/jsStall.ts. Loaded via `void
+    // packages.load()` in provider.tsx during the first render, which resolves
+    // outside app.providers.graph's markPhase window — so a slow parse here has
+    // been invisible until now. Logging only; the read/parse/catch logic below
+    // is unchanged.
+    const done = markPhase("packageStore.load");
     try {
+      const getStart = Date.now();
       const raw = await this.storage.getItem(PACKAGE_STORAGE_KEY);
+      const getMs = Date.now() - getStart;
+      const parseStart = Date.now();
       const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+      const parseMs = Date.now() - parseStart;
       // A corrupt store must not take the app down with it, and must not silently
       // masquerade as "no packages" either — see `readError`.
       this.packages = Array.isArray(parsed) ? (parsed as EvidencePackage[]).filter(isDeliverable) : [];
+      // `raw.length` is UTF-16 code units, a fast proxy for bytes — not exact for
+      // non-ASCII text, but this is a diagnostic order-of-magnitude check.
+      console.log(
+        `[loadPhase] packageStore.load getItem=${getMs}ms parse=${parseMs}ms ` +
+        `records=${this.packages.length} bytes=${raw?.length ?? 0}`,
+      );
     } catch (e) {
       this.packages = [];
       this.readError = e instanceof Error ? e.message : String(e);
+    } finally {
+      this.loaded = true;
+      this.notify();
+      done();
     }
-    this.loaded = true;
-    this.notify();
   }
 
   /**

@@ -81,10 +81,10 @@ export interface MapLayers {
 }
 
 export const DEFAULT_LAYERS: MapLayers = {
-  satellite: true,
+  satellite: false,
   hillshade: false,
-  roads: true,
-  labels: true,
+  roads: false,
+  labels: false,
   land: true,
   geology: true,
   geologyLabels: true,
@@ -94,7 +94,7 @@ export const DEFAULT_LAYERS: MapLayers = {
   faults: true,
   contacts: true,
   drainage: true,
-  lineaments: false,
+  lineaments: true,
   occurrences: true,
   waypoints: true,
   track: true,
@@ -876,7 +876,7 @@ function drawLineSet(set, colour, width, dash, minPx){
 function drawFaults(){ if (LAYERS.faults) drawLineSet(FAULTS, "#FF4438", 2.6, null, 3); }
 function drawContacts(){ if (LAYERS.contacts) drawLineSet(CONTACTS, "#E8E4DA", 1.5, [7,5], 6); }
 function drawDrainage(){ if (LAYERS.drainage) drawLineSet(DRAIN, "#4FA8E8", 2.0, null, 4); }
-function drawLineaments(){ if (LAYERS.lineaments) drawLineSet(LINEA, "#B9A6D8", 1.6, [3,4], 6); }
+function drawLineaments(){ if (LAYERS.lineaments) drawLineSet(LINEA, "#C77DFF", 2.6, [7,4], 2); }
 
 function label(text, x, y, size, colour){
   ctx.font = "600 " + size + "px -apple-system,Roboto,sans-serif";

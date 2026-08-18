@@ -424,3 +424,86 @@ Deno.test("a capped confidence says so in the report", async () => {
   // The reader is told the model claimed more than the evidence supports.
   assertEquals(conf.lines.some((l) => l.includes("reduced from")), true);
 });
+
+// ── VISION (Phase 2): photographs become VISUAL EVIDENCE ONLY ────────────────
+
+Deno.test("VISION adds photograph-origin evidence — unverified, low, never strong", async () => {
+  const out = await analyzeExplorationPackage(input(), {
+    provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW,
+    vision: async (photos) => {
+      assertEquals(photos.length, 1);      // the mission's one verified photo
+      assertEquals(photos[0].id, "p1");
+      return [
+        { statement: "White quartz vein", statementSo: "Xidid quartz cad", aspect: "vein", clarity: 0.9 },
+        { statement: "Reddish iron staining", statementSo: "Wasakh bireed", aspect: "weathering", clarity: 0.5 },
+      ];
+    },
+  });
+  assertEquals(out.status, "analysed");
+  if (out.status !== "analysed") return;
+  const visual = out.findings.evidence.filter((e) => e.origin === "photograph");
+  assertEquals(visual.length, 2);
+  for (const v of visual) {
+    assertEquals(v.source, "gemini_vision");
+    assertEquals(v.verificationStatus, "unverified");   // can never stand in for assay
+    assertEquals(v.confidence, "low");
+    assertEquals(v.strength === "strong", false);       // a photo is never strong evidence
+    // And it carries no mineral/deposit claim — the significance is about the IMAGE.
+    assertEquals(/gold|deposit|ore/i.test(v.significance), false);
+  }
+  // Clarity maps to strength: the clear vein is moderate, the faint stain is weak.
+  assertEquals(visual.find((v) => v.type === "visual_vein")!.strength, "moderate");
+  assertEquals(visual.find((v) => v.type === "visual_weathering")!.strength, "weak");
+});
+
+Deno.test("the VISUAL EVIDENCE section shows the readings instead of 'none'", async () => {
+  const out = await analyzeExplorationPackage(input(), {
+    provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW,
+    vision: async () => [
+      { statement: "quartz vein", statementSo: "xidid quartz", aspect: "vein", clarity: 0.8 },
+    ],
+  });
+  if (out.status !== "analysed") throw new Error("expected analysed");
+  const r = renderReport(out.findings, translator("en"), "en", { prospectivityScore: 0.62 });
+  const visual = r.sections.find((s) => s.titleKey === "report.section.visual")!;
+  // Not the "no photographs were read" line — an actual visual row is present.
+  assertEquals(visual.lines.length >= 1, true);
+  assertEquals(visual.lines.join(" ").toLowerCase().includes("none"), false);
+});
+
+Deno.test("a VISION FAILURE never strands the mission — report has no visual rows", async () => {
+  const out = await analyzeExplorationPackage(input(), {
+    provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW,
+    vision: async () => { throw new Error("gemini vision 503"); },
+  });
+  assertEquals(out.status, "analysed");
+  if (out.status !== "analysed") return;
+  assertEquals(out.findings.evidence.some((e) => e.origin === "photograph"), false);
+  assertEquals(out.findings.evidence.length, 3);   // the geological evidence is intact
+});
+
+Deno.test("a mission with NO photographs does not call vision", async () => {
+  let called = false;
+  const noPhotos = input({
+    payload: { missionId: "ms-abc", observations: [{ photos: [] }] },
+  });
+  const out = await analyzeExplorationPackage(noPhotos, {
+    provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW,
+    vision: async () => { called = true; return []; },
+  });
+  assertEquals(out.status, "analysed");
+  assertEquals(called, false);
+});
+
+Deno.test("vision evidence does NOT lift confidence to a mineral claim", async () => {
+  // Five clear visual observations must not push confidence to HIGH — visual
+  // evidence is unverified, and HIGH still requires assay/geochemistry.
+  const out = await analyzeExplorationPackage(input(), {
+    provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW,
+    vision: async () => Array.from({ length: 5 }, (_, i) => ({
+      statement: `vein ${i}`, statementSo: `xidid ${i}`, aspect: "vein" as const, clarity: 1,
+    })),
+  });
+  if (out.status !== "analysed") throw new Error("expected analysed");
+  assertEquals(out.findings.confidence === "high", false);
+});

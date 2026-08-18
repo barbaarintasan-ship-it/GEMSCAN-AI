@@ -21,11 +21,13 @@
 // retried, and the geologist's evidence is untouched either way.
 import {
   cappedConfidence, isUsableFindings, withoutForbiddenNarrative,
-  type LanguageViolation, type MissionFindings,
+  type FindingEvidence, type LanguageViolation, type MissionFindings,
 } from "../../../../shared/geo-core/gie/missionFindings.ts";
 import {
   buildMissionPrompt, parseMissionFindings, type EnginePackageSummary,
 } from "./missionPrompt.ts";
+import type { VisualObservation } from "./vision.ts";
+import { visualObservationsToEvidence } from "./visionFindings.ts";
 import {
   photosInPackage, summariseVerification, verifyObjects,
   type VerificationSummary,
@@ -47,6 +49,15 @@ export interface AnalyzeDeps {
   verify?: (config: R2Config, keys: readonly string[]) => Promise<
     Awaited<ReturnType<typeof verifyObjects>>
   >;
+  /**
+   * Read the mission's photographs and return what is VISUALLY observable.
+   *
+   * Injected so the analysis is testable without a key, a network, or R2 — and so a
+   * vision FAILURE (it throws) degrades to a report with no visual section rather
+   * than stranding the mission. Omitted → no visual evidence is added, exactly as
+   * before this stage existed.
+   */
+  vision?: (photos: ReadonlyArray<{ id: string; key: string }>) => Promise<VisualObservation[]>;
   now?: () => number;
 }
 
@@ -132,6 +143,24 @@ export async function analyzeExplorationPackage(
     }
   }
 
+  // ── 2b. VISION — read the photographs, as VISUAL EVIDENCE ONLY ─────────────
+  //
+  // Runs only once the photographs are confirmed in storage, so the model never
+  // reads a URL that will not resolve. It is pure enrichment: a failure here — a
+  // dead image, a resize error, a vision outage — yields an empty visual section
+  // and the mission is still assessed on its geological evidence. It NEVER strands
+  // the package, and (by visionFindings) it can never claim gold, a deposit, or
+  // stand in for assay.
+  let visualEvidence: FindingEvidence[] = [];
+  if (photos.length > 0 && deps.vision) {
+    try {
+      const observations = await deps.vision(photos);
+      visualEvidence = visualObservationsToEvidence(observations);
+    } catch {
+      visualEvidence = [];
+    }
+  }
+
   // ── 3–4. Ask the provider ─────────────────────────────────────────────────
   const prompt = buildMissionPrompt(input.engine);
   let text: string;
@@ -158,16 +187,26 @@ export async function analyzeExplorationPackage(
   // ── 6. Strip probability language from the prose ───────────────────────────
   const { findings: clean, violations } = withoutForbiddenNarrative(parsed.findings);
 
+  // ── 6b. Merge the visual evidence read from the photographs ────────────────
+  //
+  // Appended as its own photograph-origin rows, so the report's VISUAL EVIDENCE
+  // section shows what the images revealed instead of "no photographs were read".
+  // Each row is weak/low and unverified (visionFindings), so it enriches the
+  // picture without ever letting a photo masquerade as assay.
+  const withVisual: MissionFindings = visualEvidence.length > 0
+    ? { ...clean, evidence: [...clean.evidence, ...visualEvidence] }
+    : clean;
+
   // ── 7. Cap confidence to what the evidence actually supports ───────────────
   //
   // The model's original claim is KEPT when it is reduced. Capping and then
   // comparing in the renderer would destroy the fact being reported, and a
   // geologist is entitled to know the assessment was toned down.
-  const ceiling = cappedConfidence(clean);
+  const ceiling = cappedConfidence(withVisual);
   const capped: MissionFindings = {
-    ...clean,
+    ...withVisual,
     confidence: ceiling,
-    ...(ceiling !== clean.confidence ? { claimedConfidence: clean.confidence } : {}),
+    ...(ceiling !== withVisual.confidence ? { claimedConfidence: withVisual.confidence } : {}),
   };
 
   // An analysis with nothing found AND no gaps named is not cautious, it is empty,
@@ -201,7 +240,12 @@ function message(e: unknown): string {
  * is the whole reason the interface is one method wide.
  */
 export function geminiProvider(): AIProvider {
-  const model = Deno.env.get("GEMINI_MODEL") ?? "gemini-2.0-flash";
+  // gemini-2.0-flash was retired by Google — see orchestrate-scan/providers/
+  // hallmarkOcr.ts and geminiVision.ts, which hit the same retirement and moved
+  // to this alias. "gemini-flash-latest" tracks whatever the current GA flash
+  // model is, so this file no longer drifts out of sync with the rest of the
+  // Gemini call sites when Google retires a pinned version again.
+  const model = Deno.env.get("GEMINI_MODEL") ?? "gemini-flash-latest";
   return {
     model,
     async generate(prompt: string): Promise<string> {
@@ -216,7 +260,16 @@ export function geminiProvider(): AIProvider {
             contents: [{ parts: [{ text: prompt }] }],
             // Low temperature: this is an assessment, not prose generation, and a
             // creative reading of field evidence is the last thing anyone wants.
-            generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
+            //
+            // responseMimeType forces pure JSON (no markdown fences, no prose
+            // preamble); the old `maxOutputTokens: 2048` cap is REMOVED because it
+            // truncated the bilingual (EN + Somali) report mid-object, so
+            // JSON.parse threw "response was not JSON" on every real mission.
+            // MEASURED via diag-gemini on gemini-flash-latest: 2048/no-mime →
+            // finishReason MAX_TOKENS, 2269 chars, unparseable; responseMimeType/
+            // no-cap → STOP, 8735 chars, valid JSON. This is exactly what the
+            // working siblings reasoning.ts and vision.ts already send.
+            generationConfig: { temperature: 0.2, responseMimeType: "application/json" },
           }),
         },
       );

@@ -374,7 +374,7 @@ function layerGroups(t: TFunc): LayerGroup[] {
         { key: "geologyLabels", label: t("field.map.geologyLabels"), icon: "pricetag", color: "#C9A227", note: t("field.map.sourceMacrostrat") },
         { key: "faults", label: t("field.map.faults"), icon: "git-branch", color: "#FF4438", note: t("field.map.sourceMacrostrat") },
         { key: "contacts", label: t("field.map.contacts"), icon: "git-compare", color: "#E8E4DA", note: t("field.map.sourceMacrostrat") },
-        { key: "lineaments", label: t("field.map.lineaments"), icon: "remove", color: "#B9A6D8", note: t("field.map.sourceMacrostrat") },
+        { key: "lineaments", label: t("field.map.lineaments"), icon: "remove", color: "#C77DFF", note: t("field.map.sourceDemLineament") },
         { key: "occurrences", label: t("field.map.occurrences"), icon: "ellipse", color: "#E03A2F", note: t("field.map.sourceMrds") },
       ],
     },

@@ -305,6 +305,14 @@ export interface OrchestratorDeps {
    * which is exactly the old behaviour.
    */
   deferFirstRun?: (fn: () => void) => void;
+  /**
+   * Defer the (blocking) ranking WORK until the current interaction finishes, so a
+   * button tap or gesture is never held while rank() runs — the same
+   * InteractionManager.runAfterInteractions pattern map.buildScene already uses.
+   * The RESULT is unchanged; only the moment it runs moves. Absent in tests, where
+   * it runs inline (identical to the old synchronous behaviour).
+   */
+  deferRank?: (fn: () => void) => void;
   /** Where finished packages are written. Absent in tests that do not deliver. */
   packages?: PackageStore;
   /** The durable queue a package is handed to once written. */
@@ -385,6 +393,18 @@ export class ExplorationOrchestrator {
   private promotedDestination: string | null = null;
   private retargeting = false;
   private inspect: { lat: number; lng: number } | null = null;
+  /**
+   * The ground the geology engine must reason about, when it is NOT where the
+   * phone is standing — a reported observation's coordinate.
+   *
+   * Reuses the reported waypoint's own `position`; it is not a second coordinate
+   * system. Null in the ordinary (observed) case, and then the engine reads the
+   * live fix exactly as before. Set only while a reported investigation is the
+   * active one, and cleared when it is finished or the mission closes. Navigation
+   * never consults this — `updateGuidance` reads the live fix directly, so the
+   * user is still guided from where they actually are to the reported site.
+   */
+  private evidenceAt: { lat: number; lng: number } | null = null;
   private cachedSnapshot: ExplorationSnapshot | null = null;
   /** Has any scoring pass run this session? Only the first one is deferred. */
   private hasScored = false;
@@ -619,7 +639,7 @@ export class ExplorationOrchestrator {
     const mission = carried && isMissionLive(carried.state) && carried.cell === t.cell
       ? carried
       : newMission(`ms-${this.now.toString(36)}-${++this.seq}`, t.cell, t.centre, {
-          commodity: this.snap.commodity, score: t.score, at: this.now,
+          commodity: this.snap.commodity, score: t.score, reportScore: t.reportScore, at: this.now,
         });
 
     this.patch({
@@ -708,9 +728,19 @@ export class ExplorationOrchestrator {
     });
   }
 
-  /** The point the engine is answering about — inspected place, else the fix. */
+  /**
+   * The point the engine is answering about.
+   *
+   * Priority: an inspected place (a map lookup), then reported evidence (a
+   * coordinate somebody sent, which the phone is nowhere near), then the live
+   * fix. The reported case is the fix for the Qardho/Borama bug — without it the
+   * geology of a reported site was computed around the phone, hundreds of
+   * kilometres away. For an ordinary OBSERVED observation `evidenceAt` is null
+   * and this returns the live fix, unchanged.
+   */
   private activePoint(): { lat: number; lng: number } | null {
     if (this.inspect) return this.inspect;
+    if (this.evidenceAt) return this.evidenceAt;
     const f = this.deps.field.getSnapshot().lastFix;
     return f ? { lat: f.lat, lng: f.lng } : null;
   }
@@ -738,7 +768,7 @@ export class ExplorationOrchestrator {
       return m.state === "target_selected" ? advance(m, "navigating", this.now) : m;
     }
     return newMission(`ms-${this.now.toString(36)}-${++this.seq}`, active.cell, active.centre, {
-      commodity: this.snap.commodity, score: active.score, at: this.now,
+      commodity: this.snap.commodity, score: active.score, reportScore: active.reportScore, at: this.now,
     });
   }
 
@@ -835,6 +865,9 @@ export class ExplorationOrchestrator {
 
     const queued = advance({ ...completed, packageId: pkg.id }, "waiting_for_upload", this.now);
     this.patch({ mission: queued, state: "reasoning" });
+    // The reported section is filed; unpin the engine so anything scored next is
+    // measured where the phone is, not at the site that was just reported.
+    this.evidenceAt = null;
     return pkg;
   }
 
@@ -863,7 +896,10 @@ export class ExplorationOrchestrator {
    * because from the reader's side they are the same: no number to reason from.
    */
   private engineReadingsAt(): EngineReadings | null {
-    const p = this.snap.position;
+    // The reported-evidence coordinate when there is one, otherwise where the
+    // phone is standing. Same rule as activePoint(): a reported site's readings
+    // must be measured at the reported site, never at the device.
+    const p = this.evidenceAt ?? this.snap.position;
     const data = this.deps.packs?.getData?.() ?? null;
     if (!p || !data) return null;
     const at = { lat: p.lat, lng: p.lng };
@@ -888,6 +924,9 @@ export class ExplorationOrchestrator {
   closeMission(): void {
     const m = this.snap.mission;
     if (!m || !isMissionLive(m.state)) return;
+    // A reported investigation ends here: unpin the engine so the next
+    // suggestion is scored where the phone actually is.
+    this.evidenceAt = null;
     this.patch({ mission: advance(m, "mission_closed", this.now) });
     this.hotspotFor = null;
     this.releaseTarget();
@@ -922,7 +961,7 @@ export class ExplorationOrchestrator {
     const mission = carried && isMissionLive(carried.state) && carried.cell === t.cell
       ? carried
       : newMission(`ms-${this.now.toString(36)}-${++this.seq}`, t.cell, t.centre, {
-          commodity: this.snap.commodity, score: t.score, at: this.now,
+          commodity: this.snap.commodity, score: t.score, reportScore: t.reportScore, at: this.now,
         });
 
     this.patch({
@@ -944,6 +983,26 @@ export class ExplorationOrchestrator {
   async captureObservation(input: CaptureObservationInput): Promise<Waypoint | null> {
     if (this.snap.state === "idle" || this.snap.state === "ended") return null;
     const trackId = this.snap.explorationSessionId;
+
+    // WHERE THE GEOLOGY IS ASSESSED, and it is NOT always where the phone is.
+    //
+    // A reported observation carries a coordinate somebody sent — the ground to
+    // assess may be hundreds of kilometres from the device (Borama, while the
+    // phone is in Qardho). So the investigation is opened ON THAT GROUND, through
+    // the same committed-target path a hand-picked map target takes, and the
+    // engine is pinned to it via `evidenceAt`. Then the mission's cell, centre
+    // and prospectivity score, the fault/drainage/elevation readings and the
+    // whole geology context are all about the reported site.
+    //
+    // Live GPS is untouched: navigation still runs from the fix (updateGuidance),
+    // and an OBSERVED capture clears the pin and keeps the existing behaviour —
+    // the phone's position IS the evidence location, exactly as before.
+    if (input.origin === "reported" && input.position) {
+      await this.selectTargetAt(input.position.lat, input.position.lng, { aimAtChosenPoint: true });
+      this.evidenceAt = { lat: input.position.lat, lng: input.position.lng };
+    } else {
+      this.evidenceAt = null;
+    }
 
     // THE UI NEVER SUPPLIES THIS. It is derived here from the live mission, so a
     // form cannot get it wrong and cannot step around it. Null outside a mission,
@@ -1073,6 +1132,16 @@ export class ExplorationOrchestrator {
     this.updateGuidance();
     if (this.snap.state === "awaitingEvidence") return;
 
+    // A REPORTED investigation pins the engine to the evidence coordinate, which
+    // the phone is nowhere near. The cell-change trigger below compares the fix's
+    // cell (where the phone is) against `lastTargetedCell` (which retarget set to
+    // the reported cell) — they never match, so without this guard retarget fires
+    // on EVERY fix and `targeting.rank` pegs the JS thread ~2.8 s at a time. The
+    // fix location does not move, so there is nothing to re-rank; the real
+    // position was published above and navigation was just updated from it. Same
+    // shape as the `inspect` guard higher up.
+    if (this.evidenceAt) return;
+
     // Re-target only on a CELL change, never on every fix (Invariant 7).
     if (cell !== this.lastTargetedCell) {
       // The FIRST pass of a session waits for the first frame; see deferFirstRun.
@@ -1123,13 +1192,34 @@ export class ExplorationOrchestrator {
 
   private async retarget(force: boolean, trigger: TargetSwitchTrigger = "gps-cell-change"): Promise<void> {
     // The scoring run: the most expensive thing this class does, and the one most
-    // likely to be holding the thread when a fix cannot get in.
-    const scored = markPhase("explore.retarget");
-    try {
-      await this.retargetInner(force, trigger);
-    } finally {
-      scored();
-    }
+    // likely to be holding the thread when a fix cannot get in. So it is DEFERRED
+    // past the current interaction (a button tap, a gesture) exactly like
+    // map.buildScene — the same ranking, the same result, run a beat later so the
+    // tap is never held. Inline when no deferral is injected (tests).
+    await this.runDeferredRank(async () => {
+      const scored = markPhase("explore.retarget");
+      try {
+        await this.retargetInner(force, trigger);
+      } finally {
+        scored();
+      }
+    });
+  }
+
+  /**
+   * Run the ranking work after the current interaction settles.
+   *
+   * Wraps deps.deferRank (InteractionManager.runAfterInteractions in the app) in a
+   * promise so awaiting callers still see completion — the WORK moves off the tap,
+   * the RESULT is identical. With no deferral injected it runs inline, which is
+   * byte-for-byte the old synchronous path the tests already cover.
+   */
+  private runDeferredRank(work: () => Promise<void>): Promise<void> {
+    const defer = this.deps.deferRank;
+    if (!defer) return work();
+    return new Promise<void>((resolve, reject) => {
+      defer(() => { work().then(resolve, reject); });
+    });
   }
 
   private async retargetInner(force: boolean, trigger: TargetSwitchTrigger = "gps-cell-change"): Promise<void> {

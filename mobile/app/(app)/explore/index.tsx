@@ -702,7 +702,10 @@ export default function ExplorationSurface() {
                 ? packages?.get(s.mission.packageId)?.analysis ?? null
                 : null
             }
-            prospectivityScore={s.activeTarget?.score ?? s.mission.score}
+            prospectivityScore={
+              s.activeTarget?.reportScore ?? s.activeTarget?.score ??
+              s.mission.reportScore ?? s.mission.score
+            }
             photosPending={photoUploads?.pendingFor(s.mission.id).length ?? 0}
             analysisError={packages?.get(s.mission.id)?.analysisError ?? null}
             appLanguage={(i18n.language === "so" ? "so" : "en")}

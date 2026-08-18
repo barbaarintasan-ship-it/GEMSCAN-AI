@@ -22,6 +22,7 @@ import { Outbox, type OutboxStats } from "../sync/outbox";
 import { pushOutbox } from "../sync/pushOutbox";
 import { pushPhotos } from "../sync/pushPhotos";
 import { pullAnalysis } from "../sync/pullAnalysis";
+import { reconcileRejectedPackages } from "../sync/reconcileRejectedPackages";
 import type { PackageStore } from "./packageStore";
 import type { PhotoUploadQueue } from "../sync/photoUploadQueue";
 import { ExpeditionRecorder } from "../field/expeditionRecorder";
@@ -137,6 +138,23 @@ export function useExpeditionSync(input: {
     void outbox.load().then(read);
     return off;
   }, [outbox]);
+
+  // ── One-time recovery: the schema-routing incident ──────────────────────
+  // A finished section whose mission.package entry was retired by that
+  // incident (see pushOutbox.ts's isConfirmedPermanent) is still sitting in
+  // `packages`, complete — only its outbox entry was lost. Runs once per app
+  // session, guarded the same way `openedFor` guards expedition-open below:
+  // a plain local read-and-requeue, never a network call itself, so it
+  // cannot slow or interfere with the drain below. Safe to run on every
+  // launch — reconcileRejectedPackages only ever touches an entry still in
+  // the "rejected" state, so once a mission is requeued and delivered this
+  // becomes a no-op for it.
+  const reconciled = useRef(false);
+  useEffect(() => {
+    if (reconciled.current || !packages) return;
+    reconciled.current = true;
+    void reconcileRejectedPackages(packages, outbox);
+  }, [outbox, packages]);
 
   // ── The expedition follows the session ───────────────────────────────────
   // Opening is idempotent on the session id, so a remount cannot fork the walk.

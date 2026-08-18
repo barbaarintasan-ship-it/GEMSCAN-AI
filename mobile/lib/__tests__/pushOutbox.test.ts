@@ -3,8 +3,8 @@
 // A field link times out, rejects one entry out of forty, or answers about
 // entries nobody asked about. None of those may lose a record, and none may
 // leave the queue spinning on something that will never be accepted.
-import { pushOutbox, SYNC_TIMEOUT_MS } from "../sync/pushOutbox";
-import { Outbox, RETRY_MAX_MS, type KeyValueAdapter } from "../sync/outbox";
+import { pushOutbox, isConfirmedPermanent, SYNC_TIMEOUT_MS } from "../sync/pushOutbox";
+import { Outbox, RETRY_MAX_MS, type KeyValueAdapter, type OutboxEntry } from "../sync/outbox";
 
 jest.mock("../supabase", () => ({
   supabase: { auth: { getSession: async () => ({ data: { session: { access_token: "t" } } }) } },
@@ -317,5 +317,104 @@ describe("why a drain failed is reported accurately", () => {
     });
     expect(ok.accepted).toBe(2);
     expect(box.stats()).toMatchObject({ pending: 0, synced: 2, failing: 0 });
+  });
+});
+
+// ── THE INCIDENT THIS GUARDS AGAINST ────────────────────────────────────────
+//
+// A deploy briefly routed mission.package at the wrong schema. PostgREST's 404
+// for that read as the entry's own fault, so a single response retired every
+// finished section's package permanently, before anyone could tell a deploy
+// mistake from a real one. isPermanent() is fixed for this exact message now
+// (see expeditions/handler.ts), but the fix must also survive the NEXT
+// message nobody has seen yet — so mission.package specifically requires the
+// same verdict to recur before it is trusted.
+describe("mission.package requires a permanent verdict to recur before it is trusted", () => {
+  const SCHEMA_ERROR = "Could not find the function geo.upsert_mission_package(p_actor, p_package) in the schema cache";
+  const rejectAs = (localId: string, error: string) =>
+    ({ localId, kind: "mission.package", ok: false, permanent: true, error });
+
+  test("a first-time permanent verdict stays queued, not retired", async () => {
+    let t = 1_000_000;
+    const box = new Outbox({ storage: storage(), now: () => t });
+    await box.enqueue("mission.package", "ex-1", "ms-1", { id: "ms-1" });
+
+    const r = await pushOutbox(box, true, { post: async () => [rejectAs("ms-1", SCHEMA_ERROR)] });
+
+    expect(r.rejected).toBe(1);
+    const entry = box.all().find((e) => e.localId === "ms-1")!;
+    expect(entry.sentAt).toBeNull();
+    expect(entry.lastError).toBe(SCHEMA_ERROR);
+    expect(entry.attempts).toBe(1);
+
+    // Offered again once its backoff elapses — never lost.
+    t += RETRY_MAX_MS;
+    expect(box.due().map((e) => e.localId)).toEqual(["ms-1"]);
+  });
+
+  test("the SAME reason recurring on a second attempt retires the entry", async () => {
+    let t = 1_000_000;
+    const box = new Outbox({ storage: storage(), now: () => t });
+    await box.enqueue("mission.package", "ex-1", "ms-1", { id: "ms-1" });
+
+    await pushOutbox(box, true, { post: async () => [rejectAs("ms-1", SCHEMA_ERROR)] });
+    t += RETRY_MAX_MS;
+    const r = await pushOutbox(box, true, { post: async () => [rejectAs("ms-1", SCHEMA_ERROR)] });
+
+    expect(r.rejected).toBe(1);
+    const entry = box.all().find((e) => e.localId === "ms-1")!;
+    expect(entry.sentAt).not.toBeNull();
+    expect(entry.lastError).toBe(`permanent: ${SCHEMA_ERROR}`);
+    expect(box.pending()).toHaveLength(0);
+  });
+
+  test("a DIFFERENT reason on the second attempt resets confirmation", async () => {
+    let t = 1_000_000;
+    const box = new Outbox({ storage: storage(), now: () => t });
+    await box.enqueue("mission.package", "ex-1", "ms-1", { id: "ms-1" });
+
+    await pushOutbox(box, true, { post: async () => [rejectAs("ms-1", SCHEMA_ERROR)] });
+    t += RETRY_MAX_MS;
+    await pushOutbox(box, true, { post: async () => [rejectAs("ms-1", "package ms-1 has no targetCell")] });
+
+    const entry = box.all().find((e) => e.localId === "ms-1")!;
+    expect(entry.sentAt).toBeNull();
+    expect(entry.lastError).toBe("package ms-1 has no targetCell");
+  });
+
+  test("other kinds are still retired on the first permanent verdict", async () => {
+    // Regression guard: confirmation is scoped to mission.package only. This
+    // reproduces the existing "doomed" observation test's outcome, unmodified.
+    const box = await queued(["doomed"]);
+    await pushOutbox(box, true, {
+      post: async (entries) =>
+        entries.map((e) =>
+          e.localId === "doomed"
+            ? { localId: e.localId, kind: e.kind, ok: false, permanent: true, error: "no_data_found" }
+            : ok(e.localId, e.kind)),
+    });
+    const entry = box.all().find((e) => e.localId === "doomed")!;
+    expect(entry.sentAt).not.toBeNull();
+    expect(entry.lastError).toContain("permanent");
+  });
+});
+
+describe("isConfirmedPermanent", () => {
+  const baseEntry = (over: Partial<OutboxEntry> = {}): OutboxEntry => ({
+    localId: "ms-1", kind: "mission.package", sessionId: "ex-1", payload: {},
+    queuedAt: 0, sentAt: null, attempts: 0, lastAttemptAt: null, lastError: null,
+    ...over,
+  });
+
+  test("a fresh entry is never confirmed", () => {
+    expect(isConfirmedPermanent(baseEntry({ attempts: 0, lastError: null }), "boom")).toBe(false);
+  });
+
+  test("a matching prior reason is confirmed", () => {
+    expect(isConfirmedPermanent(baseEntry({ attempts: 1, lastError: "boom" }), "boom")).toBe(true);
+  });
+
+  test("a non-matching prior reason is not confirmed", () => {
+    expect(isConfirmedPermanent(baseEntry({ attempts: 1, lastError: "boom" }), "different")).toBe(false);
   });
 });

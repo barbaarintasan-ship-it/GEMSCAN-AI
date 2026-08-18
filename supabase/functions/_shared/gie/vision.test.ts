@@ -303,3 +303,51 @@ Deno.test("a lying probe is caught by the real bytes", async () => {
   // reintroducing the whole failure.
   assertEquals(seen.images, undefined);
 });
+
+// ── DOWNSCALE: the fix that lets a 5–7 MB field frame be READ, not skipped ────
+
+Deno.test("resize downscales a large frame so it IS sent, not skipped", async () => {
+  // A 6.94 MB frame — the size that used to be dropped entirely. With a resize
+  // step it is admitted, because what reaches the model is the downscaled bytes.
+  let sent: VisionImage[] = [];
+  const obs = await runVision(["u0"], {
+    fetchImageBase64: () => Promise.resolve(image(6.94)),
+    resize: () => Promise.resolve({ base64: "downscaled-small", mimeType: "image/jpeg" }),
+    generate: (_p, images) => {
+      sent = images;
+      return Promise.resolve('{"observations":[{"statement":"vein","aspect":"vein","clarity":0.9}]}');
+    },
+  });
+  assertEquals(sent.length, 1);                       // admitted after resize
+  assertEquals(sent[0].base64, "downscaled-small");   // the SMALL bytes went, not 6.94 MB
+  assertEquals(obs.length, 1);
+});
+
+Deno.test("a resize FAILURE skips that photo, and never strands the run", async () => {
+  let generated = false;
+  const obs = await runVision(["u0"], {
+    fetchImageBase64: () => Promise.resolve(image(6.94)),
+    resize: () => Promise.reject(new Error("decode failed")),   // corrupt/unsupported frame
+    generate: () => { generated = true; return Promise.resolve("{}"); },
+  });
+  // The only image was dropped, so no model call and an empty result — the
+  // assessment falls back to the geological providers, exactly as for oversize.
+  assertEquals(generated, false);
+  assertEquals(obs, []);
+});
+
+Deno.test("a probe skips only a PATHOLOGICAL file (> decode ceiling), letting resize handle the rest", async () => {
+  // A 30 MB declared file is refused before download (decode-OOM guard); an 8 MB
+  // one is fetched and downscaled. Proves the probe ceiling moved from the send
+  // limit to the decode limit.
+  let fetched = 0;
+  const seen: { images?: VisionImage[] } = {};
+  await runVision(["huge", "big"], {
+    probeSizeBytes: (u) => Promise.resolve(u === "huge" ? 30 * MB : 8 * MB),
+    fetchImageBase64: () => { fetched++; return Promise.resolve(image(8)); },
+    resize: () => Promise.resolve({ base64: "ok", mimeType: "image/jpeg" }),
+    generate: (_p, images) => { seen.images = images; return Promise.resolve('{"observations":[]}'); },
+  });
+  assertEquals(fetched, 1);                 // "huge" never downloaded; "big" was
+  assertEquals(seen.images!.length, 1);     // and admitted after resize
+});

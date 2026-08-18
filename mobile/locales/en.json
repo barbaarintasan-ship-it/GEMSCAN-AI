@@ -287,6 +287,7 @@
       "sourceMacrostrat": "Macrostrat",
       "sourceMrds": "USGS MRDS",
       "sourceDem": "DEM (offline pack)",
+      "sourceDemLineament": "Copernicus DEM · interpreted",
       "sourcePack": "Offline pack",
       "sourceDevice": "This device",
       "tapHint": "Tap the map to identify what is under your finger."

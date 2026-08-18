@@ -104,6 +104,20 @@ function mapKindOf(kind: string): MapFeatureKind {
   return "other";
 }
 
+/**
+ * geo.structural_feature.feature_type → the engine's map-feature vocabulary.
+ *
+ * The engine scores from `mapFeatures` (nearestLineOfKind), so a loaded fault
+ * only reaches the prospectivity model by being routed here. Shear and fracture
+ * zones are structural breaks and score as faults; fold axes are linear trends
+ * and score as lineaments.
+ */
+function structuralKindOf(featureType: string): MapFeatureKind {
+  if (featureType === "contact") return "contact";
+  if (featureType === "lineament" || featureType === "fold_axis") return "lineament";
+  return "fault"; // fault | shear_zone | fracture_zone
+}
+
 // ── Extraction ──────────────────────────────────────────────────────────────
 async function extract(client: Client): Promise<{ data: PackData; datasets: PackDatasetRef[] }> {
   const q = async <T>(sql: string): Promise<T[]> =>
@@ -146,6 +160,36 @@ async function extract(client: Client): Promise<{ data: PackData; datasets: Pack
       name: r.name,
       source: r.source,
       attributes: r.attributes ?? null,
+      lines,
+      bbox: bboxOfLines(lines),
+    });
+  }
+
+  // Structural features (§7.7) — the REAL faults, lineaments, shear zones,
+  // contacts and fold axes loaded from official GIS via import-structural-gis.ts.
+  // This is what switches the structural prospectivity term ON: the engine reads
+  // mapFeatures, not the `structures` centroid points below. NO SOURCE AVAILABLE
+  // means zero rows here, and the coverage panel reports the layer as empty
+  // rather than the app inventing structure it does not hold (Invariant 4).
+  const stLineRows = await q<{
+    id: string; feature_type: string; name: string | null;
+    source_key: string | null; confidence: string | null; gj: string;
+  }>(`
+    select id::text, feature_type, name, source_key, confidence,
+           extensions.st_asgeojson(geom::extensions.geometry) as gj
+    from geo.structural_feature
+  `);
+  for (const r of stLineRows) {
+    const lines = linesOf(JSON.parse(r.gj) as GeoJson);
+    if (lines.length === 0) continue; // a point structure has no line to measure to
+    mapFeatures.push({
+      id: r.id,
+      kind: structuralKindOf(r.feature_type),
+      name: r.name,
+      source: r.source_key,
+      // Confidence travels so the engine can weight an interpreted (DEM-derived)
+      // lineament below a mapped fault, and the report can say which it is.
+      attributes: { feature_type: r.feature_type, confidence: r.confidence ?? "unstated" },
       lines,
       bbox: bboxOfLines(lines),
     });
@@ -304,6 +348,11 @@ async function extract(client: Client): Promise<{ data: PackData; datasets: Pack
       rules: rules.map((r) => ({ ...r, weight: r.weight == null ? null : Number(r.weight) })),
       commodities,
       assemblages: assemblages.map((a) => ({ ...a, weight: a.weight == null ? null : Number(a.weight) })),
+      // DORMANT — no land-use / tenure dataset is loaded, so this ships empty
+      // rather than fabricating one, exactly like `terrain` above. (Pre-existing
+      // gap: `land` was added to PackData but never populated here; empty is the
+      // honest state until a real dataset is ingested.)
+      land: [],
     },
     datasets,
   };

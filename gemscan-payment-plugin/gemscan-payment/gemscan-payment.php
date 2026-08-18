@@ -149,7 +149,8 @@ function gemscan_activate($o, $email, $plan, $method = '', $reference = '') {
             'plan'      => $plan,
             'method'    => $method,
             'reference' => $reference,
-            'months'    => 6, // plans are billed per 6-month period
+            // Enterprise is billed yearly (12 months); the standard plans per 6-month period.
+            'months'    => (strtolower(trim($plan)) === 'enterprise') ? 12 : 6,
         )),
     ));
     if (is_wp_error($res)) {
@@ -701,6 +702,7 @@ function gemscan_settings_page() {
                         <select name="act_plan">
                             <option value="Explorer">Explorer</option>
                             <option value="Gem Collector">Gem Collector</option>
+                            <option value="Enterprise">Enterprise (12 months)</option>
                         </select>
                     </td></tr>
                     <tr><th>Method</th><td>
@@ -972,6 +974,19 @@ function gemscan_render() {
                     <li><?php echo gs_t('Priority expert access', 'Xiriir khabiir mudnaan leh'); ?></li>
                 </ul>
                 <button type="button" class="gs-buy" data-plan="Gem Collector" data-item="collector" data-price="<?php echo esc_attr($o['collector_price']); ?>"><?php echo gs_t('Choose Gem Collector', 'Dooro Gem Collector'); ?></button>
+            </div>
+
+            <div class="gs-plan">
+                <h3>Enterprise</h3>
+                <div class="gs-price"><?php echo gs_t('Custom', 'Heshiis'); ?><span><?php echo gs_t('by agreement', 'qiimaha waa heshiis'); ?></span></div>
+                <ul>
+                    <li><?php echo gs_t('Everything in Gem Collector', 'Dhammaan waxa Gem Collector'); ?></li>
+                    <li><?php echo gs_t('Field Exploration &amp; offline field work', 'Sahamin goobeed &amp; shaqo offline ah'); ?></li>
+                    <li><?php echo gs_t('AI Geological Field Reports', 'Warbixino juqraafi (AI) goobeed'); ?></li>
+                    <li><?php echo gs_t('Team accounts &amp; collaboration', 'Akoonno koox &amp; wada-shaqayn'); ?></li>
+                    <li><?php echo gs_t('Dedicated support', 'Taageero gaar ah'); ?></li>
+                </ul>
+                <div class="gs-plan-cta gs-muted"><?php echo gs_t('Contact us for pricing', 'Nala soo xiriir qiimaha'); ?></div>
             </div>
         </section>
 

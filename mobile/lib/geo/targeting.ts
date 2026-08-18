@@ -15,6 +15,7 @@
 //     and is not recommended. "I don't know here" is a valid output.
 import { bearingDeg, compassPoint, haversineM } from "../../../shared/geo-core/geo/spatial.ts";
 import { bandFor, computeConfidence } from "../../../shared/geo-core/confidence.ts";
+import { reportProspectivity } from "../../../shared/geo-core/gie/prospectivityReport.ts";
 import type { ConfidenceBand, EvidenceItem, GeoContext } from "../../../shared/geo-core/types.ts";
 import { cellCentre, cellFor, kRing } from "./h3.ts";
 import {
@@ -62,8 +63,15 @@ export interface ExplorationTarget {
   /** Spoken form of the bearing, e.g. "NE". */
   compass: string;
   distanceM: number;
-  /** 0..1, computed from evidence — never asserted (GIE Principle #4). */
+  /** 0..1, computed from evidence — never asserted (GIE Principle #4). RANKING score. */
   score: number;
+  /**
+   * The score to SHOW on the report — `score` moderated by evidence breadth and
+   * completeness (see prospectivityReport.ts). Never used for ranking, so the
+   * validated ordering is untouched; it only stops a one-outcrop reading printing
+   * as 1.00. Falls back to `score` for packages captured before this existed.
+   */
+  reportScore: number;
   band: ConfidenceBand;
   /** Why this target. Structured so the UI can render it in either language. */
   reasons: TargetReason[];
@@ -332,6 +340,12 @@ export function prospectivityEvidence(
         group: `structure:${near[0]?.id ?? "crossing"}`,
       });
     }
+
+    // Interpreted lineaments (Copernicus DEM-derived) are CONTEXT, not a scored
+    // signal: they leak 4.3x and are extracted from the same DEM the engine already
+    // scores as terrain, so scoring them double-counts landform (see
+    // ROLES_NOT_SCORED / prospectivityBaseline). They are drawn on the map and
+    // reported in the coverage panel, and deliberately add nothing here.
   }
 
   // ── The rock underfoot ───────────────────────────────────────────────────
@@ -618,12 +632,16 @@ export class TargetingEngine {
     const { context } = await run(centre.lat, centre.lng, { radiusM });
     const scored = prospectivityEvidence(context, radiusM, this.local, packData, scoringOpts);
     const score = computeConfidence(collapseGroups(scored)).score;
+    // Display-only, computed from the SAME evidence but never used for ranking.
+    const reportScore = reportProspectivity(
+      scored.map((s) => ({ weight: s.item.weight, tier: s.item.tier, role: s.role, group: s.group })),
+    );
     const reasons = reasonsFor(context, scored);
     if (reasons.length === 0) return null;
     const bearing = bearingDeg(from, centre);
     return {
       cell, centre, bearingDeg: bearing, compass: compassPoint(bearing),
-      distanceM, score, band: bandFor(score), reasons,
+      distanceM, score, reportScore, band: bandFor(score), reasons,
       commodities: commoditiesOf(context),
       coverage: coverageFor(packData, scored, centre),
       scoredForCommodity: scoringOpts.commodity ?? null,

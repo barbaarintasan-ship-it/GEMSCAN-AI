@@ -147,9 +147,15 @@ export interface LocationProfileConfig {
 
 export const WALKING_PROFILE: LocationProfileConfig = {
   name: "walking",
-  accuracy: "highest",
+  accuracy: "highest",   // BestForNavigation — raw GNSS, the best the chip can do
   distanceIntervalM: 0,  // deliver on TIME alone — see the note above
-  timeIntervalMs: 3000,  // Android floor against fused-provider bursts
+  // 1 Hz, the standard navigation rate. Was 3000 ms; at BestForNavigation the fused
+  // provider is not the source, so the burst that floor guarded against does not
+  // arise, and a fix every second lets the accuracy CONVERGE quickly (a cold GNSS
+  // reads ±20 m and tightens to a few metres over the first seconds) and keeps the
+  // readout a geologist records against fresh. No phone GPS reaches 0 m — this is
+  // the most accurate the hardware allows.
+  timeIntervalMs: 1000,
 };
 
 export const FIRST_FIX_TIMEOUT_MS = 30_000;

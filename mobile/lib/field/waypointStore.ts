@@ -8,6 +8,7 @@
 // the real ones required LAZILY (the Phase 1 AppState pattern), so the whole
 // store is unit-testable without AsyncStorage or a filesystem.
 import type { Waypoint } from "./waypointTypes";
+import { markPhase } from "../diagnostics/jsStall";
 
 export const WAYPOINT_STORAGE_KEY = "field.waypoints.v1";
 
@@ -101,22 +102,42 @@ export class WaypointStore {
   }
 
   private async readFromDisk(): Promise<void> {
+    // INSTRUMENTATION ONLY — see lib/diagnostics/jsStall.ts. This store has no
+    // cap on what it keeps (unlike PackageStore/PhotoUploadQueue), and its
+    // `void load()` call in provider.tsx resolves outside app.providers.graph's
+    // markPhase window, so a slow parse here has been invisible until now.
+    // Logging only; the read/parse/catch logic below is unchanged.
+    const done = markPhase("waypointStore.load");
     try {
+      const getStart = Date.now();
       const raw = await this.storage.getItem(WAYPOINT_STORAGE_KEY);
+      const getMs = Date.now() - getStart;
       if (raw) {
+        const parseStart = Date.now();
         const parsed = JSON.parse(raw) as Partial<Envelope>;
+        const parseMs = Date.now() - parseStart;
         // An unrecognised envelope is kept on disk untouched rather than
         // overwritten — losing field data to a version mismatch is worse than
         // starting empty for the session.
         if (parsed.version === 1 && Array.isArray(parsed.waypoints)) {
           this.waypoints = parsed.waypoints;
         }
+        // `raw.length` is UTF-16 code units, a fast proxy for bytes — not exact
+        // for non-ASCII text, but this is a diagnostic order-of-magnitude check.
+        console.log(
+          `[loadPhase] waypointStore.load getItem=${getMs}ms parse=${parseMs}ms ` +
+          `records=${this.waypoints.length} bytes=${raw.length}`,
+        );
+      } else {
+        console.log(`[loadPhase] waypointStore.load getItem=${getMs}ms (no stored data)`);
       }
     } catch {
       // Corrupt or unreadable: start empty rather than block the field screen.
+    } finally {
+      this.hydrated = true;
+      this.invalidate();
+      done();
     }
-    this.hydrated = true;
-    this.invalidate();
   }
 
   isHydrated(): boolean { return this.hydrated; }

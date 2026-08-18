@@ -287,6 +287,7 @@
       "sourceMacrostrat": "Macrostrat",
       "sourceMrds": "USGS MRDS",
       "sourceDem": "DEM (xirmada offline)",
+      "sourceDemLineament": "Copernicus DEM · fasiran",
       "sourcePack": "Xirmada offline",
       "sourceDevice": "Taleefankan",
       "tapHint": "Taabo khariidadda si aad u aragto waxa hoos yaal."

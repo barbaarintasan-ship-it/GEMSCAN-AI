@@ -16,26 +16,6 @@
     </intent>
   </queries>
   <application android:name=".MainApplication" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:allowBackup="true" android:theme="@style/AppTheme" android:roundIcon="@mipmap/ic_launcher_round">
-    <!-- OTA UPDATES OFF, AND THIS FILE IS WHERE THAT DECISION LIVES.
-         Setting `updates.enabled: false` in app.json does NOT reach Android in
-         this project: android/ is committed source (bare workflow), so the
-         manifest is not regenerated from the app config. Same class of staleness
-         as the createExpoConfig note in app/build.gradle — and it was measured,
-         not assumed: with app.json already saying false, aapt2 showed
-         `expo.modules.updates.ENABLED=true` in the built APK and logcat showed 43
-         failed update checks in one launch.
-
-         WHY OFF. EAS Update is not actually in use — no channel is configured, so
-         every check fails with `"channel-name": Required`. It buys nothing and
-         costs this: with CHECK_ON_LAUNCH=ALWAYS and LAUNCH_WAIT_MS=0, the app
-         launches the CACHED JS bundle and only applies a newer one on the NEXT
-         launch. Every sideloaded field APK therefore ran the PREVIOUS build's
-         JavaScript on first open — a fix would appear missing until the app was
-         opened twice, which cost real field time diagnosing bugs that were
-         already fixed.
-
-         To re-enable: set this to true, configure a channel, and keep
-         runtimeVersion tied to appVersion so a stale bundle cannot be reused. -->
     <meta-data android:name="expo.modules.updates.ENABLED" android:value="false"/>
     <meta-data android:name="expo.modules.updates.EXPO_RUNTIME_VERSION" android:value="@string/expo_runtime_version"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>

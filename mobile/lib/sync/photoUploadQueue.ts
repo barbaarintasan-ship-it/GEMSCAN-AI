@@ -25,6 +25,7 @@
 // used to be indistinguishable from one that worked, and the difference is a
 // mission analysed against photographs that are not there.
 import { retryDelayMs, type KeyValueAdapter } from "./outbox";
+import { markPhase } from "../diagnostics/jsStall";
 
 export const PHOTO_QUEUE_STORAGE_KEY = "sync.photoUploads.v1";
 /** A mission's photos are presigned together; one round trip, not one per file. */
@@ -161,24 +162,45 @@ export class PhotoUploadQueue {
 
   async load(): Promise<void> {
     if (this.loaded) return;
+    // INSTRUMENTATION ONLY — see lib/diagnostics/jsStall.ts. Bounded at
+    // KEEP_UPLOADED=200 so this is the weakest of the four cold-start load
+    // candidates, but was equally unattributed until now. The outer try/finally
+    // exists only to guarantee `done()` fires even though the original read/parse
+    // try/catch does not span the whole function; the read/parse/catch/revive
+    // logic itself is unchanged.
+    const done = markPhase("photoUploadQueue.load");
     try {
-      const raw = await this.storage.getItem(PHOTO_QUEUE_STORAGE_KEY);
-      const parsed = raw ? (JSON.parse(raw) as unknown) : null;
-      this.items = Array.isArray(parsed) ? (parsed as PhotoUpload[]) : [];
-    } catch {
-      this.items = [];
+      try {
+        const getStart = Date.now();
+        const raw = await this.storage.getItem(PHOTO_QUEUE_STORAGE_KEY);
+        const getMs = Date.now() - getStart;
+        const parseStart = Date.now();
+        const parsed = raw ? (JSON.parse(raw) as unknown) : null;
+        const parseMs = Date.now() - parseStart;
+        this.items = Array.isArray(parsed) ? (parsed as PhotoUpload[]) : [];
+        // `raw.length` is UTF-16 code units, a fast proxy for bytes — not exact
+        // for non-ASCII text, but this is a diagnostic order-of-magnitude check.
+        console.log(
+          `[loadPhase] photoUploadQueue.load getItem=${getMs}ms parse=${parseMs}ms ` +
+          `records=${this.items.length} bytes=${raw?.length ?? 0}`,
+        );
+      } catch {
+        this.items = [];
+      }
+      // An entry stuck in "uploading" means the process died mid-PUT. It is put back
+      // to pending rather than left alone: the alternative is a photograph that
+      // never retries and never uploads, which is exactly the loss this file exists
+      // to prevent.
+      let revived = 0;
+      for (const it of this.items) {
+        if (it.state === "uploading") { it.state = "pending"; revived++; }
+      }
+      this.loaded = true;
+      if (revived > 0) await this.persist();
+      this.notify();
+    } finally {
+      done();
     }
-    // An entry stuck in "uploading" means the process died mid-PUT. It is put back
-    // to pending rather than left alone: the alternative is a photograph that
-    // never retries and never uploads, which is exactly the loss this file exists
-    // to prevent.
-    let revived = 0;
-    for (const it of this.items) {
-      if (it.state === "uploading") { it.state = "pending"; revived++; }
-    }
-    this.loaded = true;
-    if (revived > 0) await this.persist();
-    this.notify();
   }
 
   all(): readonly PhotoUpload[] {

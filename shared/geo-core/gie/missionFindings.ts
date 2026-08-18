@@ -86,6 +86,19 @@ export interface FindingEvidence {
   photoId?: string;
   /** Measured quantity when there is one — a distance, a count. Unitless here. */
   value?: number;
+  /**
+   * For AI-vision evidence: the model that produced it, e.g. "gemini_vision".
+   * Absent on field observations and engine layers, whose origin already says it.
+   */
+  source?: string;
+  /**
+   * For AI-vision evidence: how far the finding has been checked.
+   *
+   * Vision output is always "unverified" — a photograph can show a vein or a
+   * stain, never prove mineralisation — so it can never stand in for assay or
+   * geochemistry, and the report can say so. Absent on non-visual evidence.
+   */
+  verificationStatus?: "unverified" | "photo_present" | "assay_verified";
 }
 
 export interface FindingRecommendation {

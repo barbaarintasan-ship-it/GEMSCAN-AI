@@ -209,19 +209,41 @@ export class Outbox {
   }
 
   private async readOnce(): Promise<void> {
+    // INSTRUMENTATION ONLY — see lib/diagnostics/jsStall.ts. Only persist()/
+    // persist.stringify() were wrapped before; this read path never was, and a
+    // mission.package entry embeds a full EvidencePackage as its payload, so this
+    // can be reading substantially more than PackageStore's own blob. Loaded via
+    // `void outbox.load()` in provider.tsx, same unattributed cold-start window
+    // as packageStore.load(). Logging only; the read/parse/catch logic below is
+    // unchanged.
+    const done = markPhase("outbox.readOnce");
     try {
+      const getStart = Date.now();
       const raw = await this.storage.getItem(OUTBOX_STORAGE_KEY);
-      if (!raw) return;
+      const getMs = Date.now() - getStart;
+      if (!raw) {
+        console.log(`[loadPhase] outbox.readOnce getItem=${getMs}ms (no stored data)`);
+        return;
+      }
+      const parseStart = Date.now();
       const env = JSON.parse(raw) as Envelope;
+      const parseMs = Date.now() - parseStart;
       if (env?.version === 1 && Array.isArray(env.entries)) {
         this.entries = env.entries.filter(isEntry);
       }
+      // `raw.length` is UTF-16 code units, a fast proxy for bytes — not exact for
+      // non-ASCII text, but this is a diagnostic order-of-magnitude check.
+      console.log(
+        `[loadPhase] outbox.readOnce getItem=${getMs}ms parse=${parseMs}ms ` +
+        `records=${this.entries.length} bytes=${raw.length}`,
+      );
     } catch {
       // Unreadable queue. Starting empty loses the queue, which is bad; throwing
       // loses the SESSION, which is worse. The field session continues.
     } finally {
       this.loaded = true;
       this.emit();
+      done();
     }
   }
 

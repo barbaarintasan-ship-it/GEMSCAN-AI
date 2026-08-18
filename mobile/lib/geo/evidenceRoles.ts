@@ -97,7 +97,15 @@ export type CoverageState =
  * well-MAPPED ground rewards survey coverage. Scoring its rock CLASS does not —
  * 75% of occurrences in 11% of the area, leakage ratio 0.99.
  */
-export const ROLES_NOT_SCORED: readonly EvidenceRole[] = ["drainage", "contacts"] as const;
+/**
+ * `lineaments` withheld on 18 August 2026, on the same measurement as contacts.
+ * The 5,960 Copernicus GLO-30 DEM-derived lineaments leak 4.3x (present at 69% of
+ * occurrences, 16% of background). They are extracted FROM the DEM, and the engine
+ * already scores that DEM as `terrain` — so scoring lineament coverage double-counts
+ * the landform signal rather than adding an independent one. They remain CONTEXT:
+ * drawn on the map, reported in the coverage/evidence panel, never fed to the score.
+ */
+export const ROLES_NOT_SCORED: readonly EvidenceRole[] = ["drainage", "contacts", "lineaments"] as const;
 
 /** Roles with no data source anywhere in the system today. */
 export const ROLES_WITHOUT_SOURCE: readonly EvidenceRole[] = [

@@ -61,7 +61,7 @@
 .gs-status-btn:hover { background: #f6f1e3; }
 
 .gs-plans {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 24px 0;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 24px 0;
 }
 .gs-plan {
     position: relative; border: 1px solid #e5e0d2; border-radius: 18px; padding: 22px 18px;

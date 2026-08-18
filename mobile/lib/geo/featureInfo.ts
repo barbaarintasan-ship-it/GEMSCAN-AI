@@ -14,6 +14,7 @@
 // table with the weight it carries — see `associatedCommodities`.
 import { haversineM, bearingDeg, pointToPolylineM } from "../../../shared/geo-core/geo/spatial.ts";
 import { terrainIndexFor } from "./terrainIndex";
+import { buildBboxIndex, queryBboxIndexPoint, type FeatureGridIndex } from "./featureIndex";
 import { closestPointOn } from "./orientation";
 import type {
   PackData, PackGeologyUnit, PackMapFeature, PackOccurrence, PackTerrainCell,
@@ -128,9 +129,36 @@ export function pointInRings(
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
 
-/** The unit a point falls inside, if any. Bbox rejection first, then exact. */
+/**
+ * One index per geology array, built lazily from the polygon bboxes. Keyed on the
+ * array itself so a new pack rebuilds and an old one is collected with it.
+ */
+const GEOLOGY_INDEX = new WeakMap<PackGeologyUnit[], FeatureGridIndex>();
+
+function geologyIndexFor(geology: PackGeologyUnit[]): FeatureGridIndex {
+  const cached = GEOLOGY_INDEX.get(geology);
+  if (cached && cached.count === geology.length) return cached;
+  // Only polygons are indexed; a non-polygon row is a null bbox and skipped.
+  const built = buildBboxIndex(geology.map((g) => (g.isPolygon ? g.bbox : null)));
+  GEOLOGY_INDEX.set(geology, built);
+  return built;
+}
+
+/**
+ * The unit a point falls inside, if any. Bbox rejection first, then exact.
+ *
+ * Spatial-indexed (featureIndex.ts) so this is O(polygons over the point) instead
+ * of O(all geology). The RESULT is byte-identical to the old full scan: any polygon
+ * whose bbox contains the point spans the point's own grid cell, so that one bucket
+ * is the complete candidate set; candidates are walked in ascending array order and
+ * the SAME bbox reject + pointInRings run, so the first match returned is the same
+ * polygon the linear scan returned.
+ */
 export function unitAt(data: PackData, at: { lat: number; lng: number }): PackGeologyUnit | null {
-  for (const g of data.geology) {
+  const index = geologyIndexFor(data.geology);
+  const candidates = queryBboxIndexPoint(index, at.lng, at.lat);
+  for (let c = 0; c < candidates.length; c++) {
+    const g = data.geology[candidates[c]];
     if (!g.isPolygon) continue;
     const [w, s, e, n] = g.bbox;
     if (at.lng < w || at.lng > e || at.lat < s || at.lat > n) continue;

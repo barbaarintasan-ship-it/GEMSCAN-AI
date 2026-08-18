@@ -83,7 +83,10 @@ export default function MissionReportScreen() {
           <Text style={styles.muted}>{t("reports.notFound")}</Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.body}>
+        <ScrollView
+          contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + spacing.xxxl }]}
+          showsVerticalScrollIndicator
+        >
           {/* ── 1. Overview ──────────────────────────────────────────────── */}
           <Section title={t("report.section.overview")}>
             <Field label={t("reports.field.date")} value={localStamp(pkg.completedAt)} />
@@ -141,7 +144,7 @@ export default function MissionReportScreen() {
           <AIGeologistReport
             mission={{ id: pkg.missionId, state: "ai_analysis_complete" } as Mission}
             findings={pkg.analysis}
-            prospectivityScore={pkg.prospectivityScore}
+            prospectivityScore={pkg.reportScore ?? pkg.prospectivityScore}
             photosPending={photosPending}
             analysisError={pkg.analysisError ?? null}
             appLanguage={lang}

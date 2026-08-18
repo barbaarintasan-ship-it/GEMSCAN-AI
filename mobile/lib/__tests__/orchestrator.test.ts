@@ -91,12 +91,15 @@ function fakeField() {
   return port;
 }
 
-function harness(data: PackData | null = packWithNeCluster()) {
+function harness(
+  data: PackData | null = packWithNeCluster(),
+  extra: { deferRank?: (fn: () => void) => void } = {},
+) {
   const files = data ? buildPack(data, BUILD_OPTS).files : null;
   const packs = new PackStore(createBundledPackSource(() => files), () => NOW);
   const targeting = new TargetingEngine(new OfflineGeoContextService(packs));
   const field = fakeField();
-  const orch = new ExplorationOrchestrator({ field, targeting, packs, now: () => NOW });
+  const orch = new ExplorationOrchestrator({ field, targeting, packs, now: () => NOW, ...extra });
   return { orch, field, packs };
 }
 
@@ -635,5 +638,61 @@ describe("an interrupted expedition is the SAME expedition", () => {
     await settle();
     orch.stop();
     expect(orch.getSnapshot().state).toBe("ended");
+  });
+});
+
+// ── rank() deferral: non-blocking, identical result ─────────────────────────
+describe("rank() runs after the interaction, and returns the same result", () => {
+  const settle = () => new Promise<void>((r) => setTimeout(r, 0));
+
+  it("gives the SAME target cell, score, bearing and distance whether inline or deferred", async () => {
+    // Inline (no deferRank) — the old synchronous path.
+    const inline = harness();
+    inline.orch.start();
+    inline.field.emitFix(MOG.lat, MOG.lng);
+    await settle();
+    const a = inline.orch.getSnapshot().activeTarget;
+    inline.orch.stop();
+
+    // Deferred — rank is queued and flushed by us, standing in for
+    // InteractionManager.runAfterInteractions.
+    const queue: Array<() => void> = [];
+    const deferred = harness(packWithNeCluster(), { deferRank: (fn) => queue.push(fn) });
+    deferred.orch.start();
+    deferred.field.emitFix(MOG.lat, MOG.lng);
+    await settle();
+    while (queue.length) queue.shift()!();
+    await settle();
+    const b = deferred.orch.getSnapshot().activeTarget;
+    deferred.orch.stop();
+
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    // Byte-for-byte the same recommendation — only WHEN it was computed changed.
+    expect(b!.cell).toBe(a!.cell);
+    expect(b!.score).toBe(a!.score);
+    expect(b!.reportScore).toBe(a!.reportScore);
+    expect(b!.bearingDeg).toBe(a!.bearingDeg);
+    expect(b!.distanceM).toBe(a!.distanceM);
+    expect(b!.reasons.map((r) => r.kind)).toEqual(a!.reasons.map((r) => r.kind));
+  });
+
+  it("does NOT block on the fix/button: rank is scheduled, not run, until interactions settle", async () => {
+    const queue: Array<() => void> = [];
+    const h = harness(packWithNeCluster(), { deferRank: (fn) => queue.push(fn) });
+    h.orch.start();
+    h.field.emitFix(MOG.lat, MOG.lng);
+    await settle();
+
+    // The fix path returned having only SCHEDULED the ranking — nothing has ranked
+    // yet, so a tap on Start / Finish in the same moment would not be held.
+    expect(queue.length).toBeGreaterThan(0);
+    expect(h.orch.getSnapshot().activeTarget).toBeNull();
+
+    // Once interactions settle (we flush the queue), the ranking runs and lands.
+    while (queue.length) queue.shift()!();
+    await settle();
+    expect(h.orch.getSnapshot().activeTarget).not.toBeNull();
+    h.orch.stop();
   });
 });

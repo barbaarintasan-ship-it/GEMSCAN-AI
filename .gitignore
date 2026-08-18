@@ -112,3 +112,15 @@ mobile/assets/store-screenshots/raw-user-imports/
 /*.shx
 /*.dbf
 /*.prj
+
+# ---- Large / generated / sensitive working data (added Phase-0 SDK53 prep) ----
+# 2.5 GB of Copernicus DEM tiles (re-downloadable source rasters) + the Phase-1
+# cleanup backup, which contains user PII (profile ids). Neither belongs in git
+# history; keep them local. Store rasters via a data bucket / git-lfs if needed.
+data/
+# Python bytecode cache from the DEM/lineament extraction scripts.
+**/__pycache__/
+*.pyc
+# Root scratch screenshots.
+/e6.png
+/e6c.png

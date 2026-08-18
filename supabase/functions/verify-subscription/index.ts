@@ -82,6 +82,31 @@ Deno.serve(async (req) => {
     const owner = isOwnerEmail(user.email);
     const tier = resolveEffectiveTier(user.email, subscription);
 
+    // Enterprise entitlement — owner, OR a member of an ACTIVE organization. This
+    // mirrors the server gate (enterprise/authz.ts isEnterpriseEnabled) so the app
+    // can show its enterprise entry points to a paying org member, not only to the
+    // owner allowlist. Read with the service role against the enterprise schema;
+    // fails soft to `false` so a hiccup never blocks the subscription check.
+    let enterprise = owner;
+    if (!enterprise) {
+      try {
+        const admin = createClient(
+          Deno.env.get("SUPABASE_URL")!,
+          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+          { db: { schema: "enterprise" } },
+        );
+        const { data: mem } = await admin
+          .from("organization_member")
+          .select("organization_id, organization!inner(status)")
+          .eq("user_id", user.id)
+          .eq("organization.status", "active")
+          .limit(1);
+        enterprise = (mem?.length ?? 0) > 0;
+      } catch (_e) {
+        /* leave false */
+      }
+    }
+
     // Deep Scan balance so the app can show "Deep Scan Credits: X/Y remaining".
     // Read with the caller's own JWT — RLS scopes scan_usage / deep_scan_credits
     // to this user's rows only. Fails soft to zeros so a hiccup never blocks the
@@ -113,6 +138,7 @@ Deno.serve(async (req) => {
         source: owner ? "owner" : (subscription?.source ?? null),
         features: featuresForTier(tier),
         deepScan,
+        enterprise,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

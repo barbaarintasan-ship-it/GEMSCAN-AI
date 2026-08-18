@@ -60,7 +60,13 @@ export default function HomeScreen() {
   // verified when the expedition opened; an expired token does not unverify it.
   // With no lease and no session this is false exactly as before.
   const lease = useExpeditionLease();
-  const showEnterprise = isOwnerEmail(
+  // Enterprise entry points show for a paying ACTIVE-ORG member (from
+  // verify-subscription) OR the owner. The owner/lease path is kept as the offline
+  // and beta fallback: the owner reaches the map even with an expired token, before
+  // any subscription fetch resolves. `enterprise` is the monetization path the
+  // private-beta comment always pointed to — a customer activated via the website
+  // now sees Field Work, not only the owner.
+  const showEnterprise = data?.enterprise === true || isOwnerEmail(
     session?.user?.email ?? (lease.isOpen ? lease.lease?.collectedBy?.email : null),
   );
 

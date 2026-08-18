@@ -113,8 +113,14 @@ export interface EvidencePackage {
   targetCentre: { lat: number; lng: number };
   hotspot: MissionHotspot | null;
   commodity: string | null;
-  /** The engine's score for the target when the mission was taken. */
+  /** The engine's RANKING score for the target when the mission was taken. */
   prospectivityScore: number;
+  /**
+   * The DISPLAY score for the report — `prospectivityScore` moderated by evidence
+   * breadth and completeness (prospectivityReport.ts). Optional: packages built
+   * before this existed have none, and the reader falls back to `prospectivityScore`.
+   */
+  reportScore?: number;
   /** Why the engine offered it, structured — never a pre-built sentence. */
   targetReasons: TargetReason[];
 
@@ -242,6 +248,7 @@ export function buildEvidencePackage(input: BuildPackageInput): EvidencePackage 
     hotspot: mission.hotspot,
     commodity: mission.commodity,
     prospectivityScore: mission.score,
+    reportScore: mission.reportScore ?? mission.score,
     targetReasons: input.targetReasons,
 
     engineReadings: input.engineReadings ?? null,

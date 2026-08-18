@@ -117,8 +117,14 @@ export interface Mission {
   hotspot: MissionHotspot | null;
   /** The commodity the assessment was conditioned on, or null for universal. */
   commodity: string | null;
-  /** The prospectivity score of the target cell when the mission was taken. */
+  /** The prospectivity score of the target cell when the mission was taken. RANKING. */
   score: number;
+  /**
+   * The DISPLAY score for the report — `score` moderated by evidence breadth and
+   * completeness (prospectivityReport.ts). Never used for ranking. Optional so a
+   * mission restored from an older store falls back to `score` at the read site.
+   */
+  reportScore?: number;
   startedAt: number;
   arrivedAt: number | null;
   completedAt: number | null;
@@ -146,11 +152,12 @@ export function newMission(
   id: string,
   cell: string,
   centre: { lat: number; lng: number },
-  opts: { commodity: string | null; score: number; at: number },
+  opts: { commodity: string | null; score: number; reportScore?: number; at: number },
 ): Mission {
   return {
     id, state: "target_selected", cell, centre,
     hotspot: null, commodity: opts.commodity, score: opts.score,
+    reportScore: opts.reportScore ?? opts.score,
     startedAt: opts.at, arrivedAt: null, completedAt: null, closedAt: null,
     packageId: null,
   };
