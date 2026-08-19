@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   View,
   Text,
@@ -18,6 +19,8 @@ import { setAppLanguage } from "../../lib/i18n";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, type as typo } from "../../lib/theme";
 
+const LAST_EMAIL_KEY = "auth.lastEmail";
+
 export default function LoginScreen() {
   const { signIn, resetPassword } = useAuth();
   const { i18n } = useTranslation();
@@ -27,21 +30,33 @@ export default function LoginScreen() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
 
+  // Remember the last email so a returning user does not retype it. Prefilled
+  // only when the field is still empty, so it never fights what they are typing.
+  useEffect(() => {
+    void AsyncStorage.getItem(LAST_EMAIL_KEY).then((saved) => {
+      if (saved) setEmail((current) => (current ? current : saved));
+    });
+  }, []);
+
   const onSubmit = async () => {
     setError(null);
     setResetMsg(null);
     setIsSubmitting(true);
-    const { error: signInError } = await signIn(email.trim(), password);
+    const em = email.trim();
+    const { error: signInError } = await signIn(em, password);
     setIsSubmitting(false);
     if (signInError) {
       setError(signInError);
       return;
     }
+    // Only remember an email that actually signed in.
+    void AsyncStorage.setItem(LAST_EMAIL_KEY, em);
     router.replace("/(app)");
   };
 
@@ -113,11 +128,25 @@ export default function LoginScreen() {
             style={styles.input}
             placeholder={L("Password", "Furaha sirta")}
             placeholderTextColor={colors.textFaint}
-            secureTextEntry
+            secureTextEntry={!showPassword}
             autoComplete="password"
             value={password}
             onChangeText={setPassword}
           />
+          <Pressable
+            onPress={() => setShowPassword((v) => !v)}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel={showPassword
+              ? L("Hide password", "Qari furaha")
+              : L("Show password", "Muuji furaha")}
+          >
+            <Ionicons
+              name={showPassword ? "eye-off-outline" : "eye-outline"}
+              size={20}
+              color={colors.textFaint}
+            />
+          </Pressable>
         </View>
 
         {error && <Text style={styles.error}>{error}</Text>}

@@ -2,6 +2,8 @@
 // This is the full extent of what the mobile app does regarding accounts —
 // no payment/purchase logic lives anywhere near this file.
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { AppState } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import { setCurrentIdentity } from "./currentIdentity";
@@ -72,6 +74,49 @@ function publishIdentity(s: Session | null): void {
   setCurrentIdentity(s?.user ? { userId: s.user.id, email: s.user.email ?? null } : null);
 }
 
+// ── Single active session (one phone per account) ───────────────────────────
+// On each successful login this device writes a fresh random id to
+// profiles.active_session_id and remembers it locally. When it later reads a
+// DIFFERENT id — because the same account signed in on another phone — it signs
+// itself out. RLS already scopes select/update to the owner (migration 0001), so
+// nobody can claim or read another account's session. Failures fail OPEN: a
+// network hiccup never logs a working device out, only a confirmed takeover does.
+const SESSION_ID_KEY = "auth.activeSessionId";
+/** How often a signed-in app re-checks that it is still the active device. */
+const SESSION_CHECK_MS = 45_000;
+
+function newSessionId(): string {
+  return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12);
+}
+
+async function claimActiveSession(userId: string): Promise<void> {
+  try {
+    const id = newSessionId();
+    await AsyncStorage.setItem(SESSION_ID_KEY, id);
+    await supabase.from("profiles").update({ active_session_id: id }).eq("id", userId);
+  } catch {
+    // A claim that could not be written just means single-session is not enforced
+    // this login — never a reason to block the sign-in itself.
+  }
+}
+
+/** True when the server's active session belongs to ANOTHER device. */
+async function sessionWasTakenOver(userId: string): Promise<boolean> {
+  try {
+    const mine = await AsyncStorage.getItem(SESSION_ID_KEY);
+    if (!mine) return false; // never claimed here → nothing to compare against
+    const { data, error } = await supabase
+      .from("profiles").select("active_session_id").eq("id", userId).maybeSingle();
+    if (error || !data) return false; // unreadable → fail open, stay signed in
+    const server = data.active_session_id as string | null;
+    // Only a DIFFERENT non-null id is a real takeover. Null (older row, not yet
+    // claimed) is not, so an existing user is never bounced on first upgrade.
+    return !!server && server !== mine;
+  } catch {
+    return false;
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -108,6 +153,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // ── Single active session enforcement ─────────────────────────────────────
+  // While signed in, confirm this device still owns the account: on mount, on
+  // returning to the foreground, and on a slow timer. A confirmed takeover (the
+  // same account signed in elsewhere) signs this device out. Deliberately off the
+  // boot-critical path — it is a plain read that fails open.
+  const userId = session?.user?.id ?? null;
+  useEffect(() => {
+    if (!userId) return;
+    let alive = true;
+    const check = async () => {
+      if (!alive) return;
+      if (await sessionWasTakenOver(userId)) {
+        await AsyncStorage.removeItem(SESSION_ID_KEY);
+        await supabase.auth.signOut(); // onAuthStateChange clears session + identity
+      }
+    };
+    void check();
+    const timer = setInterval(() => void check(), SESSION_CHECK_MS);
+    const sub = AppState.addEventListener("change", (s) => { if (s === "active") void check(); });
+    return () => { alive = false; clearInterval(timer); sub.remove(); };
+  }, [userId]);
+
   // B6 (perf): stable identities so the context value below only changes when
   // session/isLoading change, not on every provider render. Deps are empty
   // because these close over module-level constants (supabase, FUNCTIONS_URL).
@@ -137,11 +204,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error?.message ?? null };
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { error: error.message };
+    // Claim this account for THIS device — any phone already signed in will find
+    // a different id on its next check and sign itself out.
+    if (data.user) await claimActiveSession(data.user.id);
+    return { error: null };
   }, []);
 
   const signOut = useCallback(async () => {
+    await AsyncStorage.removeItem(SESSION_ID_KEY);
     await supabase.auth.signOut();
   }, []);
 
