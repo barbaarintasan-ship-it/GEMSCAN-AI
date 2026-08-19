@@ -13,9 +13,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#080C14"
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.38.17",
     "updates": {
       "enabled": false,
       "fallbackToCacheTimeout": 0,
