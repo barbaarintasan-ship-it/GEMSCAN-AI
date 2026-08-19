@@ -134,6 +134,7 @@
       "held": "You chose this destination, so it is held. Re-ranking updates the alternatives below, never where you are going. Tap Recalculate to ask again.",
       "betterAvailable": "Higher-scoring ground {{distance}} {{compass}} — you are not being redirected to it.",
       "switchToIt": "GO THERE INSTEAD",
+      "cancelChosen": "CANCEL — GO TO NEAREST",
       "scoredFor": "This target was ranked for {{commodity}}.",
       "scoredUniversal": "This target was ranked on geology alone, with no commodity assumed.",
       "scoredStale": "This target was ranked BEFORE {{commodity}} was selected — it is not a {{commodity}}-specific target. Tap Recalculate to rank for {{commodity}}.",

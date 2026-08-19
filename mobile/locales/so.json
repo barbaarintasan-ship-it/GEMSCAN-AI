@@ -134,6 +134,7 @@
       "held": "Adigu waxaad dooratay halkan, marka waa xidhan. Dib-u-kala-horreysiintu waxay cusboonaysiisaa liiska hoose, ee marnaba ma beddesho halka aad u socoto. Riix Recalculate haddii aad rabto in dib laga fikiro.",
       "betterAvailable": "Dhul dhibco ka sarreeya leh {{distance}} {{compass}} — halkaas laguma jiheynayo.",
       "switchToIt": "HALKAAS TAG",
+      "cancelChosen": "JOOJI — U AAD KAN DHOW",
       "scoredFor": "Target-kan waxaa loo kala horreysiiyay {{commodity}}.",
       "scoredUniversal": "Target-kan waxaa lagu kala horreysiiyay juqraafi ahaan oo keliya, macdan gaar ahna lama qaadan.",
       "scoredStale": "Target-kan waxaa la kala horreysiiyay KA HOR inta aan {{commodity}} la dooran — MA AHA target {{commodity}} u gaar ah. Riix Recalculate si loo kala horreysiiyo {{commodity}}.",

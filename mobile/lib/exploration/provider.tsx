@@ -84,6 +84,8 @@ export interface ExplorationApi {
     finishSection: () => Promise<void>;
     /** Close the mission. Only then may the engine recommend somewhere else. */
     closeMission: () => void;
+    /** Abandon a hand-picked target and return to the nearest suggestion. */
+    cancelChosenTarget: () => void;
     /**
      * Record where a photograph landed in object storage.
      *
@@ -276,6 +278,7 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
         }
       },
       closeMission: () => orchestrator.closeMission(),
+      cancelChosenTarget: () => orchestrator.cancelChosenTarget(),
       notePhotoUploaded: async (photoId, r2Key) => {
         const store = waypointStoreRef.current;
         if (!store) return;

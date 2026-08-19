@@ -936,6 +936,31 @@ export class ExplorationOrchestrator {
   }
 
   /**
+   * Abandon a hand-picked target and return to the nearest suggestion.
+   *
+   * The geologist chose a FAR target by hand — a known occurrence, a fault, a
+   * place they are sure of — and the app held it (that is the whole point of a
+   * committed target). "Cancel" here undoes that choice: it drops the commitment
+   * and re-ranks now so the ordinary NEAR recommendation comes straight back,
+   * pointing to it again. It is not `closeMission` — nothing was investigated, so
+   * nothing is filed; a chosen destination is simply let go. Same revert as
+   * closeMission but never gated on a live mission, so it works whether the
+   * choice had opened one yet or not.
+   */
+  cancelChosenTarget(): void {
+    const m = this.snap.mission;
+    if (m && isMissionLive(m.state)) {
+      this.evidenceAt = null;
+      this.patch({ mission: advance(m, "mission_closed", this.now) });
+      this.hotspotFor = null;
+    }
+    this.releaseTarget();
+    this.patch({ activeTarget: null, state: "reasoning" });
+    this.lastTargetedCell = null;
+    void this.retarget(true, "user-selected");
+  }
+
+  /**
    * Choose a different target from the ranked list.
    *
    * The strongest form of commitment there is: it survives every re-rank until the

@@ -778,6 +778,23 @@ export default function ExplorationSurface() {
             <Text style={styles.held}>{t("field.target.held")}</Text>
           ) : null}
 
+          {/* CANCEL A HAND-PICKED TARGET. The geologist chose a far target — a
+              known occurrence, a fault, a place they are sure of — and the app
+              held it. This lets them undo that choice and get the nearest
+              suggestion back. Hidden once an investigation is under way, so an
+              active section is never discarded by a stray tap. */}
+          {s.targetCommitment === "committed" && s.mission?.state !== "field_investigation" ? (
+            <Pressable
+              onPress={() => actions.cancelChosenTarget()}
+              accessibilityRole="button"
+              style={styles.cancelRow}
+              hitSlop={6}
+            >
+              <Ionicons name="close-circle-outline" size={16} color={colors.textFaint} />
+              <Text style={styles.cancelText}>{t("field.target.cancelChosen")}</Text>
+            </Pressable>
+          ) : null}
+
           {/* Better ground, reported and never acted on. Tapping is the only way
               the destination moves. */}
           {s.betterTargetAvailable ? (
@@ -2163,6 +2180,8 @@ const styles = StyleSheet.create({
   },
   better: { color: colors.text, fontSize: 12, lineHeight: 18 },
   betterAction: { color: colors.gold, fontSize: 11, fontWeight: "700", letterSpacing: 0.4 },
+  cancelRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 },
+  cancelText: { color: colors.textFaint, fontSize: 12, fontWeight: "700", letterSpacing: 0.3 },
   reason: { color: colors.text, fontSize: 14, lineHeight: 21 },
 
   chips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.sm },
