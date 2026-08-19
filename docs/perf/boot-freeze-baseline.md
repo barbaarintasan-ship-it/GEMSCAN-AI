@@ -54,6 +54,23 @@ The **SDK 53 / RN 0.79 build boots on-device with `FATAL count: 0`** — the h3-
 `TextDecoder`, SoLoader merged-mapping, and `promise` hoist fixes all work at
 runtime (first on-device confirmation of the migration).
 
+## Clean SDK 53 baseline (verified build, fresh install, empty outbox, HOME screen)
+Installed APK md5 == the built `app-release.apk` (`b110db2d…`); contains
+`lib/arm64-v8a/libreactnative.so` (RN 0.79 merged lib) — confirmed the SDK 53
+build. Cold boot to the **home screen** (logged in, Professional):
+```
+UNRESPONSIVE 2616ms IN: subscription.fetch
+  … › explore.retarget › targeting.rank[37]  (1741 ms)
+  … › pack.handover › pack.require            (566 ms)
+map.buildScene                                (374 ms)
+```
+- **~2.6 s** JS-unresponsive **even on the HOME screen** — because
+  `ExplorationProvider` + `MapWorkspaceProvider` mount at the ROOT provider tree,
+  so `pack.require` + `targeting.rank` + `map.buildScene` run at every boot,
+  regardless of which screen is shown. (No `pushOutbox` here: empty outbox. With
+  queued records it climbs to the ~4–8 s above.)
+- `FATAL 0`, app renders correctly → SDK 53 runtime confirmed on-device.
+
 ## Data volume (static measurement)
 `assets/geo-pack/`: `maplayers.json` **13.9 MB**, `terrain.json` **5.7 MB**,
 `geology.json` 0.48 MB, others small → **~20 MB**, loaded as ONE all-or-nothing
