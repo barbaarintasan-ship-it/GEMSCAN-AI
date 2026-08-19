@@ -4,56 +4,64 @@ These patches are applied automatically after `npm install` via the
 `postinstall: "patch-package"` script — including on EAS Build — so the fixes
 are reproducible and survive reinstalls.
 
-## expo-modules-core+1.12.26.patch
+Current patches (Expo SDK 53 / React Native 0.79):
 
-### Original error (EAS "Run gradlew" phase, Android production build)
+## h3-js+4.1.0.patch
+
+### Problem (introduced by Expo SDK 53)
+Expo SDK 53 installs a **UTF-8-only** `TextDecoder` as a global (its "winter"
+runtime, `expo/src/winter/TextDecoder.ts` — "we only need utf-8 decoder for
+React Server Components"). `h3-js`'s emscripten glue constructs
+`new TextDecoder("utf-16le")` eagerly at module load. Under SDK 53 that global
+throws `RangeError: Unknown encoding: utf-16le`, so **importing `h3-js` crashes**
+— at app runtime (any exploration screen) and in every Jest suite that touches
+h3 (~30 suites failed to even load).
+
+Before SDK 53 there was no global `TextDecoder`, so h3-js's
+`typeof TextDecoder !== "undefined" ? new TextDecoder("utf-16le") : undefined`
+guard evaluated to `undefined` and h3-js used its built-in manual decoder.
+
+### Exact change
+In each shipped bundle (`dist/h3-js.js` used by Jest/Node, `dist/browser/h3-js.js`
+used by Metro via the package's `browser` field, plus the `.es`/`.umd` variants),
+the single eager construction is neutralised:
+```diff
+- ... typeof TextDecoder !== "undefined" ? new TextDecoder("utf-16le") : undefined
++ ... typeof TextDecoder !== "undefined" ? void 0 : undefined
 ```
-e: .../expo-modules-core/android/.../permissions/PermissionsService.kt:166:36
-   Only safe (?.) or non-null asserted (!!.) calls are allowed on a
-   nullable receiver of type Array<(out) String!>?
-> Task :expo-modules-core:compileReleaseKotlin FAILED
-```
+This forces `UTF16Decoder = undefined`, so emscripten falls back to its manual
+UTF-16 decode loop — **identical output**, and exactly the path used on every SDK
+before 53. The `utf8` decoder is untouched (the winter runtime supports utf-8).
+
+### Why it is safe
+The manual fallback is byte-for-byte equivalent and is what h3-js used for the
+app's entire history before SDK 53. H3 returns ASCII cell-id strings, so the
+UTF-16 path is rarely (if ever) exercised anyway.
+
+## expo-modules-core+2.5.0.patch
+
+### Problem
+`PackageInfo.requestedPermissions` is `@Nullable String[]` in the API 35 SDK
+stubs. expo-modules-core 2.5.0's `isPermissionPresentInManifest(...)` calls
+`requestedPermissions!!.contains(permission)`, which throws
+`NullPointerException` if an app declares no permissions.
 
 ### Exact line changed
 `PermissionsService.kt`, inside `isPermissionPresentInManifest(...)`:
 ```diff
--        return requestedPermissions.contains(permission)
+-        return requestedPermissions!!.contains(permission)
 +        return requestedPermissions?.contains(permission) == true
 ```
 
-### Why the fix is correct
-`requestedPermissions` is `android.content.pm.PackageInfo.requestedPermissions`
-(a Java field). In the Android API 34 SDK stubs it is an unannotated
-`String[]`, which Kotlin treats as a platform type (`Array<String!>!`) and lets
-you call `.contains(...)` on directly. In the **API 35** stubs the same field is
-annotated `@Nullable String[]`, so Kotlin now sees `Array<String!>?` and
-(correctly) refuses an unguarded `.contains(...)` call. Using the safe-call
-operator and comparing to `true` (`?.contains(permission) == true`) returns
-`false` when the array is null and otherwise behaves identically to the
-original. This is exactly the change Expo shipped in later expo-modules-core
-releases (the SDK 52 version, 2.2.x, already contains an equivalent guard).
-
 ### Why it is safe
-- Behaviour is unchanged whenever `requestedPermissions` is non-null (the only
-  case that occurred under API 34). When it is null (possible only under API 35),
-  the method returns `false` — the correct answer, since a null permission array
-  means the queried permission is not present in the manifest.
-- The change is one expression, contains no new APIs, and does not alter the
-  method signature or any caller.
-- It compiles cleanly against both API 34 and API 35, so it is forward- and
-  backward-compatible.
+When `requestedPermissions` is non-null (this app declares CAMERA/LOCATION, so
+always) behaviour is identical; when null it returns `false` (the correct answer
+— the permission is not present). One expression, no new APIs, no signature
+change. This restores the same defensive guard the project carried on SDK 51
+(previously `expo-modules-core+1.12.26.patch`), re-based onto 2.5.0.
 
-### Why upgrading to Expo SDK 52 is NOT necessary
-The Android production build's only failure was this single Kotlin
-null-safety compile error. The toolchain itself is fully compatible with
-`compileSdk`/`targetSdk = 35` on Expo SDK 51:
-- Google requires **AGP 8.6.0+** and **Gradle 8.7+** for compileSdk 35 — the
-  project uses **AGP 8.6.0** (pinned in `android/build.gradle`) and **Gradle
-  8.8**, both of which satisfy the requirement.
-- A local `:app:help`/config run and the EAS build both completed
-  configuration, JS bundling, and nearly all Kotlin compilation before failing
-  only on this one line — proving there is no AGP/Gradle/SDK incompatibility.
-
-Because the sole blocker is a one-line dependency source fix that patch-package
-resolves reproducibly, the large, higher-risk Expo SDK 51 → 52 upgrade (React
-Native 0.74 → 0.76, ~40 packages, New Architecture) is unnecessary.
+## Removed: react-native-screens+3.31.1.patch
+The `drawingOpPool.removeLast()` → `removeAt(lastIndex)` fix (an Android-15
+`NoSuchMethodError` guard) is **fixed upstream** in react-native-screens 4.11.1
+(`ScreenStack.kt` now uses `removeAt(drawingOpPool.lastIndex)` with the same
+SDK-35 rationale), so the patch is no longer needed and was deleted.

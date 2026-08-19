@@ -64,7 +64,7 @@
     "jest-expo": "~53.0.14",
     "patch-package": "^8.0.1",
     "postinstall-postinstall": "^2.1.0",
-    "react-test-renderer": "^19.0.0",
+    "react-test-renderer": "19.0.0",
     "typescript": "~5.8.3"
   },
   "comments": {

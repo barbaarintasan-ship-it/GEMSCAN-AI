@@ -37,6 +37,19 @@ import { ExplorationSheet, SheetAction } from "../ExplorationSheet";
  * By TYPE, not by "has an onPress prop": Pressable passes handlers down through
  * several internal layers, so a props search counts one button three times.
  */
+/**
+ * Render inside act(). React 19 / react-test-renderer 19 commit on the scheduler,
+ * so a bare `renderer.create()` renders AFTER the test's synchronous body — its
+ * `tree.root` is unmounted when read, and the deferred render races Jest teardown
+ * ("import after the Jest environment has been torn down"). Wrapping create in
+ * act() commits synchronously, the same pattern authGate/mount tests already use.
+ */
+function mount(element: React.ReactElement): ReactTestRenderer {
+  let tree!: ReactTestRenderer;
+  renderer.act(() => { tree = renderer.create(element); });
+  return tree;
+}
+
 function pressables(tree: ReactTestRenderer): ReactTestInstance[] {
   return tree.root.findAllByType(Pressable);
 }
@@ -65,7 +78,7 @@ describe("MapRail", () => {
 
   test("every button on the rail calls its own handler", () => {
     const spies = Array.from({ length: 5 }, () => jest.fn());
-    const tree = renderer.create(<MapRail top={100} items={items(spies)} />);
+    const tree = mount(<MapRail top={100} items={items(spies)} />);
     const all = pressables(tree);
     expect(all).toHaveLength(5);
     all.forEach((p) => renderer.act(() => { p.props.onPress(); }));
@@ -73,7 +86,7 @@ describe("MapRail", () => {
   });
 
   test("it positions ITSELF — the sizeless-wrapper bug cannot come back", () => {
-    const style = rootStyle(renderer.create(<MapRail top={137} items={items(Array.from({ length: 5 }, () => jest.fn()))} />));
+    const style = rootStyle(mount(<MapRail top={137} items={items(Array.from({ length: 5 }, () => jest.fn()))} />));
     expect(style.position).toBe("absolute");
     expect(style.top).toBe(137);
     expect(style.left).toEqual(expect.any(Number));
@@ -98,7 +111,7 @@ describe("LayerPanel", () => {
   test("each row toggles its own layer, and close closes", () => {
     const onToggle = jest.fn();
     const onClose = jest.fn();
-    const tree = renderer.create(
+    const tree = mount(
       <LayerPanel
         title="LAYERS" layers={{ satellite: true, labels: false, faults: true }}
         onToggle={onToggle} onClose={onClose} groups={groups} top={100} maxHeight={400}
@@ -113,7 +126,7 @@ describe("LayerPanel", () => {
   });
 
   test("it positions itself too", () => {
-    const style = rootStyle(renderer.create(
+    const style = rootStyle(mount(
       <LayerPanel
         title="LAYERS" layers={{}} onToggle={jest.fn()} onClose={jest.fn()}
         groups={groups} top={210} maxHeight={400}
@@ -125,7 +138,7 @@ describe("LayerPanel", () => {
   });
 
   test("an online layer says so when there is no connection", () => {
-    const tree = renderer.create(
+    const tree = mount(
       <LayerPanel
         title="LAYERS" layers={{ labels: true }} onToggle={jest.fn()} onClose={jest.fn()}
         groups={groups} top={100} maxHeight={400} offline offlineNote="Offline — cached tiles"
@@ -147,7 +160,7 @@ describe("the round controls", () => {
       { icon: "navigate" as const, size: 52 },
     ]) {
       const onPress = jest.fn();
-      const tree = renderer.create(<RoundBtn {...props} onPress={onPress} />);
+      const tree = mount(<RoundBtn {...props} onPress={onPress} />);
       press(tree);
       expect(onPress).toHaveBeenCalledTimes(1);
     }
@@ -175,7 +188,7 @@ describe("the round controls", () => {
 
   test("the compass turns with the map and reports a tap", () => {
     const props = compass({ rotationDeg: 90 });
-    const tree = renderer.create(<Compass {...props} />);
+    const tree = mount(<Compass {...props} />);
     press(tree);
     expect(props.onPress).toHaveBeenCalledTimes(1);
   });
@@ -183,7 +196,7 @@ describe("the round controls", () => {
   test("the target arrow is drawn at the bearing MINUS the map rotation", () => {
     // The whole point. On a map twisted 90 degrees, an arrow at the raw bearing
     // points at open ground: 130 - 90 = 40.
-    const tree = renderer.create(<Compass {...compass({ rotationDeg: 90, targetBearingDeg: 130 })} />);
+    const tree = mount(<Compass {...compass({ rotationDeg: 90, targetBearingDeg: 130 })} />);
     expect(rotations(tree)).toContain("40deg");
     // North is still shown, counter-rotated against the map.
     expect(rotations(tree)).toContain("-90deg");
@@ -191,40 +204,40 @@ describe("the round controls", () => {
 
   test("with nothing to navigate to there is no arrow at all", () => {
     // An arrow with no target would be decoration pointing somewhere.
-    const tree = renderer.create(<Compass {...compass({ rotationDeg: 90, targetBearingDeg: null })} />);
+    const tree = mount(<Compass {...compass({ rotationDeg: 90, targetBearingDeg: null })} />);
     // Deduplicated: findAll reports the composite and its host element both.
     expect([...new Set(rotations(tree))]).toEqual(["-90deg"]);
   });
 
   test("with no heading the control cannot be tapped into a mode it cannot perform", () => {
-    const tree = renderer.create(<Compass {...compass({ headingDeg: null, headingUp: false })} />);
+    const tree = mount(<Compass {...compass({ headingDeg: null, headingUp: false })} />);
     expect(tree.root.findAllByType(Pressable)[0].props.disabled).toBe(true);
   });
 
   test("but heading-up can always be turned OFF, even after the heading is lost", () => {
     // Otherwise losing the magnetometer strands the map at a rotation the
     // geologist can no longer undo.
-    const tree = renderer.create(<Compass {...compass({ headingDeg: null, headingUp: true })} />);
+    const tree = mount(<Compass {...compass({ headingDeg: null, headingUp: true })} />);
     expect(tree.root.findAllByType(Pressable)[0].props.disabled).toBe(false);
   });
 
   test("a heading that needs calibrating says so on the control that uses it", () => {
     // It can be reported with confidence and be thirty degrees wrong, and in
     // heading-up mode that error rotates the whole map.
-    expect(borders(renderer.create(<Compass {...compass({ needsCalibration: true })} />))).toContain("#E0A02F");
-    expect(borders(renderer.create(<Compass {...compass()} />))).not.toContain("#E0A02F");
+    expect(borders(mount(<Compass {...compass({ needsCalibration: true })} />))).toContain("#E0A02F");
+    expect(borders(mount(<Compass {...compass()} />))).not.toContain("#E0A02F");
   });
 
   test("the GPS chip opens the readout", () => {
     const onPress = jest.fn();
-    const tree = renderer.create(<GpsChip text="±1.5 m" onPress={onPress} />);
+    const tree = mount(<GpsChip text="±1.5 m" onPress={onPress} />);
     press(tree);
     expect(onPress).toHaveBeenCalledTimes(1);
   });
 
   test("the guidance pill opens the sheet", () => {
     const onPress = jest.fn();
-    const tree = renderer.create(<TargetPill title="1.4 km NE" subtitle="High" onPress={onPress} />);
+    const tree = mount(<TargetPill title="1.4 km NE" subtitle="High" onPress={onPress} />);
     press(tree);
     expect(onPress).toHaveBeenCalledTimes(1);
   });
@@ -234,7 +247,7 @@ describe("MapTopBar", () => {
   test("back and end each call their own handler", () => {
     const onBack = jest.fn();
     const onEnd = jest.fn();
-    const tree = renderer.create(
+    const tree = mount(
       <MapTopBar title="Exploration" status="Online" online onBack={onBack} onEnd={onEnd} top={40} />,
     );
     const all = pressables(tree);
@@ -246,7 +259,7 @@ describe("MapTopBar", () => {
   });
 
   test("it clears the notch by its own offset", () => {
-    const style = rootStyle(renderer.create(
+    const style = rootStyle(mount(
       <MapTopBar title="T" status="S" online onBack={jest.fn()} top={44} />,
     ));
     expect(style.position).toBe("absolute");
@@ -254,7 +267,7 @@ describe("MapTopBar", () => {
   });
 
   test("with no session running there is nothing to end", () => {
-    const tree = renderer.create(<MapTopBar title="T" status="S" online onBack={jest.fn()} top={0} />);
+    const tree = mount(<MapTopBar title="T" status="S" online onBack={jest.fn()} top={0} />);
     expect(pressables(tree)).toHaveLength(1);
   });
 });
@@ -265,7 +278,7 @@ describe("the sheet", () => {
     const onAction = jest.fn();
     // The sheet reads the bottom safe-area inset so the Android navigation bar
     // cannot cover its last rows, which means it needs the provider mounted.
-    const tree = renderer.create(
+    const tree = mount(
       <SafeAreaProvider initialMetrics={METRICS}>
       <ExplorationSheet
         expandedHeight={500} expanded={false} onExpandedChange={onExpandedChange}
@@ -289,7 +302,7 @@ describe("the sheet", () => {
     // is anchored to bottom:0 on an edge-to-edge screen — so without this the
     // last line a geologist reads sits under the Android buttons. Reported from
     // the field as "qoraalka ugu hooseeya … badhanada taleefanka ayaa qarinaya".
-    const tree = renderer.create(
+    const tree = mount(
       <SafeAreaProvider initialMetrics={METRICS}>
         <ExplorationSheet
           expandedHeight={500} expanded={false} onExpandedChange={() => {}}
@@ -308,7 +321,7 @@ describe("the sheet", () => {
 
   test("a disabled action does not fire", () => {
     const onPress = jest.fn();
-    const tree = renderer.create(<SheetAction icon={null} label="X" onPress={onPress} disabled />);
+    const tree = mount(<SheetAction icon={null} label="X" onPress={onPress} disabled />);
     const p = pressables(tree)[0];
     expect(p.props.disabled).toBe(true);
   });
@@ -316,12 +329,12 @@ describe("the sheet", () => {
 
 describe("ScaleBar", () => {
   test("it sits where it is told, above the sheet", () => {
-    const style = rootStyle(renderer.create(<ScaleBar metresPerPx={2} bottom={180} />));
+    const style = rootStyle(mount(<ScaleBar metresPerPx={2} bottom={180} />));
     expect(style.position).toBe("absolute");
     expect(style.bottom).toBe(180);
   });
 
   test("a nonsense scale draws nothing rather than a wrong number", () => {
-    expect(renderer.create(<ScaleBar metresPerPx={0} />).toJSON()).toBeNull();
+    expect(mount(<ScaleBar metresPerPx={0} />).toJSON()).toBeNull();
   });
 });
