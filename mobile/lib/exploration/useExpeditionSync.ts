@@ -17,7 +17,7 @@
 // Everything is durable before any of it is uploaded, so this works identically
 // with no signal for a week.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AppState } from "react-native";
+import { AppState, InteractionManager } from "react-native";
 import { Outbox, type OutboxStats } from "../sync/outbox";
 import { pushOutbox } from "../sync/pushOutbox";
 import { pushPhotos } from "../sync/pushPhotos";
@@ -357,11 +357,21 @@ export function useExpeditionSync(input: {
     // Now (the connection may have just returned), on a slow timer while
     // walking, and when the app comes back to the foreground — the three moments
     // a phone in a pocket is most likely to have found a signal.
-    void drain();
+    //
+    // The FIRST drain is moved PAST the first frame. It used to run "now" on
+    // mount — measured as the dominant boot freeze: draining a backlog of queued
+    // records (getSession + network + processing) ran on the same tick as the
+    // first paint and the cold-start scoring, holding the JS thread unresponsive
+    // for seconds. runAfterInteractions yields until the UI has settled (the next
+    // frame when nothing is animating) — it defers the work off the boot tick, it
+    // is NOT a fixed delay, and it changes nothing about WHAT the drain does: the
+    // same records, the same order, the same one round trip. The 60s interval and
+    // the foreground-resume drains are already off the boot path and run directly.
+    const firstDrain = InteractionManager.runAfterInteractions(() => { void drain(); });
     const timer = setInterval(() => void drain(), DRAIN_INTERVAL_MS);
     const sub = AppState.addEventListener("change", (s) => { if (s === "active") void drain(); });
 
-    return () => { alive = false; clearInterval(timer); sub.remove(); };
+    return () => { alive = false; firstDrain.cancel(); clearInterval(timer); sub.remove(); };
   }, [isOnline, outbox, photoQueue, packages]);
 
   return state;

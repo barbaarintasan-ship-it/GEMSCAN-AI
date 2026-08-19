@@ -68,7 +68,15 @@ export const SYNC_TIMEOUT_MS = 15_000;
  * network layer being constructible. A failure there took out the whole screen
  * before a single pixel was drawn.
  */
-async function getSupabase(): Promise<{ auth: { getSession: () => Promise<{ data: { session: { access_token: string } | null } }> } } | null> {
+type SessionClient = {
+  auth: {
+    getSession: () => Promise<{
+      data: { session: { access_token: string; expires_at?: number } | null };
+    }>;
+  };
+};
+
+async function getSupabase(): Promise<SessionClient | null> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     return require("../supabase").supabase;
@@ -76,6 +84,52 @@ async function getSupabase(): Promise<{ auth: { getSession: () => Promise<{ data
     // No client, so nothing can be filed yet. The queue keeps the records.
     return null;
   }
+}
+
+/**
+ * Session-token cache — one storage read serves a burst of drains.
+ *
+ * `getSession()` reaches AsyncStorage (and can trigger a refresh); on a cold
+ * start it measured ~1.3 s, and boot fires several drains in quick succession
+ * (mount, `isOnline` flipping as a signal is found, foreground resume) — each of
+ * which used to pay that read again. The access token is a short-lived JWT, so
+ * it is cached until shortly before its OWN `expires_at`: reused safely across a
+ * burst, never sent expired (getSession refreshes it once the cache lapses).
+ * Cleared on a server auth-rejection (401/403) via `clearSessionCache()`, so a
+ * signed-out or revoked token cannot linger. Reusing a still-valid token changes
+ * nothing about what is sent — the same Authorization header the fresh read
+ * would have produced.
+ */
+let cachedSession: { token: string; expMs: number } | null = null;
+const SESSION_REFRESH_MARGIN_MS = 60_000;
+
+export function clearSessionCache(): void {
+  cachedSession = null;
+}
+
+async function getAccessToken(client: SessionClient): Promise<string | null> {
+  const now = Date.now();
+  if (cachedSession && cachedSession.expMs - now > SESSION_REFRESH_MARGIN_MS) {
+    return cachedSession.token;
+  }
+  const doneAuthPhase = markPhase("pushOutbox.getSession");
+  const { data } = await withTimeout(
+    client.auth.getSession(),
+    GET_SESSION_TIMEOUT_MS,
+    { data: { session: null } },
+  );
+  doneAuthPhase();
+  const session = data.session;
+  if (session?.access_token) {
+    // `expires_at` is Unix seconds. Absent (older supabase-js shape) → cache
+    // briefly so a burst still shares one read but an unknown lifetime is
+    // re-checked soon rather than trusted for an hour.
+    const expMs = session.expires_at ? session.expires_at * 1000 : now + 5 * 60_000;
+    cachedSession = { token: session.access_token, expMs };
+    return session.access_token;
+  }
+  cachedSession = null;
+  return null;
 }
 
 /** Records per request. Matches the server's own cap. */
@@ -157,19 +211,14 @@ export async function pushOutbox(
   // rejection that left the drain flag set and the reason unrecorded.
   //
   // A stalled connection neither resolves nor rejects at all — see
-  // GET_SESSION_TIMEOUT_MS above — so it is raced against a ceiling. A
-  // timeout answers exactly like an empty session: no token, "not signed
-  // in", queue stays full, drain retried on the outbox's own backoff.
+  // GET_SESSION_TIMEOUT_MS above — so it is raced against a ceiling (inside
+  // getAccessToken). A timeout answers exactly like an empty session: no token,
+  // "not signed in", queue stays full, drain retried on the outbox's own
+  // backoff. getAccessToken also caches the token so a boot burst pays the
+  // storage read once, not per drain.
   let token: string | undefined;
   try {
-    const doneAuthPhase = markPhase("pushOutbox.getSession");
-    const { data } = await withTimeout(
-      client.auth.getSession(),
-      GET_SESSION_TIMEOUT_MS,
-      { data: { session: null } },
-    );
-    doneAuthPhase();
-    token = data.session?.access_token;
+    token = (await getAccessToken(client)) ?? undefined;
   } catch (err) {
     return {
       ...empty,
@@ -196,6 +245,9 @@ export async function pushOutbox(
     // granted while the phone is in a pocket — but never again described as a
     // network fault.
     const authRefused = status === 401 || status === 403;
+    // The server rejected the token itself — drop the cached copy so the next
+    // drain reads a fresh one (a re-grant, or a sign-in, is what unblocks this).
+    if (authRefused) clearSessionCache();
     // One persist for the whole batch, not one per entry — see
     // Outbox.applyResults() for why that distinction is load-bearing.
     await outbox.applyResults(

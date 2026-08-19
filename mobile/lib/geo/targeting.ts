@@ -22,8 +22,17 @@ import {
   DEFAULT_CONTEXT_RADIUS_M, type GeoContextQuery, type OfflineGeoContextService,
 } from "./offlineGeoContext.ts";
 import { markPhase } from "../diagnostics/jsStall";
+import { yieldToFrame } from "../perf/frameYield.ts";
 import type { LocalEvidenceSource } from "../exploration/localEvidence.ts";
 import { featuresNear, intersectionsOf } from "./terrainProviders.ts";
+
+/**
+ * Release the JS thread to the render loop once per this many scored cells during
+ * rank(). ~8 keeps the per-yield overhead negligible (a handful of macrotasks for
+ * a 37-cell ring) while no single chunk holds the thread long enough to drop a
+ * frame. Scoring is unaffected — this only paces the loop.
+ */
+const YIELD_EVERY_CELLS = 8;
 import type { PackData } from "../../../shared/geo-core/pack/types.ts";
 import { ROLES_NOT_SCORED, type EvidenceRole } from "./evidenceRoles";
 import { coverageAt, type EvidenceCoverage } from "./evidenceCoverage";
@@ -710,8 +719,18 @@ export class TargetingEngine {
 
       const targets: ExplorationTarget[] = [];
 
+      // PERF (not scoring): scoring a full k-ring is the single most expensive
+      // thing this app does on boot (~1.5 s for 37 cells). Every cell here is
+      // built, filtered and pushed EXACTLY as before — same cells, same
+      // thresholds, same push order, same final sort — so the ranked output is
+      // byte-identical. The only change is that the thread is released to the
+      // render loop every few cells (yieldToFrame) instead of held for the whole
+      // ring in one burst. Awaiting buildTarget alone is not enough: its awaits
+      // are microtasks that never let a frame through.
+      let sinceYield = 0;
       for (const cell of candidates) {
         const built = await this.buildTarget(cell, { lat, lng }, radiusM, scoringOpts, packData, query);
+        if (++sinceYield >= YIELD_EVERY_CELLS) { sinceYield = 0; await yieldToFrame(); }
         if (!built) continue;
         if (built.distanceM > o.maxDistanceM) continue;
         if (built.score < o.minScore) continue; // nothing indicating mineralisation

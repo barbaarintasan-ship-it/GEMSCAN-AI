@@ -3,7 +3,7 @@
 // A field link times out, rejects one entry out of forty, or answers about
 // entries nobody asked about. None of those may lose a record, and none may
 // leave the queue spinning on something that will never be accepted.
-import { pushOutbox, isConfirmedPermanent, SYNC_TIMEOUT_MS } from "../sync/pushOutbox";
+import { pushOutbox, isConfirmedPermanent, SYNC_TIMEOUT_MS, clearSessionCache } from "../sync/pushOutbox";
 import { Outbox, RETRY_MAX_MS, type KeyValueAdapter, type OutboxEntry } from "../sync/outbox";
 
 jest.mock("../supabase", () => ({
@@ -41,6 +41,48 @@ async function queued(ids: string[]): Promise<Outbox> {
 const ok = (localId: string, kind: string) => ({ localId, kind, ok: true });
 
 describe("pushOutbox", () => {
+  // The session token is cached at module scope across drains; isolate each test.
+  beforeEach(() => clearSessionCache());
+
+  describe("session token cache (boot-burst optimisation)", () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { supabase } = require("../supabase") as {
+      supabase: { auth: { getSession: () => Promise<unknown> } };
+    };
+    const acceptAll = async (entries: OutboxEntry[]) => entries.map((e) => ok(e.localId, e.kind));
+
+    test("the session is read ONCE across a burst of drains, not per drain", async () => {
+      const spy = jest.spyOn(supabase.auth, "getSession");
+      await pushOutbox(await queued(["a"]), true, { post: acceptAll });
+      await pushOutbox(await queued(["b"]), true, { post: acceptAll });
+      await pushOutbox(await queued(["c"]), true, { post: acceptAll });
+      // Three drains, one storage read — the boot burst no longer pays getSession
+      // (~1.3s cold) three times.
+      expect(spy).toHaveBeenCalledTimes(1);
+      spy.mockRestore();
+    });
+
+    test("clearSessionCache forces the next drain to re-read the session", async () => {
+      const spy = jest.spyOn(supabase.auth, "getSession");
+      await pushOutbox(await queued(["a"]), true, { post: acceptAll });
+      clearSessionCache();
+      await pushOutbox(await queued(["b"]), true, { post: acceptAll });
+      expect(spy).toHaveBeenCalledTimes(2);
+      spy.mockRestore();
+    });
+
+    test("the SAME token is sent whether read fresh or from cache", async () => {
+      const tokens: string[] = [];
+      const capture = async (entries: OutboxEntry[], token: string) => {
+        tokens.push(token);
+        return entries.map((e) => ok(e.localId, e.kind));
+      };
+      await pushOutbox(await queued(["a"]), true, { post: capture });
+      await pushOutbox(await queued(["b"]), true, { post: capture }); // cached
+      expect(tokens).toEqual(["t", "t"]);
+    });
+  });
+
   test("offline is not an error — the queue simply waits", async () => {
     const box = await queued(["wp-1"]);
     const r = await pushOutbox(box, false);
