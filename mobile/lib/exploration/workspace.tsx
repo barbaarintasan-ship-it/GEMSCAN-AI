@@ -131,7 +131,9 @@ export interface MapWorkspace {
   hasTiles: boolean;
 
   /** The live map. Held here so any surface can drive it without owning it. */
-  mapRef: React.RefObject<MapHandle>;
+  // React 19's `useRef<T>(null)` is typed `RefObject<T | null>`, so the context
+  // field must admit null too. Every consumer already reads it as `mapRef.current?.…`.
+  mapRef: React.RefObject<MapHandle | null>;
   onPick: (p: MapPick) => void;
 
   /** What the last tap turned out to be — shown by whichever surface is open. */
