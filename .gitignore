@@ -124,3 +124,7 @@ data/
 # Root scratch screenshots.
 /e6.png
 /e6c.png
+
+# Kotlin 2.0 build cache (Expo SDK 53)
+mobile/android/.kotlin/
+**/android/.kotlin/

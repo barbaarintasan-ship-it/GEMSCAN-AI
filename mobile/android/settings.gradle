@@ -25,7 +25,12 @@ def getRNMinorVersion() {
 
 if (getRNMinorVersion() >= 75) {
   extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
-    if (System.getenv('EXPO_UNSTABLE_CORE_AUTOLINKING') == '1') {
+    // Expo SDK 53 removed @react-native-community/cli, so the default
+    // `autolinkLibrariesFromCommand()` (`npx react-native config`) has nothing to
+    // run and emits no project.android.packageName, failing
+    // :app:generateAutolinkingPackageList. expo-modules-autolinking is the config
+    // provider now, so always take that branch (the env gate is obsolete on 53).
+    if (true) {
       println('\u001B[32mUsing expo-modules-autolinking as core autolinking source\u001B[0m')
       def command = [
         'node',
