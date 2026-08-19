@@ -89,3 +89,24 @@ The dominant `pushOutbox` freeze only manifests when the outbox holds queued
 records. The device was later reinstalled (state cleared), so Phase 5's on-device
 re-validation of the pushOutbox path must first seed queued records (or rely on
 the jest regression tests for that path).
+
+## Phase 2 result (on-device, SM-A165F, same method)
+Measured with `perf-p2-code` installed. The `jsStall` **`IN: phase`** number is the
+phase's wall-clock DURATION (jsStall.ts:134), not the thread-block — yields cannot
+lower it and it is not the freeze metric. The **`during:`** (heartbeat) stalls are
+the real continuous thread-block:
+
+| Worst continuous JS block (`during:`) | Before | After |
+|---|---|---|
+| cold boot, logged-in, empty outbox | **1738 ms** | **809–850 ms** (~54% ↓) |
+
+- Rank yield confirmed: the 37-cell loop is no longer one block.
+- Residual ~800 ms = `pack.require` (20 MB, loaded by openBatch BEFORE the rank
+  cell loop, so the in-loop yield can't split it) + the first few cells. This is
+  the descoped piece → Phase 3 pack viewport-split (or a pack-require chunk).
+- Drain-defer + session-cache benefits are NOT visible in this fresh-install run
+  (empty outbox, single boot, no drain burst); validated by the jest tests. The
+  dominant ~4–8 s baseline freeze needed queued records to manifest, so its
+  on-device re-validation needs seeded records.
+- Native boot-to-interactive (am start TotalTime) ~355–490 ms, unchanged (native
+  was never the problem).
