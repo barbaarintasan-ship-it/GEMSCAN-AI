@@ -62,8 +62,11 @@ const terrainCell = {
 describe("the four states are genuinely different claims", () => {
   test("no_source — nobody has ever collected this kind of data", () => {
     const c = coverageAt(pack(), new Set(), HERE);
-    expect(rolesInState(c, "no_source").sort())
-      .toEqual(["geochemistry", "geophysics", "remote_sensing"]);
+    // geochemistry/geophysics moved off this list once the structured User
+    // Geological Evidence form gave them a real (user-reported) source — see
+    // ROLES_WITHOUT_SOURCE. remote_sensing stays here pending the Stage 6
+    // scoring admission gate.
+    expect(rolesInState(c, "no_source").sort()).toEqual(["remote_sensing"]);
   });
 
   test("empty_layer — the pack carries the layer and it has zero rows", () => {
@@ -164,7 +167,11 @@ describe("the count a geologist reads", () => {
     // produced nothing here.
     expect(c.unavailable).not.toContain("structural");
     expect(c.unavailable).toContain("contacts");
-    expect(c.unavailable).toContain("geochemistry");
+    // geochemistry/geophysics are no longer "unavailable" data — the structured
+    // evidence form gives them a real source, same as `field`. remote_sensing
+    // still has none until the Stage 6 admission gate.
+    expect(c.unavailable).not.toContain("geochemistry");
+    expect(c.unavailable).toContain("remote_sensing");
   });
 
   test("every role is reported exactly once — nothing quietly dropped", () => {
@@ -206,8 +213,13 @@ describe("the shipped pack, as it actually stands", () => {
     const c = coverageAt(shipped, new Set<EvidenceRole>(["structural", "occurrence"]), HERE);
     expect(rolesInState(c, "empty_layer").sort())
       .toEqual(["association", "community", "contacts", "drainage", "lineaments"]);
-    expect(rolesInState(c, "no_source").sort())
-      .toEqual(["geochemistry", "geophysics", "remote_sensing"]);
+    // Only remote_sensing has genuinely no source today. geochemistry/geophysics
+    // now have one (the structured evidence form), same as field — with nothing
+    // reported at this point in this fixture, they read none_here, not no_source.
+    expect(rolesInState(c, "no_source").sort()).toEqual(["remote_sensing"]);
+    // "field" was already none_here here (nobody tapped a waypoint in this
+    // fixture) — geochemistry/geophysics now join it for the same reason.
+    expect(rolesInState(c, "none_here").sort()).toEqual(["field", "geochemistry", "geophysics"]);
     // geology, structural, occurrence and terrain all consulted here.
     expect(rolesInState(c, "not_scored")).toEqual([]);
     expect(c.present).toBe(4);

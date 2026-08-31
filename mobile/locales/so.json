@@ -152,6 +152,124 @@
       "heading": "Waad timid",
       "body": "Qor waxa aad aragto. Waxa aad qorto ayaa beddelaya waxa app-ku kuu talinayo — sidaas darteed sheeg waxa dhab ahaan jira, ee ha sheegin waxa aad rajaynayso."
     },
+    "evidenceForm": {
+      "openButton": "Caddayn Dhagax oo Isticmaale Geliyay",
+      "title": "Caddayn Dhagax oo Isticmaale Geliyay",
+      "subtitle": "Waxa aad hore u ogtahay dhulkan ku saabsan — natiijada shaybaar, sahan, faahfaahin khariidayn, akhris satellite, ama waxa aad indhaha ku aragto. Qaybaha oo dhan waa ikhtiyaari.",
+      "commodity": "{{commodity}} awgeed",
+      "save": "Kaydi caddaynta",
+      "notes": "Fiiro gaar ah",
+      "verificationLabel": "Sidee bay u hubantahay?",
+      "verification": {
+        "user_reported": "Aniga ayaa ku wargalinaya",
+        "expert_verified": "Waxa xaqiijiyay khabiir dhagax",
+        "lab_verified": "Waxa xaqiijiyay shaybaar la ansixiyay"
+      },
+      "assay": {
+        "title": "Natiijada shaybaarka",
+        "hint": "Natiijo aad hore u haysato — shaybaar kasta, ansax leh iyo mid aan lahayn labadaba.",
+        "element": "Curiye",
+        "elementPlaceholder": "Au, Sn, Cu…",
+        "result": "Natiijo",
+        "unit": "Cabbir",
+        "sampleType": "Nooca muunadda",
+        "sampleId": "Aqoonsiga muunadda",
+        "samplingDate": "Taariikhda qaadista",
+        "labAccredited": "Shaybaarku waa la ansixiyay",
+        "labAccreditedHelp": "Calaamad cad oo shaybaar-la-ansixiyay ah oo keliya ayaa noqonaysa 'shaybaar-xaqiijiyay'. Natiijo iyo magaca shaybaarka oo keliya kuma filna.",
+        "labName": "Magaca shaybaarka"
+      },
+      "geophysics": {
+        "title": "Sahanka juqraafi-dhaqameedka",
+        "hint": "Sahan aad hore u haysato — magnetics, IP, resistivity iwm.",
+        "surveyType": "Nooca sahanka",
+        "type": {
+          "magnetics": "Magnetics",
+          "ip": "Firfircooni la-daljinaya (IP)",
+          "resistivity": "Iska-caabin (Resistivity)",
+          "em": "Elektromagnetic",
+          "gravity": "Cuf-jiidad",
+          "radiometrics": "Radiometrics",
+          "other": "Kale"
+        },
+        "anomalyPresent": "Waxa la helay wax kala duwan (anomaly)",
+        "anomalyDescription": "Sharaxaadda anomaly-ga",
+        "magnitude": "Cabbirka",
+        "surveyArea": "Aagga sahanka",
+        "interpretation": "Fasiraad"
+      },
+      "mapping": {
+        "title": "Khariidayn dhagax oo faahfaahsan",
+        "hint": "Waxa aad halkan ku khariideysay — dabeecadda dhagaxa, qaab-dhismeedka, macdanaynta.",
+        "hostLithology": "Dhagaxa martida ah",
+        "rockType": "Nooca dhagaxa",
+        "formationUnit": "Sameysmo / Cutub",
+        "alteration": "Isbeddel dabeecadeed",
+        "veinType": "Nooca xidhiidhka (vein)",
+        "veinWidth": "Ballaca xidhiidhka (m)",
+        "veinOrientation": "Jihada xidhiidhka",
+        "strike": "Strike (°)",
+        "dip": "Dip (°)",
+        "fault": "Jeexjeexid (Fault)",
+        "shearZone": "Aag jarjar ah",
+        "fold": "Laab",
+        "breccia": "Breccia",
+        "gossan": "Gossan",
+        "sulfides": "Sulfides",
+        "visibleMineralization": "Macdano muuqata",
+        "mineralAssemblage": "Isku-darka macdanta",
+        "structuralRelationship": "Xiriirka qaab-dhismeedka"
+      },
+      "remoteSensing": {
+        "title": "Fasiraadda sawir-satellite",
+        "hint": "Akhris satellite ama DEM aad hore u haysato. Waa caddayn la fasiray — marnaba lama qaadan sidii jeexjeexid la khariiday.",
+        "source": "Isha",
+        "sourceOption": {
+          "sentinel2": "Sentinel-2",
+          "sentinel1": "Sentinel-1",
+          "landsat": "Landsat",
+          "dem": "DEM",
+          "other": "Kale"
+        },
+        "alterationAnomaly": "Isbeddel dabeecadeed oo kala duwan",
+        "spectralAnomaly": "Kala duwanaanta spectral-ka",
+        "structuralAnomaly": "Kala duwanaanta qaab-dhismeedka",
+        "lineamentInterpretation": "Fasiraadda khadadka (lineaments)",
+        "lineamentHelp": "Khad la fasiray, ma aha jeexjeexid la khariiday — waa la duubaa oo la tusaa, laakiin maanta natiijada kuma beddesho.",
+        "areaCovered": "Aagga la daboolay",
+        "interpretation": "Fasiraad"
+      },
+      "field": {
+        "title": "Khabiir / Fiirin dhulka",
+        "hint": "Calaamado toos ah oo aad hadda arki karto, iyo taariikh shaqo dhagax oo jirta.",
+        "visibleMineral": "Macdan muuqata",
+        "quartzVein": "Xidhiidh quartz ah",
+        "gossanRust": "Gossan / dabaal bir",
+        "sulfides": "Sulfides",
+        "alteration": "Isbeddel dabeecadeed",
+        "shearing": "Jarjaridda",
+        "faultExposure": "Jeexjeexid muuqata",
+        "miningEvidenceLabel": "Caddaynta macdanaynta",
+        "oldWorkings": "Shaqo dhagax oo hore",
+        "activeArtisanalMining": "Macdanayn gacanta ah oo socota",
+        "pits": "Godad",
+        "shafts": "Godad dhaadheer",
+        "adits": "Jid-hoosaad",
+        "tailings": "Harqaanka macdanta",
+        "historicalProduction": "Wax-soo-saar taariikheed",
+        "localMiningEvidence": "Aqoon macdanayn oo maxaliya",
+        "confirmedAbsentLabel": "Si gaar ah loo hubiyay oo lama helin",
+        "confirmedAbsentHelp": "Kuwan kaliya taabo haddii aad si ula kac ah u raadisay oo aad xaqiijisay inaysan jirin. Ha taaban haddii aadan eegin — taasi caddayn labadaba ma aha.",
+        "absentAlteration": "Isbeddel dabeecadeed ma jiro (la hubiyay)",
+        "absentSulfides": "Sulfides ma jiraan (la hubiyay)",
+        "absentQuartzVein": "Xidid quartz ah ma jiro (la hubiyay)",
+        "absentVisibleMineralization": "Macdan muuqata ma jirto (la hubiyay)",
+        "absentFavorableStructure": "Qaab-dhismeed wanaagsan ma jiro agtiisa (la hubiyay)",
+        "absentGeochemicalAnomaly": "Kala duwanaanta geochemical ma jirto (la baaray)",
+        "otherObservations": "Fiirimo kale",
+        "expertInterpretation": "Fasiraadda khabiirka"
+      }
+    },
     "pack": {
       "none": "Xog dhagax lama rakibin — hagitaan lama heli karo",
       "info": "Aqoon v{{version}} · {{days}} maalmood jir",
@@ -573,7 +691,8 @@
       "thin": "Dhibcahani waxay ku dhisan yihiin {{present}} lakab oo {{total}} ah. Waxa maqan lama sheegi karo inay maqan yihiin dhulka — lama eegin.",
       "notScoredWhy": {
         "drainage": "Shabakadda webiyada waa mid dhab ah oo dalka oo dhan daboolaysa, laakiin cabbirku wuxuu muujiyay inaanay calaamad guud siin — macdanta la yaqaan waxay u qaybsan tahay webiyada si la mid ah dhulka random-ka ah. Waxay sugaysaa commodity profile (placer), halkii aan miisaan aan xog lahayn la siin lahaa.",
-        "contacts": "Contacts-ka Abbate 1:1,500,000 waa juquraafi dhab ah, 1,538 ayaana la rakibay. Wali dhibco lama siinayo: goobaha macdanta la yaqaan 91% waxay ku dhow yihiin contact 10 km gudahood, halka dhulka caadiga ahi uu yahay 26% — laakiin marka dhagaxa la kala saaro farqigaasi wuu baaba'aa: 1.17x dhulka metamorphic. Khariidaddu waxay ugu kala qaybsan tahay meesha basement-ku yahay, basement-kuna waa meesha helitaannadu joogaan; sidaas darteed dhibco siintoodu waxay noqon lahayd calaamadda juquraafi oo mar labaad la tiriyo."
+        "contacts": "Contacts-ka Abbate 1:1,500,000 waa juquraafi dhab ah, 1,538 ayaana la rakibay. Wali dhibco lama siinayo: goobaha macdanta la yaqaan 91% waxay ku dhow yihiin contact 10 km gudahood, halka dhulka caadiga ahi uu yahay 26% — laakiin marka dhagaxa la kala saaro farqigaasi wuu baaba'aa: 1.17x dhulka metamorphic. Khariidaddu waxay ugu kala qaybsan tahay meesha basement-ku yahay, basement-kuna waa meesha helitaannadu joogaan; sidaas darteed dhibco siintoodu waxay noqon lahayd calaamadda juquraafi oo mar labaad la tiriyo.",
+        "lineaments": "Khadadka (lineaments) 5,960 ee laga soo saaray Copernicus GLO-30 DEM waa qaab-dhismeed dhab ah oo la sawiray — wali dhibco lama siinayo: goobaha macdanta la yaqaan 69% waxay ku dhow yihiin khad, halka dhulka caadiga ahi uu yahay 16% — farqi 4.3x ah. Laakiin khadadkan waxaa laga soo saaray isla DEM-ka uu injinku horeba u qiimeeyo sida terrain (dhulka qaabkiisa), sidaas darteed dhibco siintooduna waxay noqon lahayd calaamadda qaabka dhulka oo mar labaad la tiriyo, halkii ay noqon lahayd calaamad madax-bannaan."
       }
     },
     "commodity": {
@@ -710,7 +829,9 @@
       "value": "Dhibcaha rajada {{score}}",
       "notAProbability": "Tanu waxay dhulkan la barbar dhigaysaa dhul kale. MA AHA suurtogalnimada helitaanka macdan, xogtanna laguma sheegi karo boqolkiiba imisa.",
       "commodity": "Waxaa loo qiimeeyay {{commodity}}.",
-      "universal": "Waxaa lagu qiimeeyay juqraafi ahaan oo keliya, macdan gaar ahna lama qaadan."
+      "universal": "Waxaa lagu qiimeeyay juqraafi ahaan oo keliya, macdan gaar ahna lama qaadan.",
+      "integratedValue": "Dhibcaha Rajada La Isku Daray {{score}} (caddaynta aad gelisay oo lala jiro)",
+      "integratedNote": "Tani waxay isku daraysaa rajada kore iyo wixii aad soo sheegtay iyo waxa sawirradu muujiyeen. Weli waa rajo, ma aha suurtogalnimo — dhibco sare oo la isku daray macnaheedu waa caddayn badan oo is-raacsan, ma aha fursad wanaagsan oo helitaan ah."
     },
     "evidence": {
       "row": "{{name}} — {{status}} · {{strength}} · {{reason}}",

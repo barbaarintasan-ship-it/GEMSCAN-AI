@@ -155,6 +155,25 @@ export interface MissionFindings {
   /** Which model produced this, so an assessment can be re-read against its author. */
   model: string;
   analysedAt: number;
+  /**
+   * The Integrated Prospectivity Score (Architecture: Integrated Prospectivity
+   * Score) — the engine's baseline evidence, plus whatever structured evidence
+   * the geologist entered, plus this analysis's AI-visual readings, combined
+   * through the SAME noisy-OR arithmetic `prospectivityScore` uses, against a
+   * wider tier table. NOT a probability, exactly as `prospectivityScore` is not
+   * one — the same rule, restated for a second number.
+   *
+   * DISTINCT FROM, AND NEVER A SUBSTITUTE FOR, `prospectivityScore`. That
+   * number is the validated ranking score and is never touched here — this is
+   * an additive, optional reading computed AFTER parsing by deterministic code
+   * (analyzeExplorationPackage), never by the model: nothing in the prompt asks
+   * for it and nothing the model returns can set it, the same structural
+   * guarantee that already keeps `prospectivityScore` unwritable by the AI.
+   *
+   * Absent when there was no baseline evidence to build it from at all —
+   * an absent number, never an invented one.
+   */
+  integratedProspectivity?: number;
 }
 
 // ── Guards ──────────────────────────────────────────────────────────────────

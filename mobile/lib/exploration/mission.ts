@@ -99,10 +99,40 @@ export function isDelivering(s: MissionState): boolean {
     s === "ai_analysis_complete";
 }
 
+/**
+ * Whether the target turned out to be worth the walk — DELIBERATELY SEPARATE
+ * from `MissionState` (Architecture: Integrated Prospectivity Score,
+ * Priority 6, instrumentation only).
+ *
+ * `mission_closed` is a WORKFLOW fact ("delivery is finished"); outcome is a
+ * GEOLOGICAL fact usually known only much later — an assay comes back weeks
+ * after the walk, a second visit confirms or rules something out. Conflating
+ * the two would force an outcome to be recorded before it is knowable, or
+ * leave a closed mission looking indistinguishable from a barren one.
+ *
+ * NOT an ML label and nothing here trains on it — this is data collection
+ * for a FUTURE calibration study, once enough real missions exist to run one.
+ * See mission.ts's own module note and structuredEvidenceTypes.ts's outcome
+ * doc for the same rule stated at each layer it touches.
+ */
+export type MissionOutcome =
+  | "not_yet_determined"
+  | "encouraging"
+  | "barren"
+  | "confirmed_mineralized";
+
 export interface Mission {
   /** Stable for the life of the mission; the package's identity. */
   id: string;
   state: MissionState;
+  /**
+   * Set any time after the mission exists, by the geologist or a reviewer —
+   * NOT gated to any particular `MissionState`, because the fact it records
+   * is usually not knowable until well after the mission itself is closed.
+   * Optional so a mission restored from an older store falls back to the
+   * honest default at the read site.
+   */
+  outcome?: MissionOutcome;
   /** The H3 cell being investigated — the target AREA. */
   cell: string;
   /** Centre of that cell, for navigation when there is no hotspot. */
@@ -158,9 +188,15 @@ export function newMission(
     id, state: "target_selected", cell, centre,
     hotspot: null, commodity: opts.commodity, score: opts.score,
     reportScore: opts.reportScore ?? opts.score,
+    outcome: "not_yet_determined",
     startedAt: opts.at, arrivedAt: null, completedAt: null, closedAt: null,
     packageId: null,
   };
+}
+
+/** Read the outcome, defaulting old records (from before this field existed) honestly. */
+export function outcomeOf(m: Mission): MissionOutcome {
+  return m.outcome ?? "not_yet_determined";
 }
 
 /**

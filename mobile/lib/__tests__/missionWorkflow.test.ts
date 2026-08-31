@@ -15,6 +15,7 @@ import { cellCentre } from "../geo/h3.ts";
 import { ExplorationOrchestrator, type FieldSessionPort } from "../exploration/orchestrator.ts";
 import { PackageStore, PACKAGE_OUTBOX_KIND } from "../exploration/packageStore";
 import { packageSize } from "../exploration/evidencePackage";
+import { emptyStructuredEvidence, type StructuredGeologicalEvidence } from "../field/structuredEvidenceTypes";
 import { canTransition, isMissionLive, MISSION_STATES } from "../exploration/mission";
 import { MISSION_FINDINGS_VERSION } from "../../../shared/geo-core/gie/missionFindings";
 import { Outbox, type KeyValueAdapter } from "../sync/outbox";
@@ -296,6 +297,71 @@ describe("5. FINISH SECTION builds an evidence package", () => {
     // Attaching last week's outcrop to today's target would be wrong in a way
     // nobody downstream could see.
     expect(pkg!.observations.map((o) => o.id)).toEqual(["new"]);
+  });
+});
+
+describe("5b. FINISH SECTION carries the Integrated Prospectivity Score", () => {
+  function evidenceFor(missionId: string): StructuredGeologicalEvidence {
+    const e = emptyStructuredEvidence(missionId, missionId, "gold", NOW);
+    return {
+      ...e,
+      assays: [{
+        id: "a1", element: "Au", result: 8, unit: "g/t", sampleType: "grab",
+        sampleId: "s1", location: null, samplingDate: null,
+        verificationStatus: "user_reported", labAccredited: false, labName: "", notes: "",
+      }],
+    };
+  }
+
+  test("no structured evidence -> both fields null, baseline score untouched", async () => {
+    const h = harness();
+    const target = await driveToTarget(h);
+    h.orch.beginInvestigation();
+    const pkg = await h.orch.finishSection({ waypoints: [] });
+    expect(pkg!.structuredEvidence).toBeNull();
+    expect(pkg!.integratedProspectivityScore).toBeNull();
+    expect(pkg!.prospectivityScore).toBe(target.score);
+  });
+
+  test("structured evidence entered mid-investigation is combined into a real score", async () => {
+    const h = harness();
+    await driveToTarget(h);
+    h.orch.beginInvestigation();
+    const missionId = h.orch.getSnapshot().mission!.id;
+    const pkg = await h.orch.finishSection({
+      waypoints: [], structuredEvidence: evidenceFor(missionId),
+    });
+    expect(pkg!.structuredEvidence).not.toBeNull();
+    expect(pkg!.integratedProspectivityScore).not.toBeNull();
+    expect(pkg!.integratedProspectivityScore).toBeGreaterThan(0);
+    // Never a substitute for the validated ranking score.
+    expect(pkg!.prospectivityScore).toBe(h.orch.getSnapshot().mission!.score);
+  });
+
+  test("an inspect elsewhere mid-investigation does not cost the mission its baseline", async () => {
+    // inspectAt() nulls activeTarget unconditionally, even while a mission is
+    // live — a geologist checking a hill on the map without leaving their own
+    // investigation. finishSection() must still find the mission's OWN cell's
+    // evidence via targetAt(), not silently drop the Integrated Score to null.
+    const h = harness();
+    await driveToTarget(h);
+    h.orch.beginInvestigation();
+    const missionId = h.orch.getSnapshot().mission!.id;
+    const missionCell = h.orch.getSnapshot().mission!.cell;
+
+    h.orch.inspectAt(START.lat + 0.05, START.lng + 0.05);
+    await settle();
+    // The stale-target condition this test exists to cover.
+    expect(h.orch.getSnapshot().activeTarget?.cell).not.toBe(missionCell);
+    // The mission itself is untouched — inspecting elsewhere is not leaving.
+    expect(h.orch.getSnapshot().mission!.id).toBe(missionId);
+    expect(h.orch.getSnapshot().mission!.state).toBe("field_investigation");
+
+    const pkg = await h.orch.finishSection({
+      waypoints: [], structuredEvidence: evidenceFor(missionId),
+    });
+    expect(pkg!.integratedProspectivityScore).not.toBeNull();
+    expect(pkg!.integratedProspectivityScore).toBeGreaterThan(0);
   });
 });
 

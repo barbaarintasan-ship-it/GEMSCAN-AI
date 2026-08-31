@@ -129,6 +129,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // lands via the .then() below, whichever fires second is a no-op.
     const timeout = setTimeout(() => {
       if (!unmounted) setIsLoading(false);
+      // Close the DIAGNOSTIC phase here too, not only in the .then() below.
+      // Without this, a stalled connection left the phase open until the real
+      // network call finally settled — sometimes minutes later — and jsStall
+      // faithfully reported however long THAT took as a stall, even though the
+      // ceiling above had already let the user in eight seconds earlier. The
+      // app was not frozen for that long; the diagnostic just kept counting
+      // after the freeze it exists to catch was already over. markPhase()'s
+      // closure is idempotent (`if (ended) return`), so calling it a second
+      // time from the real .then() — if the late answer still arrives — is a
+      // harmless no-op, exactly like `unmounted` above.
+      doneAuthPhase();
     }, AUTH_TIMEOUT_MS);
 
     supabase.auth.getSession().then(({ data }) => {

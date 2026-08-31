@@ -18,6 +18,7 @@ import type {
   ProviderContribution,
 } from "../../../shared/geo-core/types.ts";
 import { positionQuality, type Waypoint, type WaypointType } from "../field/waypointTypes";
+import type { EvidenceRole } from "../geo/evidenceRoles";
 
 /** Tier for a geologist-declared observation — strong, and the app says why. */
 export const FIELD_OBSERVATION_TIER = "field_observation";
@@ -88,11 +89,67 @@ export interface Observation {
   statement: string;
   notes: string;
   capturedAt: number;
+  /**
+   * What kind of evidence this is, its reliability tier, and its correlation
+   * group — all OPTIONAL, and all absent for every waypoint this file itself
+   * produces (`toObservation()` below never sets them). `prospectivityEvidence()`
+   * falls back to today's literals (`role:"field"`, `tier:"mapped"`,
+   * `group:"field:"+id`) when these are undefined, so every existing call site is
+   * byte-for-byte unaffected.
+   *
+   * They exist so a DIFFERENT `LocalEvidenceSource` — one built from the
+   * structured user-evidence form, not from tapped waypoints — can declare its
+   * own role/tier/group instead of silently inheriting a waypoint's. Without
+   * this, a lab assay routed through this same hook would be mislabelled as a
+   * tapped field observation at `tier:"mapped"`, which is exactly the kind of
+   * unearned upgrade the tier system exists to prevent.
+   */
+  role?: EvidenceRole;
+  tier?: string;
+  group?: string;
+  /**
+   * Argues FOR prospectivity (absent — every existing producer of an
+   * `Observation`) or is a deliberately-checked, confirmed-ABSENT finding.
+   *
+   * `prospectivityEvidence()` (the validated baseline) NEVER reads this field —
+   * it has no polarity concept and never will. It matters only where an
+   * `Observation` gets converted to `ScoredEvidence` for
+   * `computeIntegratedProspectivity()` (structuredEvidenceSource.ts). Set only
+   * by `fieldObservationsToObservations()`, and only from an explicit
+   * `confirmedAbsent` field the user must deliberately toggle — never inferred
+   * from a field simply being left blank.
+   */
+  polarity?: "positive" | "negative";
 }
 
 /** What the targeting engine and the provider both read. */
 export interface LocalEvidenceSource {
   observationsNear(lat: number, lng: number, radiusM: number): Observation[];
+}
+
+/**
+ * Merge several evidence sources into one — `TargetingEngine` takes exactly one
+ * `LocalEvidenceSource`. Concatenation only: each source keeps producing
+ * whatever `role`/`tier`/`group` it already declares, and no de-duplication
+ * happens here.
+ *
+ * NEVER pass the structured user-evidence form's source (structuredEvidenceSource.ts)
+ * to `TargetingEngine`'s constructor through this. `TargetingEngine.local` feeds
+ * `prospectivityEvidence()` directly, which is the VALIDATED baseline `score`/
+ * `reportScore` (LOO AUC 0.900) — anything reachable through it moves the
+ * ranking the moment a form is filled in, which is exactly what Architecture:
+ * Integrated Prospectivity Score forbids. Structured evidence joins the score
+ * only through `computeClientIntegratedScore()`, against a SEPARATE tier table
+ * (`INTEGRATED_TIER_WEIGHT`), never through this function feeding the engine.
+ * This composer exists for local evidence sources that ARE meant to score —
+ * e.g. combining more than one waypoint-derived source, should that ever exist.
+ */
+export function combineLocalEvidenceSources(...sources: LocalEvidenceSource[]): LocalEvidenceSource {
+  return {
+    observationsNear(lat, lng, radiusM) {
+      return sources.flatMap((s) => s.observationsNear(lat, lng, radiusM));
+    },
+  };
 }
 
 /** Waypoints without a usable position cannot be placed, so they cannot be evidence. */

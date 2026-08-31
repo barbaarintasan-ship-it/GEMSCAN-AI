@@ -152,6 +152,124 @@
       "heading": "You have arrived",
       "body": "Record what you can see. What you record changes what the app recommends next — so say what is actually there, not what you hope is there."
     },
+    "evidenceForm": {
+      "openButton": "User Geological Evidence",
+      "title": "User Geological Evidence",
+      "subtitle": "What you already know about this ground — an assay result, a survey, a detailed mapping note, a remote-sensing read, or what you can see. Every section is optional.",
+      "commodity": "For {{commodity}}",
+      "save": "Save evidence",
+      "notes": "Notes",
+      "verificationLabel": "How sure is this?",
+      "verification": {
+        "user_reported": "I'm reporting this myself",
+        "expert_verified": "Verified by a qualified geologist",
+        "lab_verified": "Verified by an accredited lab"
+      },
+      "assay": {
+        "title": "Laboratory / assay result",
+        "hint": "A result you already have — from any lab, accredited or not.",
+        "element": "Element",
+        "elementPlaceholder": "Au, Sn, Cu…",
+        "result": "Result",
+        "unit": "Unit",
+        "sampleType": "Sample type",
+        "sampleId": "Sample ID",
+        "samplingDate": "Sampling date",
+        "labAccredited": "Lab is accredited",
+        "labAccreditedHelp": "Only an explicit accredited-lab flag counts as lab-verified. Entering a result and a lab name alone does not.",
+        "labName": "Lab name"
+      },
+      "geophysics": {
+        "title": "Ground geophysics",
+        "hint": "A survey you already have — magnetics, IP, resistivity and the rest.",
+        "surveyType": "Survey type",
+        "type": {
+          "magnetics": "Magnetics",
+          "ip": "Induced polarisation",
+          "resistivity": "Resistivity",
+          "em": "Electromagnetic",
+          "gravity": "Gravity",
+          "radiometrics": "Radiometrics",
+          "other": "Other"
+        },
+        "anomalyPresent": "An anomaly was found",
+        "anomalyDescription": "Anomaly description",
+        "magnitude": "Magnitude",
+        "surveyArea": "Survey area",
+        "interpretation": "Interpretation"
+      },
+      "mapping": {
+        "title": "Detailed geological mapping",
+        "hint": "What you have mapped here — lithology, structure, mineralisation.",
+        "hostLithology": "Host lithology",
+        "rockType": "Rock type",
+        "formationUnit": "Formation / unit",
+        "alteration": "Alteration",
+        "veinType": "Vein type",
+        "veinWidth": "Vein width (m)",
+        "veinOrientation": "Vein orientation",
+        "strike": "Strike (°)",
+        "dip": "Dip (°)",
+        "fault": "Fault",
+        "shearZone": "Shear zone",
+        "fold": "Fold",
+        "breccia": "Breccia",
+        "gossan": "Gossan",
+        "sulfides": "Sulfides",
+        "visibleMineralization": "Visible mineralisation",
+        "mineralAssemblage": "Mineral assemblage",
+        "structuralRelationship": "Structural relationship"
+      },
+      "remoteSensing": {
+        "title": "Remote sensing interpretation",
+        "hint": "A satellite or DEM read you already have. Interpreted evidence — never treated as a mapped fault.",
+        "source": "Source",
+        "sourceOption": {
+          "sentinel2": "Sentinel-2",
+          "sentinel1": "Sentinel-1",
+          "landsat": "Landsat",
+          "dem": "DEM",
+          "other": "Other"
+        },
+        "alterationAnomaly": "Alteration anomaly",
+        "spectralAnomaly": "Spectral anomaly",
+        "structuralAnomaly": "Structural anomaly",
+        "lineamentInterpretation": "Lineament interpretation",
+        "lineamentHelp": "An interpreted line, not a mapped fault — it is captured and shown, but it does not move the score today.",
+        "areaCovered": "Area covered",
+        "interpretation": "Interpretation"
+      },
+      "field": {
+        "title": "Expert / field observation",
+        "hint": "Direct indicators you can see right now, and any history of workings.",
+        "visibleMineral": "Visible mineral",
+        "quartzVein": "Quartz vein",
+        "gossanRust": "Gossan / iron staining",
+        "sulfides": "Sulfides",
+        "alteration": "Alteration",
+        "shearing": "Shearing",
+        "faultExposure": "Fault exposure",
+        "miningEvidenceLabel": "Mining evidence",
+        "oldWorkings": "Old workings",
+        "activeArtisanalMining": "Active artisanal mining",
+        "pits": "Pits",
+        "shafts": "Shafts",
+        "adits": "Adits",
+        "tailings": "Tailings",
+        "historicalProduction": "Historical production",
+        "localMiningEvidence": "Local mining knowledge",
+        "confirmedAbsentLabel": "Specifically checked and absent",
+        "confirmedAbsentHelp": "Only check these if you deliberately looked for them and confirmed they are not there. Leave unchecked if you simply didn't look — that is not evidence either way.",
+        "absentAlteration": "No alteration (checked)",
+        "absentSulfides": "No sulfides (checked)",
+        "absentQuartzVein": "No quartz veining (checked)",
+        "absentVisibleMineralization": "No visible mineralization (checked)",
+        "absentFavorableStructure": "No favourable structure nearby (checked)",
+        "absentGeochemicalAnomaly": "No geochemical anomaly (tested)",
+        "otherObservations": "Other observations",
+        "expertInterpretation": "Expert interpretation"
+      }
+    },
     "pack": {
       "none": "No knowledge pack installed — guidance unavailable",
       "info": "Knowledge v{{version}} · {{days}} days old",
@@ -573,7 +691,8 @@
       "thin": "This score rests on {{present}} of {{total}} layers. What is missing was not looked for — it is not evidence of absence.",
       "notScoredWhy": {
         "drainage": "The channel network is real and country-wide, but measurement shows it carries no general signal — known occurrences sit with respect to drainage exactly as random ground does. It waits for a commodity profile (placer), rather than being given a weight the data does not support.",
-        "contacts": "The Abbate 1:1,500,000 contacts are real geology, and 1,538 of them are loaded. They are still not scored: known occurrences sit within 10 km of a contact 91% of the time against 26% of random ground, but stratified by rock type that gap almost vanishes — 1.17x inside metamorphic ground. The map is subdivided most finely where the basement is, and the basement is where the finds are, so scoring contacts would count the geology signal a second time."
+        "contacts": "The Abbate 1:1,500,000 contacts are real geology, and 1,538 of them are loaded. They are still not scored: known occurrences sit within 10 km of a contact 91% of the time against 26% of random ground, but stratified by rock type that gap almost vanishes — 1.17x inside metamorphic ground. The map is subdivided most finely where the basement is, and the basement is where the finds are, so scoring contacts would count the geology signal a second time.",
+        "lineaments": "The 5,960 Copernicus GLO-30 DEM-derived lineaments are real, drawn structure — and they are still not scored: known occurrences sit within range of one 69% of the time against 16% of random ground, a 4.3x gap. But lineaments are extracted FROM the same elevation model the engine already scores as terrain, so scoring their coverage too would count the landform signal a second time rather than adding an independent one."
       }
     },
     "commodity": {
@@ -710,7 +829,9 @@
       "value": "Prospectivity score {{score}}",
       "notAProbability": "This ranks this ground against other ground. It is not a probability of finding a deposit, and no odds of discovery can be given from this data.",
       "commodity": "Assessed for {{commodity}}.",
-      "universal": "Assessed on geology alone, with no commodity assumed."
+      "universal": "Assessed on geology alone, with no commodity assumed.",
+      "integratedValue": "Integrated Prospectivity Score {{score}} (with your evidence)",
+      "integratedNote": "This combines the ranking above with what you reported and what the photographs showed. It is still a ranking, not a probability — a stronger integrated score means more agreeing evidence, not better odds of a find."
     },
     "evidence": {
       "row": "{{name}} — {{status}} · {{strength}} · {{reason}}",

@@ -168,12 +168,32 @@ export function compatibleRockClasses(hostRocks: readonly string[] | null): Set<
  * and the rest. Which of them MEAN something depends entirely on what is being
  * looked for, and the profile says: gold lists "quartz veins in shear zones",
  * "sulphide veinlets", "gossan/iron staining".
+ *
+ * PRIORITY 4 FIX. This used to scan only `exploration_indicators`,
+ * `alteration_styles` and `associated_minerals` — and missed a real, checkable
+ * case: tin's `deposit_models` row is `{greisen,vein,placer cassiterite}`, the
+ * word "vein" is right there, and a tapped quartz-vein waypoint under a Gold
+ * assessment earned the diagnostic boost (Gold's `exploration_indicators`
+ * happens to say "quartz veins in shear zones") while the IDENTICAL
+ * observation under a Tin assessment did not — not because quartz veins are
+ * geologically irrelevant to tin (greisen-hosted cassiterite is a
+ * textbook vein association), but because the function never looked at the
+ * one field where tin's profile actually says "vein".
+ *
+ * The fix is STRUCTURAL, not another regex: every field that legitimately
+ * carries diagnostic vocabulary — `deposit_models` (what kind of system this
+ * is) and `typical_host_rocks` (what it looks like in the ground), not only
+ * the indicator/alteration/mineral lists — is scanned. This applies uniformly
+ * to all 23 commodity profiles, not a gold/tin special case: the completeness
+ * of the input was the bug, not the keyword list.
  */
 export function diagnosticObservations(p: PackCommodityProfile): Set<string> {
   const text = [
     ...(p.exploration_indicators ?? []),
     ...(p.alteration_styles ?? []),
     ...(p.associated_minerals ?? []),
+    ...(p.deposit_models ?? []),
+    ...(p.typical_host_rocks ?? []),
   ].join(" ").toLowerCase();
 
   const out = new Set<string>();
@@ -213,7 +233,20 @@ function relevanceFor(p: PackCommodityProfile, families: DepositFamily[]): Map<E
 
   // STRUCTURE. Orogenic, vein, shear and greisen systems are structurally
   // controlled; that is what those model names mean.
-  if (has("structural")) {
+  //
+  // METAMORPHIC compounds this (Priority 5): shear-hosted/remobilised systems
+  // in metamorphic terranes are localised by BOTH faults and metamorphic grade
+  // boundaries, a stronger structural claim than either family states alone —
+  // ONLY when the profile matches both, never asserted from one alone.
+  if (has("structural") && has("metamorphic")) {
+    r.set("structural", {
+      factor: clampFactor(1.4),
+      basis: "expert_rule",
+      why: `deposit_models are BOTH structurally controlled AND metamorphic-hosted ` +
+        `(${p.deposit_models?.filter((m) => /orogenic|vein|shear|greisen|epithermal|IOCG|metamorphic|schist|marble|gneiss/i.test(m)).join(", ")}); ` +
+        `metamorphic grade boundaries compound the structural control`,
+    });
+  } else if (has("structural")) {
     r.set("structural", {
       factor: clampFactor(1.3),
       basis: "expert_rule",
@@ -241,7 +274,31 @@ function relevanceFor(p: PackCommodityProfile, families: DepositFamily[]): Map<E
 
   // LITHOLOGY. Handled at scoring time against the class actually underfoot,
   // because compatibility is a property of the pair, not of the commodity.
-  if ((p.typical_host_rocks ?? []).length > 0) {
+  //
+  // INTRUSIVE / SEDIMENTARY (Priority 5). Host lithology is not an equally
+  // strong indicator for every deposit style. For an intrusion-related style
+  // (porphyry, pegmatite, greisen, carbonatite) the deposit largely IS the
+  // intrusion or its immediate aureole, so a matching mapped rock class is a
+  // stronger signal than for a broadly-distributed sediment-hosted style,
+  // where mineralisation can sit well away from the "typical" host. Neither
+  // multiplier is invented — both are read straight off which families the
+  // profile's OWN deposit_models actually match, same as every other rule in
+  // this function — and neither fires without host_rocks content to condition.
+  if (has("intrusive") && (p.typical_host_rocks ?? []).length > 0) {
+    r.set("geology", {
+      factor: clampFactor(1.2),
+      basis: "expert_rule",
+      why: `deposit_models are intrusion-related (${p.deposit_models?.filter((m) => /porphyry|pegmatite|carbonatite|granite|intrusion|magmatic|kimberlite|lamproite|skarn|reef/i.test(m)).join(", ")}); ` +
+        `host lithology is a stronger indicator for this family — the deposit IS the intrusion — than for a broadly distributed style`,
+    });
+  } else if (has("sedimentary") && (p.typical_host_rocks ?? []).length > 0) {
+    r.set("geology", {
+      factor: clampFactor(1.1),
+      basis: "expert_rule",
+      why: `deposit_models are sediment-hosted (${p.deposit_models?.filter((m) => /sandstone|shale|sediment-hosted|sedimentary|BIF|banded iron|evaporite|brine|clay|unconformity/i.test(m)).join(", ")}); ` +
+        `a weaker host-lithology signal than an intrusion-related style, so a smaller boost`,
+    });
+  } else if ((p.typical_host_rocks ?? []).length > 0) {
     r.set("geology", {
       factor: 1,
       basis: "expert_rule",

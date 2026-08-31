@@ -73,12 +73,16 @@ export function packCoverage(pack: PackData): Map<EvidenceRole, CoverageState> {
     association: pack.associations?.length ?? 0,
     terrain: pack.terrain?.length ?? 0,
     drainage: kinds.has("drainage") ? 1 : 0,
-    // Field observations are made by the geologist, not shipped in a pack: the
-    // pack can never be the reason this role is unavailable.
+    // Field observations, structured lab/geophysics evidence, and structured
+    // remote-sensing interpretations are made by the geologist, not shipped in a
+    // pack: the pack can never be the reason these roles are unavailable. (See
+    // ROLES_WITHOUT_SOURCE — remote_sensing still routes through that separate
+    // "no_source" path pending the Stage 6 scoring admission gate, so its row
+    // value here is never read.)
     field: 1,
     community: pack.community?.length ?? 0,
-    geochemistry: 0,
-    geophysics: 0,
+    geochemistry: 1,
+    geophysics: 1,
     remote_sensing: 0,
   };
 

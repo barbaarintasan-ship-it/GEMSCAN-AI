@@ -27,6 +27,7 @@ jest.mock("../supabase", () => ({
 }));
 
 import { AuthProvider, useAuth } from "../auth";
+import { currentPhases, resetStalls } from "../diagnostics/jsStall";
 
 /** Mounts the provider and records every value its context has held. */
 function mount() {
@@ -53,6 +54,7 @@ function mount() {
 beforeEach(() => {
   jest.useFakeTimers();
   mockOnAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: () => {} } } });
+  resetStalls();
 });
 
 afterEach(() => { jest.useRealTimers(); });
@@ -110,4 +112,22 @@ test("a late answer, arriving after the ceiling, still updates the session", asy
     await Promise.resolve();
   });
   expect(probe.latest().session).not.toBeNull();
+});
+
+test("a stalled connection does not leave the diagnostic phase open after the ceiling — this is the fix for the misleadingly huge jsStall readings", () => {
+  // Never resolves — the exact "stalled connection to the auth endpoint" case
+  // that used to leave `markPhase("auth.getSession")` open for as long as the
+  // network eventually took, minutes later, reporting that whole wait as a
+  // stall even though the user was let into the app after 8 real seconds.
+  mockGetSession.mockImplementation(() => new Promise(() => {}));
+
+  mount();
+  expect(currentPhases()).toContain("auth.getSession");
+
+  act(() => {
+    jest.advanceTimersByTime(8_000);
+  });
+  // The phase is closed at the SAME moment the loading screen gives up —
+  // not left open waiting for a promise that may never settle.
+  expect(currentPhases()).not.toContain("auth.getSession");
 });

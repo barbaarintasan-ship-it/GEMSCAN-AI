@@ -106,6 +106,14 @@ export function renderReport(
     f.commodity
       ? t("report.score.commodity", { commodity: t(`commodity.${f.commodity}`) })
       : t("report.score.universal"),
+    // Only when there is one to show — an evidence-built number, never a
+    // second guess of prospectivityScore and never invented when absent.
+    ...(f.integratedProspectivity != null
+      ? [
+          t("report.score.integratedValue", { score: f.integratedProspectivity.toFixed(2) }),
+          t("report.score.integratedNote"),
+        ]
+      : []),
   ];
 
   // 3 — Evidence, strongest first, each with its status and why it matters.

@@ -8,7 +8,8 @@
 // Re-targeting is EVENT-DRIVEN, never per-fix (Invariant 7): a target that
 // changes every ten metres is useless to someone walking.
 import type { SessionSnapshot } from "../field/types";
-import type { ExplorationTarget, TargetingEngine, TargetingOptions } from "../geo/targeting.ts";
+import type { ExplorationTarget, Scored, TargetingEngine, TargetingOptions } from "../geo/targeting.ts";
+import type { StructuredGeologicalEvidence } from "../field/structuredEvidenceTypes";
 import type { EvidenceCoverage } from "../geo/evidenceCoverage";
 import type { PackStore } from "../geo/packStore.ts";
 import type { WaypointService } from "../field/waypointService";
@@ -226,6 +227,12 @@ export interface FinishSectionInput {
   waypoints?: readonly Waypoint[];
   track?: Array<{ lat: number; lng: number; at: number; accuracyM: number | null }>;
   terrainContext?: string | null;
+  /**
+   * What the geologist entered on the User Geological Evidence form for this
+   * mission, if anything. Lives in its own store (structuredEvidenceStore.ts),
+   * same reason waypoints and the track are handed in rather than reached for.
+   */
+  structuredEvidence?: StructuredGeologicalEvidence | null;
 }
 
 /**
@@ -816,6 +823,26 @@ export class ExplorationOrchestrator {
   }
 
   /**
+   * The evidence `score`/`reportScore` were actually built from, for the
+   * mission's own cell.
+   *
+   * `activeTarget` usually already has it (`buildTarget()` sets `evidence` on
+   * every target it returns) — but re-ranking keeps proposing targets for
+   * OTHER cells while a mission is held open, so `activeTarget` can point
+   * somewhere else by the time investigation finishes. When it does, this
+   * scores the mission's own cell fresh via `targetAt()` — the SAME public
+   * entry point `buildTarget()` is behind, not a second implementation of it —
+   * rather than silently reporting no baseline for a mission that plainly has
+   * one.
+   */
+  private async baselineEvidenceFor(m: Mission): Promise<readonly Scored[] | null> {
+    const at = this.snap.activeTarget;
+    if (at && at.cell === m.cell) return at.evidence;
+    const t = await this.deps.targeting.targetAt(m.centre, m.centre, { commodity: m.commodity });
+    return t?.evidence ?? null;
+  }
+
+  /**
    * FINISH SECTION — assemble the package and write it to the device.
    *
    * Nothing is sent here. The field has no network; that is the normal case, not
@@ -828,6 +855,7 @@ export class ExplorationOrchestrator {
     if (!m || !isOnSite(m.state)) return null;
 
     const completed = advance(m, "section_completed", this.now);
+    const baselineEvidence = await this.baselineEvidenceFor(completed);
     const pkg = buildEvidencePackage({
       mission: completed,
       explorationSessionId: this.snap.explorationSessionId,
@@ -835,6 +863,8 @@ export class ExplorationOrchestrator {
       track: extra.track ?? [],
       targetReasons: this.snap.activeTarget?.reasons ?? [],
       geologyContext: this.snap.context?.geology?.unit ?? null,
+      baselineEvidence,
+      structuredEvidence: extra.structuredEvidence ?? null,
       /**
        * The engine's numeric readings, from the pack it already has loaded.
        *

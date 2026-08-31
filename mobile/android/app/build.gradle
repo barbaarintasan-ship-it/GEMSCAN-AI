@@ -98,6 +98,22 @@ react {
     }
 }
 
+// The RN/Expo Gradle plugin's createBundle<Variant>JsAndAssets tasks watch JS/TS
+// source files for staleness but do not declare mobile/assets/geo-pack/*.json as
+// an input — those files only reach the bundle through a runtime require() in
+// bundledPack.ts, invisible to the plugin's own file-tree matcher. A pack update
+// (new fault/geology data with no .ts change) was therefore silently served from
+// a stale cached bundle: Gradle reported the task UP-TO-DATE and never re-ran
+// Metro, so a geo-pack-only release shipped days-old JS and data. Declaring the
+// directory explicitly forces Gradle's own incremental check to hash it and
+// invalidate the task whenever any pack file changes, independent of the
+// plugin's built-in watch list.
+afterEvaluate {
+    tasks.matching { it.name ==~ /create.*JsAndAssets/ }.configureEach { t ->
+        t.inputs.dir(file("$projectDir/../../assets/geo-pack"))
+    }
+}
+
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
@@ -135,8 +151,8 @@ android {
         // silently drifted apart twice, and each time the phone reported a version
         // this repo had never built. `lib/__tests__/appVersion.test.ts` fails the
         // build before that can ship a third time.
-        versionCode 141
-        versionName "1.38.17"
+        versionCode 142
+        versionName "1.38.18"
     }
     signingConfigs {
         debug {

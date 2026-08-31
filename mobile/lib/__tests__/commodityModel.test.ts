@@ -148,6 +148,73 @@ describe("deposit models decide which evidence is relevant", () => {
   });
 });
 
+// ── Priority 5: intrusive/sedimentary/metamorphic families, actually used ───
+//
+// depositFamilies() always computed all six families; relevanceFor() used to
+// branch on only three of them (placer, structural, lateritic) — intrusive,
+// sedimentary and metamorphic were derived and then silently discarded.
+describe("deposit families that were computed but never used before this priority", () => {
+  test("gold matches 'intrusive' (porphyry) — its geology factor is now boosted, not flat 1.0", () => {
+    const gold = buildCommodityModel(pack, "gold")!;
+    expect(gold.families).toContain("intrusive");
+    expect(factorFor(gold, "geology")).toBeGreaterThan(1);
+    expect(gold.relevance.get("geology")!.basis).toBe("expert_rule");
+    expect(gold.relevance.get("geology")!.why).toMatch(/intrusion-related/i);
+  });
+
+  test("tin does NOT match 'intrusive' from its own deposit_models — no commodity gets every family blindly", () => {
+    // Confirms the actual data: tin's deposit_models are greisen/vein/placer
+    // cassiterite — none of those words match the intrusive family pattern,
+    // even though tin is geologically an evolved-granite story. The fix does
+    // not invent a match the data does not support.
+    const tin = buildCommodityModel(pack, "tin")!;
+    expect(tin.families).not.toContain("intrusive");
+    expect(factorFor(tin, "geology")).toBe(1);
+  });
+
+  test("a sediment-hosted-only profile gets a SMALLER geology boost than an intrusion-related one", () => {
+    const sedimentary = {
+      code: "x", name: "X", category: "test",
+      typical_host_rocks: ["sandstone"], associated_minerals: null, alteration_styles: null,
+      deposit_models: ["sediment-hosted"], tectonic_settings: null, exploration_indicators: null,
+      industrial_uses: null, is_critical_mineral: null, strategic_importance: null,
+      confidence_limitations: "test",
+    } as PackCommodityProfile;
+    const model = buildCommodityModel({ ...pack, commodities: [sedimentary] }, "x")!;
+    expect(model.families).toContain("sedimentary");
+    expect(factorFor(model, "geology")).toBeGreaterThan(1);
+    expect(factorFor(model, "geology")).toBeLessThan(factorFor(buildCommodityModel(pack, "gold")!, "geology"));
+  });
+
+  test("a profile matching BOTH structural and metamorphic gets a stronger structural factor than structural alone", () => {
+    const compound = {
+      code: "y", name: "Y", category: "test",
+      typical_host_rocks: null, associated_minerals: null, alteration_styles: null,
+      deposit_models: ["shear-hosted", "schist-hosted"], tectonic_settings: null,
+      exploration_indicators: null, industrial_uses: null, is_critical_mineral: null,
+      strategic_importance: null, confidence_limitations: "test",
+    } as PackCommodityProfile;
+    const model = buildCommodityModel({ ...pack, commodities: [compound] }, "y")!;
+    expect(model.families).toContain("structural");
+    expect(model.families).toContain("metamorphic");
+    const gold = buildCommodityModel(pack, "gold")!; // structural, but not metamorphic
+    expect(gold.families).not.toContain("metamorphic");
+    expect(factorFor(model, "structural")).toBeGreaterThan(factorFor(gold, "structural"));
+  });
+
+  test("every new factor stays within the same [0.5, 1.5] bound the rest of the file already enforces", () => {
+    for (const code of profiles.map((p) => p.code)) {
+      const m = buildCommodityModel(pack, code);
+      if (!m) continue;
+      for (const role of ["geology", "structural"] as const) {
+        const f = factorFor(m, role);
+        expect(f).toBeGreaterThanOrEqual(MIN_FACTOR);
+        expect(f).toBeLessThanOrEqual(MAX_FACTOR);
+      }
+    }
+  });
+});
+
 describe("host rocks map to the eight classes the map actually has", () => {
   test("pegmatite and granite are plutonic-compatible", () => {
     const c = compatibleRockClasses(["pegmatite", "granite"]);
@@ -180,6 +247,61 @@ describe("indicators pick out the field observations that mean something", () =>
     const bare = { alteration_styles: null, exploration_indicators: null, associated_minerals: null } as
       unknown as PackCommodityProfile;
     expect(diagnosticObservations(bare).size).toBe(0);
+  });
+
+  // ── Priority 4: the field-scanning bug ─────────────────────────────────
+  //
+  // diagnosticObservations() used to scan only exploration_indicators,
+  // alteration_styles and associated_minerals. Tin's shipped profile carries
+  // its own diagnostic vocabulary in a field that was never read:
+  // deposit_models = {greisen,vein,placer cassiterite} — the word "vein" is
+  // right there. A tapped "Vein" waypoint earned the diagnostic ×1.25 boost
+  // under Gold and silently did not under Tin, for an identical field
+  // observation, purely because of which fields got scanned.
+  test("tin now recognises its OWN 'vein' deposit model — it did not before this fix", () => {
+    const tin = profiles.find((p) => p.code === "tin")!;
+    expect(tin.deposit_models).toContain("vein");
+    // Confirms the actual bug: none of tin's exploration_indicators,
+    // alteration_styles or associated_minerals contain the word "vein" —
+    // the OLD scan genuinely had nothing to find it in.
+    const oldFields = [
+      ...(tin.exploration_indicators ?? []), ...(tin.alteration_styles ?? []),
+      ...(tin.associated_minerals ?? []),
+    ].join(" ").toLowerCase();
+    expect(oldFields).not.toContain("vein");
+    // The fix: deposit_models is now scanned too, so tin's diagnostic set
+    // includes "vein" (the generic tap) — the honest outcome, not "quartz-vein"
+    // specifically, since tin's own text never says "quartz vein" and nothing
+    // here invents that association.
+    expect(diagnosticObservations(tin).has("vein")).toBe(true);
+  });
+
+  test("the fix is structural, not a gold/tin special case — every profile's deposit_models and typical_host_rocks are scanned", () => {
+    // A synthetic profile whose ONLY diagnostic text is in deposit_models,
+    // proving the mechanism generalises rather than being hard-coded to tin.
+    const synthetic = {
+      exploration_indicators: null, alteration_styles: null, associated_minerals: null,
+      deposit_models: ["skarn", "sulphide-rich replacement"], typical_host_rocks: null,
+    } as unknown as PackCommodityProfile;
+    expect(diagnosticObservations(synthetic).has("sulfides")).toBe(true);
+  });
+
+  test("typical_host_rocks alone can also surface a diagnostic concept", () => {
+    const synthetic = {
+      exploration_indicators: null, alteration_styles: null, associated_minerals: null,
+      deposit_models: null, typical_host_rocks: ["gossan-capped ironstone"],
+    } as unknown as PackCommodityProfile;
+    expect(diagnosticObservations(synthetic).has("gossan")).toBe(true);
+  });
+
+  test("audit: no profile in the shipped pack crashes the scan, and gold keeps every indicator it always had", () => {
+    for (const p of profiles) expect(() => diagnosticObservations(p)).not.toThrow();
+    const gold = profiles.find((p) => p.code === "gold")!;
+    const d = diagnosticObservations(gold);
+    expect(d.has("quartz-vein")).toBe(true);
+    expect(d.has("sulfides")).toBe(true);
+    expect(d.has("gossan")).toBe(true);
+    expect(d.has("alteration")).toBe(true);
   });
 });
 

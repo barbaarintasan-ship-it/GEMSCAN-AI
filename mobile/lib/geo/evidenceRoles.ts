@@ -107,10 +107,23 @@ export type CoverageState =
  */
 export const ROLES_NOT_SCORED: readonly EvidenceRole[] = ["drainage", "contacts", "lineaments"] as const;
 
-/** Roles with no data source anywhere in the system today. */
-export const ROLES_WITHOUT_SOURCE: readonly EvidenceRole[] = [
-  "geochemistry", "geophysics", "remote_sensing",
-] as const;
+/**
+ * Roles with no data source anywhere in the system today.
+ *
+ * `geochemistry` and `geophysics` left this list once the structured User
+ * Geological Evidence form (Stage 3, Architecture: Integrated Prospectivity
+ * Score) gave them a real, if user-reported, source — see `packCoverage()`
+ * below, which now treats them like `field`: the pack can never be the reason
+ * they are unavailable, because neither ever came from the pack.
+ *
+ * `remote_sensing` stays here for now even though the same form also captures
+ * it (Section D): its evidence is produced but deliberately excluded from
+ * scoring pending the Stage 6 admission gate (see
+ * INTEGRATED_ROLES_PENDING_ADMISSION in structuredEvidenceSource.ts), and its
+ * coverage-panel treatment is revisited together with that gate rather than
+ * half-done here.
+ */
+export const ROLES_WITHOUT_SOURCE: readonly EvidenceRole[] = ["remote_sensing"] as const;
 
 export const ROLE_LABEL_KEY = (r: EvidenceRole): string => `field.evidenceRole.${r}`;
 export const COVERAGE_STATE_KEY = (s: CoverageState): string => `field.coverage.${s}`;

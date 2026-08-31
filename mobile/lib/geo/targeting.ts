@@ -28,11 +28,20 @@ import { featuresNear, intersectionsOf } from "./terrainProviders.ts";
 
 /**
  * Release the JS thread to the render loop once per this many scored cells during
- * rank(). ~8 keeps the per-yield overhead negligible (a handful of macrotasks for
- * a 37-cell ring) while no single chunk holds the thread long enough to drop a
- * frame. Scoring is unaffected — this only paces the loop.
+ * rank(). Scoring is unaffected — this only paces the loop; same cells, same
+ * order, same result, every time, regardless of this number.
+ *
+ * LOWERED from 8 to 4. `rank()` was measured at ~2.8 s per call on a real
+ * device when this file's own retarget-gating comment was written; a field
+ * reading after the Abbate fault/contact/lineament data and the commodity
+ * conditioning work landed showed a SINGLE chunk stalling for 9.6 s — a chunk
+ * is now several times more expensive than it was when 8-per-chunk was chosen,
+ * because there is simply more pack to score against per cell. Halving the
+ * chunk size halves the worst-case single stall for the same total work,
+ * trading a few more (cheap) macrotask handoffs for a JS thread that comes up
+ * for air twice as often while walking.
  */
-const YIELD_EVERY_CELLS = 8;
+const YIELD_EVERY_CELLS = 4;
 import type { PackData } from "../../../shared/geo-core/pack/types.ts";
 import { ROLES_NOT_SCORED, type EvidenceRole } from "./evidenceRoles";
 import { coverageAt, type EvidenceCoverage } from "./evidenceCoverage";
@@ -105,6 +114,15 @@ export interface ExplorationTarget {
    * The field makes the difference visible instead of leaving it to be inferred.
    */
   scoredForCommodity: string | null;
+  /**
+   * The raw scored evidence this target's `score`/`reportScore` were built
+   * from — carried forward from `buildTarget()`'s own computation rather than
+   * recomputed, so a caller building the Integrated Prospectivity Score
+   * (Architecture: `computeClientIntegratedScore`) reads the SAME baseline
+   * evidence the validated ranking used, never a second guess of it. Read-only:
+   * nothing may feed this back into `score`/`reportScore`.
+   */
+  evidence: readonly Scored[];
 }
 
 export interface TargetingResult {
@@ -477,15 +495,21 @@ export function prospectivityEvidence(
       // "gossan/iron staining". Nothing is invented; a type the profile does not
       // name simply keeps its own weight.
       const diagnostic = model?.diagnosticObservations.has(o.type) ?? false;
+      // A tapped waypoint never sets role/tier/group (toObservation() in
+      // localEvidence.ts leaves them undefined), so these fall back to exactly
+      // today's literals — byte-identical output for every existing source. A
+      // source built from other evidence (the structured user-evidence form)
+      // declares its own instead, and is no longer silently relabelled as a
+      // tapped field observation at tier "mapped".
       items.push({
         item: {
           statement: o.statement,
           weight: Math.min(1, o.weight * (diagnostic ? 1.25 : 1)),
-          tier: "mapped",
+          tier: o.tier ?? "mapped",
         },
         reason: { kind: "observation", label: o.type, distanceM: o.distanceM },
-        role: "field",
-        group: `field:${o.id}`,
+        role: o.role ?? "field",
+        group: o.group ?? `field:${o.id}`,
       });
     }
   }
@@ -654,6 +678,7 @@ export class TargetingEngine {
       commodities: commoditiesOf(context),
       coverage: coverageFor(packData, scored, centre),
       scoredForCommodity: scoringOpts.commodity ?? null,
+      evidence: scored,
     };
   }
 

@@ -264,6 +264,66 @@ describe("live state arrives in pieces", () => {
   });
 });
 
+// THE FREEZE (compass edition). Every heading update — up to 2x/sec, from
+// HeadingService's own ceiling — used to run through the exact same path as a
+// GPS fix or a pan: a full draw() of every vector layer, just to rotate the
+// small direction cone. MEASURED on-device: this alone pegged the map at
+// 1.5-3 fps completely idle, because nothing the geologist actually moved
+// (position, pan, zoom) needed to change at all. These assert the fix stays
+// scoped to exactly that case: a heading-only call is throttled, but a real
+// position change — or a heading swing big enough to matter — never is.
+describe("heading-only redraws are throttled, position redraws never are", () => {
+  test("the first position/heading call always draws", () => {
+    const h = run();
+    h.ops.length = 0;
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 10);
+    expect(h.ops.length).toBeGreaterThan(0);
+  });
+
+  test("a position change redraws immediately even with heading unchanged", () => {
+    const h = run();
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 10);
+    h.ops.length = 0;
+    h.win.__setPosition({ lat: HERE.lat + 0.001, lng: HERE.lng, accuracyM: 5 }, 10);
+    expect(h.ops.length).toBeGreaterThan(0);
+  });
+
+  test("a tiny heading wobble right after a redraw, position unchanged, draws nothing", () => {
+    const h = run();
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 10);
+    h.ops.length = 0;
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 12); // +2 deg
+    expect(h.ops.length).toBe(0);
+  });
+
+  test("a heading swing large enough still redraws immediately", () => {
+    const h = run();
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 10);
+    h.ops.length = 0;
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 30); // +20 deg
+    expect(h.ops.length).toBeGreaterThan(0);
+  });
+
+  test("a null heading (compass unavailable) is never throttled", () => {
+    const h = run();
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, null);
+    h.ops.length = 0;
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, null);
+    expect(h.ops.length).toBeGreaterThan(0);
+  });
+
+  test("a suppressed heading wobble is not lost — it still redraws once enough has accumulated", () => {
+    const h = run();
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 10);
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 12); // suppressed
+    h.ops.length = 0;
+    // Small steps that individually stay under the angle gate, but cross it
+    // cumulatively from the LAST DRAWN heading (10), not the last received one.
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 19); // 9 deg from 10 → redraws
+    expect(h.ops.length).toBeGreaterThan(0);
+  });
+});
+
 describe("the backdrop is composed, not stacked", () => {
   /** Every drawImage, with the alpha and blend mode in force when it ran. */
   function blits(h: Harness) {

@@ -36,6 +36,17 @@ export interface ScoredEvidence {
   role: string;
   /** Correlation key: items sharing it are one observation seen twice. */
   group: string;
+  /**
+   * Whether this item ARGUES FOR prospectivity (the default, every existing
+   * item) or is a deliberately-checked, confirmed-ABSENT finding.
+   *
+   * Absent (undefined) means "positive" — every item any existing caller has
+   * ever produced. Only `computeIntegratedProspectivity()`
+   * (integratedProspectivity.ts) reads this; `computeConfidence()`
+   * (confidence.ts, the validated baseline) has no concept of polarity at all
+   * and never will — see that file's own module comment.
+   */
+  polarity?: "positive" | "negative";
 }
 
 export interface ReportScoreConfig {

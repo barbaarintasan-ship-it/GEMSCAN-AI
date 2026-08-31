@@ -18,9 +18,14 @@
 // analysis was partly written by the thing collecting the data.
 import type { Waypoint } from "../field/waypointTypes";
 import type { EvidenceCoverage } from "../geo/evidenceCoverage";
-import type { TargetReason } from "../geo/targeting";
-import type { Mission, MissionHotspot } from "./mission";
+import type { Scored, TargetReason } from "../geo/targeting";
+import type { Mission, MissionHotspot, MissionOutcome } from "./mission";
 import type { MissionFindings } from "../../../shared/geo-core/gie/missionFindings";
+import {
+  emptyStructuredEvidence, isEmptyStructuredEvidence, type StructuredGeologicalEvidence,
+} from "../field/structuredEvidenceTypes";
+import { combinedIntegratedEvidence, computeClientIntegratedScore } from "./structuredEvidenceSource";
+import type { ScoredEvidence } from "../../../shared/geo-core/gie/prospectivityReport";
 
 /** Bumped when the shape changes, so an old package on a device stays readable. */
 export const EVIDENCE_PACKAGE_VERSION = 2;
@@ -141,6 +146,68 @@ export interface EvidencePackage {
    */
   coverage: EvidenceCoverage | null;
 
+  /** ── What the geologist already knows ──────────────────────────────── */
+  /**
+   * The User Geological Evidence form's record for this mission, if anything
+   * was entered — assays, geophysics, detailed mapping, remote-sensing
+   * interpretation, expert/field observation. Carried whole, not flattened:
+   * the server needs every field to convert it into scored evidence
+   * (structuredEvidenceSource.ts), and a report needs it to show what was
+   * actually reported, distinct from what the engine measured. Optional and
+   * absent on packages built before this existed — read as "nothing entered",
+   * which for them is the truth.
+   */
+  structuredEvidence?: StructuredGeologicalEvidence | null;
+  /**
+   * The client-side "so-far" Integrated Prospectivity Score — `prospectivityScore`
+   * combined with `structuredEvidence` through the SAME noisy-OR machinery,
+   * against the wider tier table (`INTEGRATED_TIER_WEIGHT`). Distinct from, and
+   * never substituted for, `prospectivityScore`/`reportScore`: those are the
+   * validated RANKING score and are never recomputed here. Null when there is
+   * no structured evidence yet, or no baseline evidence to combine it with —
+   * an absent number, not an invented one.
+   *
+   * AI-visual evidence is not in this number: it does not exist until the
+   * server's analysis step runs (Stage 4). The SERVER recomputes a "final"
+   * integrated score once it does; this is only ever the offline reading.
+   * Optional and absent on packages built before this existed.
+   */
+  integratedProspectivityScore?: number | null;
+  /**
+   * The flat `{weight,tier,role,group}` list `integratedProspectivityScore`
+   * was computed from — baseline evidence plus whatever structured evidence
+   * exists, even when the geologist entered none (baseline alone, then).
+   *
+   * Carried so the SERVER "final" stage (Stage 4) can fold AI-visual evidence
+   * into the SAME combined set — reusing this list rather than re-deriving it
+   * means a field-recorded quartz vein and an AI-read quartz vein still
+   * collapse to one group server-side, not just on the device. Null only when
+   * there was no baseline to build it from at all.
+   */
+  integratedEvidenceItems?: ScoredEvidence[] | null;
+  /**
+   * The RAW baseline evidence (`Scored[]`, with each item's own statement and
+   * reason) `prospectivityScore` was built from — not the flattened
+   * `{weight,tier,role,group}` tuples `integratedEvidenceItems` carries, the
+   * full record.
+   *
+   * Priority 6, instrumentation only: no code reads this to score anything —
+   * it exists so a future question ("what evidence existed at this target
+   * before the outcome was known?") is answerable at all. Persisted for free:
+   * this whole package already travels to the server verbatim as one JSONB
+   * column (geo.mission_package.payload), so carrying this costs nothing
+   * beyond the bytes themselves. Null when there was no baseline to snapshot.
+   */
+  baselineEvidenceSnapshot?: readonly Scored[] | null;
+  /**
+   * Whether the target turned out to be worth the walk. See `MissionOutcome`
+   * (mission.ts) for why this is separate from mission state, and why it is
+   * set later, not here at package-build time — `buildEvidencePackage()`
+   * never sets this itself; it is written afterward via
+   * `PackageStore.setOutcome()`, once the fact is actually known.
+   */
+  outcome?: MissionOutcome;
+
   /** ── What the geologist did ────────────────────────────────────────── */
   observations: PackageObservation[];
   /** The traverse, as recorded. Empty when nothing was walked. */
@@ -203,6 +270,16 @@ export interface BuildPackageInput {
   coverage: EvidenceCoverage | null;
   /** Supplied by the orchestrator from pack lookups. Null when no pack is loaded. */
   engineReadings?: EngineReadings | null;
+  /** What the User Geological Evidence form holds for this mission, if anything. */
+  structuredEvidence?: StructuredGeologicalEvidence | null;
+  /**
+   * The evidence `mission.score`/`mission.reportScore` were built from —
+   * supplied by the orchestrator (`baselineEvidenceFor()`), read never
+   * recomputed here. Needed to combine with `structuredEvidence` into
+   * `integratedProspectivityScore`; without it that field is null rather than
+   * guessed at.
+   */
+  baselineEvidence?: readonly Scored[] | null;
   at: number;
 }
 
@@ -257,6 +334,11 @@ export function buildEvidencePackage(input: BuildPackageInput): EvidencePackage 
     structuralContext: input.structuralContext,
     coverage: input.coverage,
 
+    structuredEvidence: input.structuredEvidence ?? null,
+    integratedProspectivityScore: integratedScoreFor(input),
+    integratedEvidenceItems: integratedEvidenceItemsFor(input),
+    baselineEvidenceSnapshot: input.baselineEvidence ?? null,
+
     observations: mine.map(toPackageObservation),
     track: input.track,
     arrivedAt: mission.arrivedAt,
@@ -264,6 +346,35 @@ export function buildEvidencePackage(input: BuildPackageInput): EvidencePackage 
 
     analysis: null,
   };
+}
+
+/**
+ * The client "so-far" Integrated Prospectivity Score, or null when there is
+ * nothing to combine.
+ *
+ * Both an empty structured-evidence record and a missing baseline read as
+ * "not enough to compute this" — an absent number, never a fabricated one. An
+ * empty record producing a number equal to the baseline would look like a
+ * measurement; it is not one, so it is withheld instead.
+ */
+function integratedScoreFor(input: BuildPackageInput): number | null {
+  const evidence = input.structuredEvidence;
+  if (!evidence || isEmptyStructuredEvidence(evidence)) return null;
+  if (!input.baselineEvidence) return null;
+  return computeClientIntegratedScore(input.baselineEvidence, evidence, input.at);
+}
+
+/**
+ * Unlike `integratedScoreFor`, this is populated whenever there is a baseline
+ * to build from — even with no structured evidence entered — because the
+ * server needs SOMETHING to fold AI-visual evidence onto regardless of
+ * whether the geologist filled in the form.
+ */
+function integratedEvidenceItemsFor(input: BuildPackageInput): ScoredEvidence[] | null {
+  if (!input.baselineEvidence) return null;
+  const evidence = input.structuredEvidence ??
+    emptyStructuredEvidence(input.mission.id, input.mission.cell, input.mission.commodity, input.at);
+  return combinedIntegratedEvidence(input.baselineEvidence, evidence, input.at);
 }
 
 function toPackageObservation(w: Waypoint): PackageObservation {

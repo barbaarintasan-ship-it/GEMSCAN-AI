@@ -12,6 +12,7 @@ import {
 import type { EnginePackageSummary } from "./missionPrompt.ts";
 import { findForbiddenLanguage } from "../../../../shared/geo-core/gie/missionFindings.ts";
 import { renderingsAgree, renderReport } from "../../../../shared/geo-core/gie/renderReport.ts";
+import { computeIntegratedProspectivity } from "../../../../shared/geo-core/gie/integratedProspectivity.ts";
 
 const R2 = {
   accountId: "acct", accessKeyId: "id", secretAccessKey: "secret", bucket: "bucket",
@@ -191,7 +192,13 @@ Deno.test("5. NO PROBABILITY LANGUAGE SURVIVES, in either language", async () =>
   assertEquals(out.violations.length >= 2, true);
   assertEquals(findForbiddenLanguage(out.findings), []);
   assertEquals(out.findings.evidence.length, 3);
-  assertEquals(out.findings.recommendations.length, 2);
+  // Priority 3: recommendations are the deterministic engine's, not the
+  // model's — GOOD_RESPONSE's own 2 recommendations are discarded (see the
+  // dedicated "model's OWN recommendations are discarded" test below); this
+  // scenario has no structured evidence at all, so the engine's honest answer
+  // is the single "insufficient_evidence" action.
+  assertEquals(out.findings.recommendations.length, 1);
+  assertEquals(out.findings.recommendations[0].action, "insufficient_evidence");
 });
 
 Deno.test("5b. a returned score is discarded — the engine keeps its number", async () => {
@@ -259,6 +266,10 @@ function translator(lang: "en" | "so"): (k: string, p?: Record<string, string | 
       : "Kala-horreysiin, ee ma aha suurtogalnimada helitaanka.",
     "report.score.commodity": "for {{commodity}}",
     "report.score.universal": "universal",
+    "report.score.integratedValue": "integrated {{score}}",
+    "report.score.integratedNote": lang === "en"
+      ? "Combines your evidence — still a ranking, not a probability."
+      : "Waxay isku daraysaa caddaynta — weli waa kala-horreysiin, ma aha suurtogalnimo.",
     "commodity.gold": lang === "en" ? "Gold" : "Dahab",
     "report.evidence.row": "{{name}} — {{status}} · {{strength}} · {{reason}}",
     "report.evidence.none": "none",
@@ -506,4 +517,222 @@ Deno.test("vision evidence does NOT lift confidence to a mineral claim", async (
   });
   if (out.status !== "analysed") throw new Error("expected analysed");
   assertEquals(out.findings.confidence === "high", false);
+});
+
+// ── STAGE 4: the FINAL Integrated Prospectivity Score ────────────────────────
+
+Deno.test("no evidence list, no scalar, no vision — integratedProspectivity is absent", async () => {
+  const out = await analyzeExplorationPackage(
+    input({ payload: { missionId: "ms-abc", observations: [{ photos: [] }] } }),
+    { provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW },
+  );
+  if (out.status !== "analysed") throw new Error("expected analysed");
+  assertEquals(out.findings.integratedProspectivity, undefined);
+});
+
+Deno.test("an item list with no vision reproduces the client's own number exactly", async () => {
+  const items = [
+    { weight: 0.25, tier: "mapped", role: "geology", group: "geology:g1" },
+    { weight: 0.5, tier: "user_reported", role: "geochemistry", group: "evidence:c1:assay:au" },
+  ];
+  const out = await analyzeExplorationPackage(
+    input({ payload: { missionId: "ms-abc", integratedEvidenceItems: items } }),
+    { provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW },
+  );
+  if (out.status !== "analysed") throw new Error("expected analysed");
+  assertEquals(out.findings.integratedProspectivity, computeIntegratedProspectivity(items));
+});
+
+Deno.test("AI-visual evidence lifts the score, but stays bounded — never dominates", async () => {
+  const items = [{ weight: 0.2, tier: "mapped", role: "geology", group: "geology:g1" }];
+  const baseline = computeIntegratedProspectivity(items);
+  const out = await analyzeExplorationPackage(
+    input({
+      payload: {
+        missionId: "ms-abc", observations: [{ photos: [{ id: "p1" }] }],
+        integratedEvidenceItems: items,
+      },
+    }),
+    {
+      provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW,
+      vision: async () => [
+        { statement: "visible native gold", statementSo: "dahab la arki karo", aspect: "mineral", clarity: 1 },
+      ],
+    },
+  );
+  if (out.status !== "analysed") throw new Error("expected analysed");
+  const lifted = out.findings.integratedProspectivity!;
+  assertEquals(lifted > baseline, true);
+  // One clear AI-visual reading at the strongest aspect, ai_visual tier 0.4:
+  // effective weight tops out at 0.5 * 0.6 * 0.4 = 0.12 — nowhere near "0.95
+  // clarity" read as most of the score.
+  assertEquals(lifted - baseline < 0.15, true);
+});
+
+Deno.test("a field-recorded quartz vein and an AI-read quartz vein collapse to ONE group", async () => {
+  const cell = engine().targetCell;
+  const fieldQuartz = {
+    weight: 0.7, tier: "expert_field", role: "field",
+    group: `evidence:${cell}:quartz_vein`,
+  };
+  const withCollapse = await analyzeExplorationPackage(
+    input({
+      payload: {
+        missionId: "ms-abc", observations: [{ photos: [{ id: "p1" }] }],
+        integratedEvidenceItems: [fieldQuartz],
+      },
+    }),
+    {
+      provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW,
+      vision: async () => [
+        { statement: "quartz vein visible", statementSo: "xidid quartz ah", aspect: "vein", clarity: 1 },
+      ],
+    },
+  );
+  const withoutAi = await analyzeExplorationPackage(
+    input({ payload: { missionId: "ms-abc", integratedEvidenceItems: [fieldQuartz] } }),
+    { provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW },
+  );
+  if (withCollapse.status !== "analysed" || withoutAi.status !== "analysed") {
+    throw new Error("expected analysed");
+  }
+  // The field item's own weight (0.7 * 0.75 = 0.525) beats the AI item's
+  // (bounded well under that), so the stronger one wins the group and the two
+  // scores are IDENTICAL — proof they collapsed rather than multiplied together.
+  assertEquals(withCollapse.findings.integratedProspectivity, withoutAi.findings.integratedProspectivity);
+});
+
+Deno.test("a DIFFERENT AI reading (native gold, not quartz) stays independent of the field item", async () => {
+  const cell = engine().targetCell;
+  const fieldQuartz = {
+    weight: 0.7, tier: "expert_field", role: "field",
+    group: `evidence:${cell}:quartz_vein`,
+  };
+  const out = await analyzeExplorationPackage(
+    input({
+      payload: {
+        missionId: "ms-abc", observations: [{ photos: [{ id: "p1" }] }],
+        integratedEvidenceItems: [fieldQuartz],
+      },
+    }),
+    {
+      provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW,
+      vision: async () => [
+        { statement: "visible native gold", statementSo: "dahab la arki karo", aspect: "mineral", clarity: 1 },
+      ],
+    },
+  );
+  const withoutAi = computeIntegratedProspectivity([fieldQuartz]);
+  if (out.status !== "analysed") throw new Error("expected analysed");
+  // Two genuinely different facts — the score must be HIGHER, not identical.
+  assertEquals(out.findings.integratedProspectivity! > withoutAi, true);
+});
+
+Deno.test("no item list falls back to the client's scalar, folding AI-visual on top exactly", async () => {
+  const out = await analyzeExplorationPackage(
+    input({
+      payload: {
+        missionId: "ms-abc", observations: [{ photos: [{ id: "p1" }] }],
+        integratedProspectivityScore: 0.4,
+      },
+    }),
+    {
+      provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW,
+      vision: async () => [
+        { statement: "alteration halo", statementSo: "isbeddel dabeecadeed", aspect: "alteration", clarity: 0.8 },
+      ],
+    },
+  );
+  if (out.status !== "analysed") throw new Error("expected analysed");
+  // 1 - (1-0.4)(1-effectiveWeight) — the exact noisy-OR fold, not an approximation.
+  assertEquals(out.findings.integratedProspectivity! > 0.4, true);
+  assertEquals(out.findings.integratedProspectivity! <= 1, true);
+});
+
+Deno.test("the model cannot inject integratedProspectivity — the field is built by code, not parsed from its JSON", async () => {
+  const rigged = JSON.stringify({
+    ...JSON.parse(GOOD_RESPONSE),
+    integratedProspectivity: 0.99,
+    integrated_prospectivity: 0.99,
+  });
+  const out = await analyzeExplorationPackage(input(), {
+    provider: provider(rigged), r2: R2, verify: allPresent, now: () => NOW,
+  });
+  if (out.status !== "analysed") throw new Error("expected analysed");
+  // No baseline, no items, no vision in this scenario — the honest answer is
+  // absent, never the model's smuggled 0.99.
+  assertEquals(out.findings.integratedProspectivity, undefined);
+});
+
+Deno.test("the report shows the integrated line only when there is a number to show", async () => {
+  const withItems = await analyzeExplorationPackage(
+    input({
+      payload: {
+        missionId: "ms-abc",
+        integratedEvidenceItems: [{ weight: 0.5, tier: "mapped", role: "geology", group: "g1" }],
+      },
+    }),
+    { provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW },
+  );
+  const withoutItems = await analyzeExplorationPackage(input(), {
+    provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW,
+  });
+  if (withItems.status !== "analysed" || withoutItems.status !== "analysed") {
+    throw new Error("expected analysed");
+  }
+  const rWith = renderReport(withItems.findings, translator("en"), "en", { prospectivityScore: 0.62 });
+  const rWithout = renderReport(withoutItems.findings, translator("en"), "en", { prospectivityScore: 0.62 });
+  const scoreWith = rWith.sections.find((s) => s.lines.some((l) => l.startsWith("integrated")));
+  const scoreWithout = rWithout.sections.find((s) => s.lines.some((l) => l.startsWith("integrated")));
+  assertEquals(scoreWith !== undefined, true);
+  assertEquals(scoreWithout, undefined);
+});
+
+// ── STAGE 4/Priority 3: the deterministic next-action engine replaces the AI's own ──
+
+Deno.test("the model's OWN recommendations are discarded entirely, never merged", async () => {
+  // GOOD_RESPONSE's own recommendations are "collect_rock_samples" /
+  // "submit_for_assay" — codes that do not even exist in the engine's fixed
+  // NextAction vocabulary. If they survived at all, that alone would prove
+  // the override failed.
+  const out = await analyzeExplorationPackage(
+    input({ payload: { missionId: "ms-abc", integratedEvidenceItems: [
+      { weight: 0.7, tier: "expert_field", role: "field", group: "evidence:c1:quartz_vein" },
+    ] } }),
+    { provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW },
+  );
+  if (out.status !== "analysed") throw new Error("expected analysed");
+  const actions = out.findings.recommendations.map((r) => r.action);
+  assertEquals(actions.includes("collect_rock_samples"), false);
+  assertEquals(actions.includes("submit_for_assay"), false);
+  // The engine's own deterministic vocabulary appears instead.
+  assertEquals(actions.length > 0, true);
+  for (const a of actions) {
+    assertEquals(
+      ["continue_field_investigation", "collect_sample", "recommend_lab_assay",
+        "recommend_geophysics", "recommend_detailed_mapping", "recommend_field_observation",
+        "deprioritize_target", "insufficient_evidence"].includes(a),
+      true,
+    );
+  }
+});
+
+Deno.test("even a model response with NO recommendations key at all still gets a deterministic one", async () => {
+  const noRecs = JSON.stringify({ ...JSON.parse(GOOD_RESPONSE), recommendations: undefined });
+  const out = await analyzeExplorationPackage(input(), {
+    provider: provider(noRecs), r2: R2, verify: allPresent, now: () => NOW,
+  });
+  if (out.status !== "analysed") throw new Error("expected analysed");
+  assertEquals(out.findings.recommendations.length > 0, true);
+});
+
+Deno.test("a mission with real structural evidence and no geophysics/mapping recommends geophysics", async () => {
+  const out = await analyzeExplorationPackage(
+    input({ payload: { missionId: "ms-abc", integratedEvidenceItems: [
+      { weight: 0.6, tier: "mapped", role: "structural", group: "structure:f1" },
+    ] } }),
+    { provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW },
+  );
+  if (out.status !== "analysed") throw new Error("expected analysed");
+  assertEquals(out.findings.recommendations.some((r) => r.action === "recommend_geophysics"), true);
 });

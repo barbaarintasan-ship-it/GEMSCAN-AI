@@ -28,6 +28,10 @@ import { PackageStore } from "./packageStore";
 import { PhotoUploadQueue } from "../sync/photoUploadQueue";
 import { Outbox } from "../sync/outbox";
 import { hotspotIn } from "../geo/hotspot";
+import { StructuredEvidenceStore } from "./structuredEvidenceStore";
+import type {
+  StructuredEvidenceResult, StructuredGeologicalEvidence,
+} from "../field/structuredEvidenceTypes";
 
 export interface ExplorationApi {
   snapshot: ExplorationSnapshot;
@@ -55,6 +59,13 @@ export interface ExplorationApi {
    * would silently drop the parts of a field record that make it a record.
    */
   waypointRecords: readonly Waypoint[];
+  /**
+   * The User Geological Evidence record for the OPEN mission, or null when
+   * nothing has been entered yet — read straight from the same
+   * StructuredEvidenceStore the form writes to, for the same reason
+   * `waypointRecords` reads straight from the waypoint store.
+   */
+  structuredEvidence: StructuredGeologicalEvidence | null;
   actions: {
     start: (resume?: ResumeExpedition) => void;
     stop: () => void;
@@ -82,6 +93,12 @@ export interface ExplorationApi {
     beginInvestigation: () => void;
     /** FINISH SECTION — assemble the package, write it, queue it. Sends nothing. */
     finishSection: () => Promise<void>;
+    /**
+     * Append one User Geological Evidence form save to the open mission's
+     * record. A mission with no open record yet gets one created on first
+     * call — see StructuredEvidenceStore.merge().
+     */
+    addStructuredEvidence: (result: StructuredEvidenceResult) => Promise<void>;
     /** Close the mission. Only then may the engine recommend somewhere else. */
     closeMission: () => void;
     /** Abandon a hand-picked target and return to the nearest suggestion. */
@@ -109,6 +126,7 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
   const packsRef = useRef<PackStore | null>(null);
   const packageStoreRef = useRef<PackageStore | null>(null);
   const photoQueueRef = useRef<PhotoUploadQueue | null>(null);
+  const structuredEvidenceStoreRef = useRef<StructuredEvidenceStore | null>(null);
   if (ref.current == null) {
     /**
      * MEASURED, because it runs in a render body on the startup path.
@@ -146,6 +164,9 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
     packageStoreRef.current = packages;
     const outbox = new Outbox();
     void outbox.load();
+    const structuredEvidenceStore = new StructuredEvidenceStore();
+    void structuredEvidenceStore.load();
+    structuredEvidenceStoreRef.current = structuredEvidenceStore;
     // Photographs travel separately from the package: the bytes go straight to R2
     // on a presigned URL and only the key reaches Postgres. Queued so a finished
     // section survives no signal, a killed process and an expired URL.
@@ -190,6 +211,12 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
   const snapshot = useSyncExternalStore(
     (cb) => orchestrator.subscribe(cb),
     () => orchestrator.getSnapshot(),
+  );
+
+  const missionId = snapshot.mission?.id ?? null;
+  const structuredEvidence = useSyncExternalStore(
+    (cb) => structuredEvidenceStoreRef.current?.subscribe(cb) ?? (() => {}),
+    () => (missionId ? structuredEvidenceStoreRef.current?.get(missionId) ?? null : null),
   );
 
   useEffect(() => () => orchestrator.destroy(), [orchestrator]);
@@ -245,6 +272,7 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
     photoUploads: photoQueueRef.current,
     waypoints: waypointPins,
     waypointRecords: waypoints,
+    structuredEvidence: structuredEvidence ?? null,
     actions: {
       start: (resume?: ResumeExpedition) => orchestrator.start(resume),
       stop: () => orchestrator.stop(),
@@ -263,9 +291,15 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
       finishSection: async () => {
         // The waypoints live in their own store and the traverse in the recorder;
         // both are handed in rather than reached for, so there is only ever one
-        // copy of each in the system.
+        // copy of each in the system. Same rule for the structured evidence form.
         const waypoints = waypointStoreRef.current?.all() ?? [];
-        const pkg = await orchestrator.finishSection({ waypoints, track: [] });
+        const openMissionId = orchestrator.getSnapshot().mission?.id ?? null;
+        const structured = openMissionId
+          ? structuredEvidenceStoreRef.current?.get(openMissionId) ?? null
+          : null;
+        const pkg = await orchestrator.finishSection({
+          waypoints, track: [], structuredEvidence: structured,
+        });
 
         // Queue every photograph the package names. Uploading is NOT attempted
         // here: the geologist pressed a button on a mountain and needs an answer
@@ -275,7 +309,17 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
           const photos = pkg.observations.flatMap((o) =>
             o.photos.map((ph) => ({ id: ph.id, uri: ph.uri, contentType: ph.contentType })));
           if (photos.length > 0) await photoQueueRef.current?.enqueue(pkg.missionId, photos);
+          // Folded into the filed package; a copy living here forever would be
+          // the same unbounded-growth mistake packageStore.ts was built to avoid.
+          if (openMissionId) await structuredEvidenceStoreRef.current?.clear(openMissionId);
         }
+      },
+      addStructuredEvidence: async (result) => {
+        const m = orchestrator.getSnapshot().mission;
+        if (!m) return;
+        await structuredEvidenceStoreRef.current?.merge(
+          m.id, m.cell, m.commodity, result, Date.now(),
+        );
       },
       closeMission: () => orchestrator.closeMission(),
       cancelChosenTarget: () => orchestrator.cancelChosenTarget(),

@@ -24,6 +24,7 @@ import {
   isDeliverable, type EvidencePackage, type PackageAnalysis,
 } from "./evidencePackage";
 import { markPhase } from "../diagnostics/jsStall";
+import type { MissionOutcome } from "./mission";
 
 export const PACKAGE_STORAGE_KEY = "exploration.packages.v1";
 /** The outbox kind. The server dispatches on this string. */
@@ -211,6 +212,24 @@ export class PackageStore {
     if (i < 0 || (this.packages[i].analysisNote ?? null) === note) return;
     await this.write(() => {
       this.packages[i] = { ...this.packages[i], analysisNote: note };
+    });
+  }
+
+  /**
+   * Record whether the target turned out to be worth the walk (Priority 6,
+   * instrumentation only).
+   *
+   * Callable at ANY time, on ANY package still on the device — never gated to
+   * the package's delivery state. That is the whole point: an assay comes
+   * back weeks after the walk, and the mission that produced the sample may
+   * already be long delivered and closed by then.
+   */
+  async setOutcome(id: string, outcome: MissionOutcome): Promise<void> {
+    await this.load();
+    const i = this.packages.findIndex((x) => x.id === id);
+    if (i < 0) return;
+    await this.write(() => {
+      this.packages[i] = { ...this.packages[i], outcome };
     });
   }
 

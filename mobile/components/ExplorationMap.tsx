@@ -1369,9 +1369,42 @@ function follow(){
     cam.x = wx(LIVE.position.lng); cam.y = wy(LIVE.position.lat);
   }
 }
+// A GPS fix and a compass reading arrive through this SAME call (see the React
+// effect that invokes it), but they are not equally cheap to act on: draw()
+// repaints every vector layer (faults, lineaments, contacts, terrain, tiles)
+// just to rotate the small direction cone in drawMe(). MEASURED on-device:
+// this alone pegged the map at 1.5-3 fps completely idle, because the
+// compass can emit up to 2x/sec (HeadingService's own ceiling) — a rate a
+// full redraw of ~24k features cannot keep up with, even though nothing the
+// geologist actually moved (position, pan, zoom) changed at all.
+//
+// GPS-driven and gesture-driven redraws (fling/pan/zoom below) are untouched
+// and always draw immediately. Only a heading-only call — position identical
+// to last time — is subject to this extra gate, on top of HeadingService's
+// existing ≤2 Hz / ≥3° filter: a small additional angle-or-time threshold
+// here absorbs the compass jitter that survives that filter (3-7° wobbles
+// are common from hand tremor) without perceptibly delaying a real turn.
+var lastPosKey = null;
+var lastHeadingDrawDeg = null;
+var lastHeadingDrawAt = 0;
+var HEADING_REDRAW_MIN_DEG = 8;
+var HEADING_REDRAW_MIN_MS = 350;
 window.__setPosition = function(p, heading){
+  var posKey = p ? (p.lat + "," + p.lng + "," + p.accuracyM) : null;
+  var posChanged = posKey !== lastPosKey;
+  lastPosKey = posKey;
   LIVE.position = p; LIVE.headingDeg = heading;
-  follow(); draw();
+  follow();
+  if (posChanged || heading == null || lastHeadingDrawDeg == null){
+    lastHeadingDrawDeg = heading; lastHeadingDrawAt = Date.now();
+    draw();
+    return;
+  }
+  var deltaDeg = Math.abs(((heading - lastHeadingDrawDeg + 540) % 360) - 180);
+  var sinceLastMs = Date.now() - lastHeadingDrawAt;
+  if (deltaDeg < HEADING_REDRAW_MIN_DEG && sinceLastMs < HEADING_REDRAW_MIN_MS) return;
+  lastHeadingDrawDeg = heading; lastHeadingDrawAt = Date.now();
+  draw();
 };
 window.__setTrack = function(points){ LIVE.track = points; draw(); };
 window.__addTrack = function(points){

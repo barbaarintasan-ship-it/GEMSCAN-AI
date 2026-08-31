@@ -28,6 +28,13 @@ import {
 } from "./missionPrompt.ts";
 import type { VisualObservation } from "./vision.ts";
 import { visualObservationsToEvidence } from "./visionFindings.ts";
+import { aiVisualToScoredEvidence } from "./visualEvidenceToScored.ts";
+import {
+  computeIntegratedProspectivity,
+} from "../../../../shared/geo-core/gie/integratedProspectivity.ts";
+import type { ScoredEvidence } from "../../../../shared/geo-core/gie/prospectivityReport.ts";
+import { determineNextActions } from "../../../../shared/geo-core/gie/nextActionEngine.ts";
+import { deriveNextActionInput } from "./nextActionInput.ts";
 import {
   photosInPackage, summariseVerification, verifyObjects,
   type VerificationSummary,
@@ -71,6 +78,18 @@ export interface AnalyzeInput {
   payload: {
     missionId?: string;
     observations?: Array<{ photos?: Array<{ id?: string }> }>;
+    /**
+     * The client's combined `{weight,tier,role,group}` evidence list
+     * (evidencePackage.ts's `integratedEvidenceItems`) — baseline plus
+     * whatever structured evidence exists. This is what AI-visual evidence
+     * folds onto to produce the FINAL Integrated Prospectivity Score; see
+     * `finalIntegratedProspectivity` below. Absent on packages built before
+     * Stage 4 existed, or when the device had no baseline to build it from.
+     */
+    integratedEvidenceItems?: Array<{ weight?: unknown; tier?: unknown; role?: unknown; group?: unknown }>;
+    /** Fallback prior when `integratedEvidenceItems` is absent. See below. */
+    integratedProspectivityScore?: unknown;
+    prospectivityScore?: unknown;
   };
 }
 
@@ -152,12 +171,18 @@ export async function analyzeExplorationPackage(
   // the package, and (by visionFindings) it can never claim gold, a deposit, or
   // stand in for assay.
   let visualEvidence: FindingEvidence[] = [];
+  // The RAW observations, kept alongside the report-shaped rows above — Stage
+  // 4 needs clarity/aspect/statement to compute a SCORING weight, which
+  // visualObservationsToEvidence() deliberately does not carry (its output is
+  // report evidence, capped moderate/low by construction, not a number).
+  let visualObservations: VisualObservation[] = [];
   if (photos.length > 0 && deps.vision) {
     try {
-      const observations = await deps.vision(photos);
-      visualEvidence = visualObservationsToEvidence(observations);
+      visualObservations = await deps.vision(photos);
+      visualEvidence = visualObservationsToEvidence(visualObservations);
     } catch {
       visualEvidence = [];
+      visualObservations = [];
     }
   }
 
@@ -203,10 +228,30 @@ export async function analyzeExplorationPackage(
   // comparing in the renderer would destroy the fact being reported, and a
   // geologist is entitled to know the assessment was toned down.
   const ceiling = cappedConfidence(withVisual);
+  const integratedProspectivity = finalIntegratedProspectivity(
+    input.payload, visualObservations, input.engine.targetCell,
+  );
+
+  // ── 7b. ENGINE decides WHAT to do next; the model may only explain WHY ──────
+  //
+  // Priority 3. `recommendations` from the parsed response is discarded
+  // unconditionally here — never trusted, never merged — and replaced with the
+  // deterministic engine's own output, over the SAME combined evidence list
+  // (client structured evidence + this analysis's AI-visual items) that
+  // produced `integratedProspectivity` above, so the two numbers and the
+  // recommendation can never disagree about what evidence exists.
+  const nextActionItems = [
+    ...clientEvidenceItemsFrom(input.payload),
+    ...aiVisualToScoredEvidence(visualObservations, input.engine.targetCell),
+  ];
+  const recommendations = determineNextActions(deriveNextActionInput(nextActionItems));
+
   const capped: MissionFindings = {
     ...withVisual,
     confidence: ceiling,
     ...(ceiling !== withVisual.confidence ? { claimedConfidence: withVisual.confidence } : {}),
+    ...(integratedProspectivity != null ? { integratedProspectivity } : {}),
+    recommendations,
   };
 
   // An analysis with nothing found AND no gaps named is not cautious, it is empty,
@@ -230,6 +275,64 @@ export async function analyzeExplorationPackage(
 
 function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * The FINAL Integrated Prospectivity Score — the client's combined baseline +
+ * structured-evidence list (`payload.integratedEvidenceItems`), plus this
+ * analysis's AI-visual readings, scored together through the SAME arithmetic
+ * as the client's "so-far" number (Architecture: Integrated Prospectivity
+ * Score, Stage 4).
+ *
+ * Reusing the client's item list — rather than re-deriving evidence from the
+ * package here — is what lets a field-recorded "quartz vein" and an AI-read
+ * "quartz vein" collapse to one group: `combinedIntegratedEvidence()` on the
+ * device already anchored the structured item to the mission's target cell,
+ * and `aiVisualToScoredEvidence()` anchors the AI-visual item to the SAME
+ * cell, so `evidenceGroupKey()` produces the same string on both sides.
+ *
+ * FALLS BACK to the client's already-computed scalar
+ * (`integratedProspectivityScore`, or `prospectivityScore` when even that is
+ * absent) treated as one pre-aggregated prior item, on packages built before
+ * `integratedEvidenceItems` existed. Exact for AI-visual combining with
+ * itself — noisy-OR's product form makes folding a NEW factor onto an
+ * already-computed `1 - score` identical to having included it from the
+ * start — but this path cannot separately collapse an AI-visual reading
+ * against a structured-evidence group it has no visibility into, so it
+ * slightly UNDER-collapses in that one case rather than over-collapsing.
+ * Under-collapsing is the same safe failure direction
+ * `integratedProspectivity.ts`'s own grouping design already accepts.
+ *
+ * Null only when there is truly nothing to build a number from — no item
+ * list, no scalar fallback, and no AI-visual evidence either.
+ */
+export function finalIntegratedProspectivity(
+  payload: AnalyzeInput["payload"],
+  visualObs: readonly VisualObservation[],
+  siteAnchorId: string,
+): number | null {
+  const items = clientEvidenceItemsFrom(payload);
+  const aiScored = aiVisualToScoredEvidence(visualObs, siteAnchorId);
+  const all = [...items, ...aiScored];
+  if (all.length === 0) return null;
+  return computeIntegratedProspectivity(all);
+}
+
+function clientEvidenceItemsFrom(payload: AnalyzeInput["payload"]): ScoredEvidence[] {
+  if (Array.isArray(payload.integratedEvidenceItems)) {
+    return payload.integratedEvidenceItems.map((x, i) => ({
+      weight: clamp01(Number(x?.weight ?? 0)),
+      tier: typeof x?.tier === "string" ? x.tier : undefined,
+      role: typeof x?.role === "string" ? x.role : "field",
+      group: typeof x?.group === "string" && x.group.length > 0 ? x.group : `item:${i}`,
+    }));
+  }
+  const prior = Number(payload.integratedProspectivityScore ?? payload.prospectivityScore ?? NaN);
+  return Number.isFinite(prior) ? [{ weight: clamp01(prior), role: "field", group: "prior" }] : [];
+}
+
+function clamp01(n: number): number {
+  return Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0));
 }
 
 /**

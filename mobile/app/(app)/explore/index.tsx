@@ -47,6 +47,8 @@ import type { ExplorationSnapshot } from "../../../lib/exploration/orchestrator"
 import { isDelivering } from "../../../lib/exploration/mission";
 import { AIGeologistReport } from "../../../components/AIGeologistReport";
 import { AddWaypointForm } from "../../../components/AddWaypointForm";
+import { StructuredEvidenceForm } from "../../../components/StructuredEvidenceForm";
+import { isEmptyStructuredEvidence } from "../../../lib/field/structuredEvidenceTypes";
 import { NearbyEvidence } from "../../../components/NearbyEvidence";
 import { NEARBY_RADIUS_M, nearbyWaypoints } from "../../../lib/field/nearbyWaypoints";
 import { EvidenceBasis } from "../../../components/EvidenceBasis";
@@ -92,6 +94,9 @@ export default function ExplorationSurface() {
   // purpose — the arrival panel and a tapped point — never from a row their thumb
   // passes over while scrolling.
   const [waypointFormOpen, setWaypointFormOpen] = React.useState(false);
+  // The User Geological Evidence form. Same "opened on purpose" rule as the
+  // waypoint form — reached from the arrival panel, never mounted open.
+  const [evidenceFormOpen, setEvidenceFormOpen] = React.useState(false);
 
   /**
    * The camera, then the library as a fallback.
@@ -127,6 +132,7 @@ export default function ExplorationSurface() {
   }, []);
   const {
     snapshot: s, actions, packs, waypoints, waypointRecords, packages, photoUploads,
+    structuredEvidence,
   } = useExploration();
   const w = useMapWorkspace();
   // Read for the detached notice only. Never gates anything.
@@ -848,6 +854,23 @@ export default function ExplorationSurface() {
               </Pressable>
             ))}
           </View>
+          <Pressable
+            style={styles.evidenceFormRow}
+            onPress={() => setEvidenceFormOpen(true)}
+            accessibilityRole="button"
+          >
+            <Ionicons name="document-text" size={18} color={colors.gold} />
+            <Text style={styles.evidenceFormRowText}>
+              {t("field.evidenceForm.openButton")}
+            </Text>
+            {structuredEvidence && !isEmptyStructuredEvidence(structuredEvidence) ? (
+              <Text style={styles.evidenceFormRowCount}>
+                {structuredEvidence.assays.length + structuredEvidence.geophysics.length +
+                  structuredEvidence.mapping.length + structuredEvidence.remoteSensing.length +
+                  structuredEvidence.fieldObservations.length}
+              </Text>
+            ) : null}
+          </Pressable>
         </SheetSection>
       ) : null}
 
@@ -978,6 +1001,20 @@ export default function ExplorationSurface() {
                 }
               : {}),
           });
+        }}
+        t={t}
+      />
+      {/* Same "hand in, don't reach for" rule as the waypoint form — this writes
+          to the StructuredEvidenceStore, and Finish Section reads it back from
+          there when it assembles the package. */}
+      <StructuredEvidenceForm
+        visible={evidenceFormOpen}
+        commodity={s.commodity}
+        now={() => Date.now()}
+        onCancel={() => setEvidenceFormOpen(false)}
+        onSave={(r) => {
+          setEvidenceFormOpen(false);
+          void actions.addStructuredEvidence(r);
         }}
         t={t}
       />
@@ -2190,6 +2227,16 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm, paddingHorizontal: spacing.md, backgroundColor: colors.bg,
   },
   chipText: { color: colors.text, fontSize: 13 },
+
+  evidenceFormRow: {
+    flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.md,
+    borderWidth: 1, borderColor: colors.goldBorder, borderRadius: radius.lg,
+    paddingVertical: spacing.sm, paddingHorizontal: spacing.md, backgroundColor: colors.goldSoft,
+  },
+  evidenceFormRowText: { color: colors.gold, fontWeight: "700", fontSize: 13.5, flex: 1 },
+  evidenceFormRowCount: {
+    color: colors.gold, fontWeight: "800", fontSize: 13, minWidth: 20, textAlign: "center",
+  },
 
   otherRow: { paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
   otherTitle: { color: colors.text, fontSize: 14, fontWeight: "600" },
