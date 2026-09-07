@@ -541,12 +541,9 @@ export async function processScan(params: {
     weightByProvider,
   );
 
-  // An unconfirmed identification must not be dressed up as one: when the
-  // decision engine did not clear the acceptance threshold we withhold the
-  // geological/gemological interpretation (origin, market, investment) and the
-  // narrative that asserts the identity. The observations, the honest warnings
-  // and the "what to do next" guidance are kept — those are exactly what the
-  // user needs while the answer is still open.
+  // The Simple/Expert write-up is part of the scan result the user expects on
+  // every identified specimen — it is always returned alongside the match, the
+  // observations, the warnings and the "what to do next" guidance.
   const unlocked = ensemble.interpretationUnlocked;
   const finalResult = {
     bestMatch: ensemble.insufficientConfidence ? null : ensemble.candidates[0]?.label ?? null,
@@ -562,8 +559,8 @@ export async function processScan(params: {
     suggestions: ensemble.suggestions,
     explanationStyle,
     interpretationUnlocked: unlocked,
-    simpleExplanation: unlocked ? explanations?.simpleExplanation ?? null : null,
-    expertExplanation: unlocked ? explanations?.expertExplanation ?? null : null,
+    simpleExplanation: explanations?.simpleExplanation ?? null,
+    expertExplanation: explanations?.expertExplanation ?? null,
     imageObservations: explanations?.imageObservations ?? null,
     warnings: explanations?.warnings ?? null,
     recommendations: explanations?.recommendations ?? null,
