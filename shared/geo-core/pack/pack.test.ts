@@ -119,6 +119,7 @@ function sampleData(): PackData {
       id: "a1", minerals: ["pyrite", "quartz"], interpretation: "epithermal system",
       commodity_code: "gold", likelihood: "common", relationship: "indicates", weight: 0.6,
     }],
+    land: [],
   };
 }
 
@@ -164,7 +165,7 @@ Deno.test("manifest records counts, bbox and dataset provenance", () => {
 Deno.test("an empty pack is valid and reports a null bbox rather than a fake one", () => {
   const empty: PackData = {
     geology: [], occurrences: [], knowledge: [], structures: [], community: [], mapFeatures: [], terrain: [],
-    associations: [], rules: [], commodities: [], assemblages: [],
+    associations: [], rules: [], commodities: [], assemblages: [], land: [],
   };
   const built = buildPack(empty, OPTS);
   assertEquals(built.manifest.bbox, null);
