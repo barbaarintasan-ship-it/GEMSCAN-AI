@@ -55,6 +55,58 @@ Deno.test("geological_knowledge: no rock context → no evidence", async () => {
   assertEquals(c.confidence, 0);
 });
 
+// The three STRONG host-rock rules added in migration 0109. This proves the LIVE
+// GeologicalKnowledgeProvider turns each seeded rule (as knowledge_rules_for
+// returns it) into relationship evidence AND a commodityAssociation carrying the
+// commodity and its expected minerals — i.e. the rows are actually consumed.
+Deno.test("geological_knowledge: 0109 host-rock rules are consumed into evidence + commodityAssociations", async () => {
+  const NEW_RULES = [
+    { key: "lamproite", commodity: "diamond", minerals: ["diamond", "pyrope garnet", "chromite", "olivine"],
+      relationship: "Lamproite can carry diamond to the surface like kimberlite." },
+    { key: "sandstone", commodity: "uranium", minerals: ["uraninite", "coffinite", "carnotite"],
+      relationship: "Roll-front uranium precipitates in reduced permeable sandstone." },
+    { key: "pegmatite", commodity: "tourmaline", minerals: ["tourmaline", "elbaite", "rubellite"],
+      relationship: "Evolved LCT pegmatites host gem tourmaline alongside lithium and tantalum." },
+  ];
+
+  for (const nr of NEW_RULES) {
+    const gw: GeoDataGateway = {
+      ...emptyGw,
+      knowledgeRulesFor: (k) => {
+        // The provider must query with the derived host-rock term for the rule to match.
+        assert(k.hostRocks.includes(nr.key), `provider queried host rock ${nr.key}`);
+        return Promise.resolve([{
+          id: `r-${nr.key}`, antecedent_type: "host_rock", antecedent_key: nr.key,
+          commodity_code: nr.commodity, expected_minerals: nr.minerals,
+          relationship: nr.relationship, likelihood: "common", requires_setting: [], weight: 0.4,
+        }]);
+      },
+      commodityProfiles: (codes) => Promise.resolve(codes.map((code) => ({
+        code, name: code, category: "test", typical_host_rocks: null, associated_minerals: null,
+        alteration_styles: null, deposit_models: null, tectonic_settings: null,
+        exploration_indicators: null, industrial_uses: null, is_critical_mineral: false,
+        strategic_importance: `${code} is strategically important.`,
+        confidence_limitations: `${code} needs field confirmation.`,
+      }))),
+    };
+
+    const c = await makeGeologicalKnowledgeProvider(gw).fetch({ ...q, sample: { hostRocks: [nr.key] } });
+
+    // 1. the rule's relationship became evidence (the provider read the row)
+    assert(c.evidence.some((e) => e.statement === nr.relationship),
+      `relationship evidence emitted for ${nr.key} → ${nr.commodity}`);
+
+    // 2. the commodityAssociation carries the commodity, its host-rock setting and expected minerals
+    const assocs = (c.data as {
+      commodityAssociations?: Array<{ setting: string; commodity: string | null; expectedMinerals: string[] }>;
+    }).commodityAssociations ?? [];
+    const match = assocs.find((a) => a.commodity === nr.commodity);
+    assert(match, `commodityAssociation produced for ${nr.commodity}`);
+    assertEquals(match!.setting, nr.key);
+    assertEquals(match!.expectedMinerals, nr.minerals);
+  }
+});
+
 Deno.test("mineral_association: quartz + arsenopyrite → possible gold system", async () => {
   const gw: GeoDataGateway = {
     ...emptyGw,

@@ -161,6 +161,32 @@ describe("PackGateway", () => {
     expect(rows.map((r) => r.id)).toEqual(["r2", "r1"]);
   });
 
+  test("the three new strong host-rock rules (0109) match by exact host-rock term", async () => {
+    // Isolated pack: the shared fixture is left untouched. Proves the offline
+    // production matcher (packGateway.knowledgeRulesFor) resolves the exact
+    // lowercase antecedent keys seeded in migration 0109.
+    const data = packData();
+    data.rules = [
+      { id: "nr1", antecedent_type: "host_rock", antecedent_key: "lamproite", commodity_code: "diamond",
+        expected_minerals: ["diamond"], relationship: "hosts", likelihood: "common", requires_setting: null, weight: 0.4 },
+      { id: "nr2", antecedent_type: "host_rock", antecedent_key: "sandstone", commodity_code: "uranium",
+        expected_minerals: ["uraninite"], relationship: "hosts", likelihood: "common", requires_setting: null, weight: 0.36 },
+      { id: "nr3", antecedent_type: "host_rock", antecedent_key: "pegmatite", commodity_code: "tourmaline",
+        expected_minerals: ["tourmaline"], relationship: "hosts", likelihood: "common", requires_setting: null, weight: 0.36 },
+    ];
+    const g = makePackGateway(data);
+
+    expect((await g.knowledgeRulesFor({ hostRocks: ["lamproite"], lithology: [], depositTypes: [] }))
+      .map((r) => r.commodity_code)).toEqual(["diamond"]);
+    // case-insensitive, exactly as the RPC's lower() match does
+    expect((await g.knowledgeRulesFor({ hostRocks: ["Sandstone"], lithology: [], depositTypes: [] }))
+      .map((r) => r.commodity_code)).toEqual(["uranium"]);
+    expect((await g.knowledgeRulesFor({ hostRocks: ["pegmatite"], lithology: [], depositTypes: [] }))
+      .map((r) => r.commodity_code)).toEqual(["tourmaline"]);
+    // a host rock we did not seed still returns nothing
+    expect(await g.knowledgeRulesFor({ hostRocks: ["gneiss"], lithology: [], depositTypes: [] })).toEqual([]);
+  });
+
   test("assemblage rules require the rule's minerals to be a SUBSET of what was observed", async () => {
     expect((await gw.assemblageRulesFor(["pyrite", "quartz", "calcite"])).map((r) => r.id)).toEqual(["a1"]);
     // Overlap is not enough — "quartz" alone must not fire a pyrite+quartz rule.
