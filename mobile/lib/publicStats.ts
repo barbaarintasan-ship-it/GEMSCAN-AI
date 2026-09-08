@@ -5,6 +5,8 @@
 // valuable identification. No personal data — just two totals from the
 // gemscan_public_stats() SQL function (migration 0007), which is safe to call
 // with the anon key. Cached so it never spams the backend.
+import { useEffect, useState } from "react";
+import { InteractionManager } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "./supabase";
 import { withTimeout } from "./withTimeout";
@@ -46,12 +48,30 @@ export async function fetchPublicStats(): Promise<PublicStats> {
   };
 }
 
+/**
+ * Deferred past the first paint. CommunityStats renders nothing until `data`
+ * arrives regardless (see its own comment — "never flashes zeros"), so this
+ * cosmetic footer widget has nothing to lose by starting a beat later. What it
+ * DOES buy: on a cold boot this call used to fire in the same instant as
+ * auth.getSession, subscription.fetch and appUpdate.check — four network
+ * calls racing at once. MEASURED on a device: publicStats.fetch alone still
+ * open 4-5+ seconds after boot, entangled with the others in the jsStall log.
+ * Deferring it thins that opening burst without changing what it fetches,
+ * how long it is allowed to take (PUBLIC_STATS_TIMEOUT_MS, untouched), or its
+ * fallback on failure.
+ */
 export function usePublicStats() {
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => setEnabled(true));
+    return () => task.cancel();
+  }, []);
   return useQuery({
     queryKey: ["public-stats"],
     queryFn: fetchPublicStats,
     staleTime: 5 * 60 * 1000, // 5 min — community totals move slowly.
     gcTime: 30 * 60 * 1000,
     retry: 1,
+    enabled,
   });
 }

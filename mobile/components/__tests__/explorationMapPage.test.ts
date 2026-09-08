@@ -68,6 +68,8 @@ interface Harness {
   flush: () => void;
   /** Arguments of every ctx.transform, in draw order. */
   transforms: number[][];
+  /** Canvases the page created itself — the static-layer buffer, once built. */
+  offscreenCanvases: Array<{ width: number; height: number }>;
 }
 
 /**
@@ -86,35 +88,51 @@ function run(layers: Record<string, boolean> = ALL_ON): Harness {
 
   const ops: string[] = [];
   const record = (name: string) => (...args: unknown[]) => { ops.push(name + ":" + args.length); };
-  // save/restore are modelled properly, because whether a blend mode leaks past
-  // a tile is exactly the kind of bug this harness exists to catch.
-  const stack: Array<{ alpha: number; op: string }> = [];
   // Every ctx.transform(a,b,c,d,e,f), in order — the only way to assert WHERE a
-  // tile was actually placed.
+  // tile was actually placed. Shared across every context the page creates (the
+  // visible canvas AND the offscreen static-layer buffer, see makeCtx below) —
+  // the existing assertions care about how much/what kind of drawing happened
+  // in total, not which physical canvas it landed on.
   const transforms: number[][] = [];
-  const ctx = {
-    setTransform: record("setTransform"),
-    save: () => { ops.push("save:0"); stack.push({ alpha: ctx.globalAlpha, op: ctx.globalCompositeOperation }); },
-    restore: () => {
-      ops.push("restore:0");
-      const s = stack.pop();
-      if (s) { ctx.globalAlpha = s.alpha; ctx.globalCompositeOperation = s.op; }
-    },
-    transform: (...a: unknown[]) => { transforms.push(a as number[]); ops.push("transform:6"); },
-    beginPath: record("beginPath"), closePath: record("closePath"),
-    moveTo: record("moveTo"), lineTo: record("lineTo"), arc: record("arc"),
-    fill: record("fill"), stroke: record("stroke"), fillRect: record("fillRect"),
-    drawImage: (...args: unknown[]) => {
-      ops.push("blend:" + ctx.globalAlpha + ":" + ctx.globalCompositeOperation);
-      ops.push("drawImage:" + args.length);
-    },
-    setLineDash: record("setLineDash"),
-    fillText: record("fillText"), strokeText: record("strokeText"),
-    createRadialGradient: () => ({ addColorStop: record("addColorStop") }),
-    globalAlpha: 1, globalCompositeOperation: "source-over",
-    fillStyle: "", strokeStyle: "", lineWidth: 1,
-    lineCap: "", lineJoin: "", font: "", textAlign: "", textBaseline: "",
-  };
+
+  /**
+   * One recording 2D context. The static-layer buffer (rebuildStaticBuffer)
+   * creates its own canvas via document.createElement — a SEPARATE context
+   * with its own save/restore stack and alpha/blend state (matching a real
+   * browser), but recording into the SAME ops/transforms arrays so tests that
+   * count "how much got drawn" don't need to know or care that some of it now
+   * happens on an offscreen canvas first.
+   */
+  function makeCtx() {
+    // save/restore are modelled properly, because whether a blend mode leaks
+    // past a tile is exactly the kind of bug this harness exists to catch.
+    const stack: Array<{ alpha: number; op: string }> = [];
+    const ctx = {
+      setTransform: record("setTransform"),
+      save: () => { ops.push("save:0"); stack.push({ alpha: ctx.globalAlpha, op: ctx.globalCompositeOperation }); },
+      restore: () => {
+        ops.push("restore:0");
+        const s = stack.pop();
+        if (s) { ctx.globalAlpha = s.alpha; ctx.globalCompositeOperation = s.op; }
+      },
+      transform: (...a: unknown[]) => { transforms.push(a as number[]); ops.push("transform:6"); },
+      beginPath: record("beginPath"), closePath: record("closePath"),
+      moveTo: record("moveTo"), lineTo: record("lineTo"), arc: record("arc"),
+      fill: record("fill"), stroke: record("stroke"), fillRect: record("fillRect"),
+      drawImage: (...args: unknown[]) => {
+        ops.push("blend:" + ctx.globalAlpha + ":" + ctx.globalCompositeOperation);
+        ops.push("drawImage:" + args.length);
+      },
+      setLineDash: record("setLineDash"),
+      fillText: record("fillText"), strokeText: record("strokeText"),
+      createRadialGradient: () => ({ addColorStop: record("addColorStop") }),
+      globalAlpha: 1, globalCompositeOperation: "source-over",
+      fillStyle: "", strokeStyle: "", lineWidth: 1,
+      lineCap: "", lineJoin: "", font: "", textAlign: "", textBaseline: "",
+    };
+    return ctx;
+  }
+  const ctx = makeCtx();
 
   const handlers: Record<string, (e: unknown) => void> = {};
   const canvas = {
@@ -122,6 +140,8 @@ function run(layers: Record<string, boolean> = ALL_ON): Harness {
     getContext: () => ctx,
     addEventListener: (type: string, fn: (e: unknown) => void) => { handlers[type] = fn; },
   };
+  /** Offscreen canvases the page creates itself — the static-layer buffer. */
+  const offscreenCanvases: Array<{ width: number; height: number }> = [];
 
   const messages: unknown[] = [];
   let frames = 0;
@@ -152,7 +172,15 @@ function run(layers: Record<string, boolean> = ALL_ON): Harness {
     Math,
     JSON,
     Infinity,
-    document: { getElementById: () => canvas },
+    document: {
+      getElementById: () => canvas,
+      createElement: (tag: string) => {
+        if (tag !== "canvas") throw new Error("unexpected document.createElement(" + tag + ")");
+        const off = { width: 0, height: 0, getContext: () => makeCtx() };
+        offscreenCanvases.push(off);
+        return off;
+      },
+    },
   };
   win.window = win;
 
@@ -175,7 +203,7 @@ function run(layers: Record<string, boolean> = ALL_ON): Harness {
     return null;
   };
 
-  return { win, ops, messages: messages as any[], touch, frames: () => frames, blend, flush, transforms }; // eslint-disable-line @typescript-eslint/no-explicit-any
+  return { win, ops, messages: messages as any[], touch, frames: () => frames, blend, flush, transforms, offscreenCanvases }; // eslint-disable-line @typescript-eslint/no-explicit-any
 }
 
 /** Deferred reports are delivered first — the page always sends its LAST state. */
@@ -324,6 +352,130 @@ describe("heading-only redraws are throttled, position redraws never are", () =>
   });
 });
 
+// THE FREEZE (GPS edition — Option A). GPS delivers a fix every second
+// UNCONDITIONALLY (WALKING_PROFILE.timeIntervalMs=1000, no distance gate —
+// see locationService.ts), whether or not the geologist actually moved, and
+// every one of those used to run the SAME full draw() as a real pan or zoom:
+// geology, 136 faults, 5,960 lineaments, 1,538 contacts, 16,870 drainage,
+// terrain, tiles. MEASURED on-device: the map sat at ~2.2 fps even standing
+// still, because that alone saturated the frame budget — the Option B compass
+// throttle above had no headroom left to reclaim.
+//
+// The fix is a static-layer cache: everything that depends only on the
+// camera/layers/scene (never on LIVE.position/headingDeg) is rendered once
+// into an offscreen buffer, padded a bit larger than the screen, and BLITTED
+// for any tick that stays within that padding — which real walking speed does
+// for many seconds at a time. These assert the cache stays scoped exactly
+// there: cheap when it safely can be, but a real position jump, a zoom, or a
+// layer toggle still gets the same full, correct rebuild as before.
+describe("the static-layer cache (Option A)", () => {
+  test("a GPS-follow tick within the buffer's padding blits instead of redrawing the static layer", () => {
+    const h = run();
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 10);
+    const fullOpsCount = h.ops.length;
+    expect(h.offscreenCanvases.length).toBeGreaterThan(0); // the buffer was built
+    h.ops.length = 0;
+    // ~1 m of drift (typical GPS jitter/walking speed in one second) — nowhere
+    // near BUF_PAD_FACTOR's padding — plus a heading swing big enough to also
+    // clear the Option B throttle, so this cannot pass "for the wrong reason".
+    h.win.__setPosition({ lat: HERE.lat + 0.00001, lng: HERE.lng, accuracyM: 5 }, 90);
+    expect(h.ops.some((o) => o.startsWith("drawImage"))).toBe(true);
+    expect(h.ops.length).toBeLessThan(fullOpsCount * 0.3);
+  });
+
+  test("a position jump beyond the buffer's padding falls back to a full, correct rebuild", () => {
+    const h = run();
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 10);
+    const fullOpsCount = h.ops.length;
+    h.ops.length = 0;
+    // Several degrees away — hundreds of km, nowhere near the padded buffer.
+    h.win.__setPosition({ lat: HERE.lat + 5, lng: HERE.lng + 5, accuracyM: 5 }, 10);
+    expect(h.ops.length).toBeGreaterThanOrEqual(fullOpsCount * 0.5);
+  });
+
+  test("a growing track does not force the static layer to rebuild", () => {
+    const h = run();
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 10);
+    const fullOpsCount = h.ops.length;
+    h.ops.length = 0;
+    h.win.__setTrack([[HERE.lng, HERE.lat], [HERE.lng + 0.0001, HERE.lat]]);
+    h.win.__addTrack([[HERE.lng + 0.0002, HERE.lat]]);
+    expect(h.ops.some((o) => o.startsWith("drawImage"))).toBe(true);
+    // A looser ceiling than the position-only case: drawTrack itself adds real
+    // ops in this tiny test scene, and so does drawOccurrences (drawn live on
+    // every dynamic-only frame, on purpose — it is excluded from the static
+    // buffer so occurrence markers keep drawing on TOP of the track/target,
+    // their original stacking order; see the comment in draw()). The point is
+    // "nowhere near a full rebuild", not "as cheap as possible" — see the
+    // >=0.5x full-rebuild tests below for the other side of that line.
+    expect(h.ops.length).toBeLessThan(fullOpsCount * 0.45);
+  });
+
+  test("a new target/waypoint set does not force the static layer to rebuild", () => {
+    const h = run();
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 10);
+    const fullOpsCount = h.ops.length;
+    h.ops.length = 0;
+    h.win.__setPins({ lat: HERE.lat + 0.01, lng: HERE.lng }, [{ lng: HERE.lng, lat: HERE.lat, type: "float" }], null);
+    expect(h.ops.some((o) => o.startsWith("drawImage"))).toBe(true);
+    // See the track test above for why this ceiling is looser than 0.3x.
+    expect(h.ops.length).toBeLessThan(fullOpsCount * 0.4);
+  });
+
+  test("zoom still forces a full rebuild — a blit alone cannot show a different scale", () => {
+    const h = run();
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 10);
+    const fullOpsCount = h.ops.length;
+    h.ops.length = 0;
+    h.win.__zoom(1.5);
+    expect(h.ops.length).toBeGreaterThanOrEqual(fullOpsCount * 0.5);
+  });
+
+  test("a layer toggle still forces a full rebuild, so a switched-off layer actually disappears", () => {
+    const h = run();
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 10);
+    h.ops.length = 0;
+    h.win.__setLayers({ ...ALL_ON, faults: false });
+    const withFaultsOff = h.ops.length;
+    h.win.__setPosition({ lat: HERE.lat + 0.00001, lng: HERE.lng, accuracyM: 5 }, 90);
+    // The cheap follow tick right after must still reflect the layer change —
+    // it blits whatever the last full rebuild produced, never something older.
+    h.ops.length = 0;
+    h.win.__setPosition({ lat: HERE.lat + 0.00002, lng: HERE.lng, accuracyM: 5 }, 10);
+    expect(withFaultsOff).toBeGreaterThan(0);
+    expect(h.ops.some((o) => o.startsWith("drawImage"))).toBe(true);
+  });
+
+  test("panning still forces a full rebuild — a blit alone cannot show ground the buffer never rendered", () => {
+    const h = run();
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 10);
+    const fullOpsCount = h.ops.length;
+    h.ops.length = 0;
+    h.touch("touchstart", [{ x: 195, y: 390 }]);
+    h.touch("touchmove", [{ x: 195, y: 250 }]);
+    h.touch("touchend", [{ x: 195, y: 250 }]);
+    expect(h.ops.length).toBeGreaterThanOrEqual(fullOpsCount * 0.5);
+  });
+
+  test("a tap still resolves to the correct coordinate after several cheap follow ticks", () => {
+    const h = run();
+    h.win.__setPosition({ lat: HERE.lat, lng: HERE.lng, accuracyM: 5 }, 0);
+    // Several small GPS-follow ticks, all within the buffer's padding — the
+    // camera (and so the cached buffer's alignment) must stay exactly correct
+    // through every one of them, not just the first.
+    for (let i = 1; i <= 5; i++){
+      h.win.__setPosition({ lat: HERE.lat + i * 0.00001, lng: HERE.lng + i * 0.00001, accuracyM: 5 }, i * 20);
+    }
+    const lastLat = HERE.lat + 5 * 0.00001, lastLng = HERE.lng + 5 * 0.00001;
+    // followMe is still true, so the viewer is at the screen centre.
+    h.touch("touchstart", [{ x: 195, y: 390 }]);
+    h.touch("touchend", [{ x: 195, y: 390 }]);
+    const p = picks(h).pop();
+    expect(p.lat).toBeCloseTo(lastLat, 4);
+    expect(p.lng).toBeCloseTo(lastLng, 4);
+  });
+});
+
 describe("the backdrop is composed, not stacked", () => {
   /** Every drawImage, with the alpha and blend mode in force when it ran. */
   function blits(h: Harness) {
@@ -365,8 +517,13 @@ describe("tiles are reprojected, not stretched", () => {
    * to prove a tile is projected rather than smeared.
    */
   function latsFrom(h: Harness, metresPerPx: number): number[] {
-    const H = 780, M_LAT = 111195, centreLat = HERE.lat;
+    const M_LAT = 111195, centreLat = HERE.lat;
     const scale = 1 / metresPerPx;
+    // Tiles are STATIC content — drawn into the offscreen buffer (see
+    // rebuildStaticBuffer), which is padded larger than the visible canvas —
+    // so H must be the buffer's own height, not the visible canvas's 780.
+    const buf = h.offscreenCanvases[h.offscreenCanvases.length - 1];
+    const H = buf.height / 2; // DPR=2 in this harness (win.devicePixelRatio)
     return h.transforms.map((t) => centreLat + (H / 2 - t[5]) / (scale * M_LAT));
   }
 

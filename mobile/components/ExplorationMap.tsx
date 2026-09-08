@@ -269,10 +269,17 @@ var MIN_SCALE = 0.00002, MAX_SCALE = 4;
 // projection below — it used to be two Math calls per vertex, which on a real
 // Macrostrat scene is hundreds of thousands of them per frame.
 var CS = 1, SN = 0, HW = 0, HH = 0;
-function beginFrame(){
-  FRAME++;
+// Split from beginFrame() so the static-layer buffer (see rebuildStaticBuffer)
+// can retarget CS/SN/HW/HH at its own, larger W/H while it renders, then put
+// them back for the real viewport — without bumping FRAME twice for what is
+// still, from the tile cache's point of view, a single visible frame.
+function computeTrig(){
   CS = Math.cos(cam.rot); SN = Math.sin(cam.rot);
   HW = W/2; HH = H/2;
+}
+function beginFrame(){
+  FRAME++;
+  computeTrig();
 }
 var P = [0,0];
 function toScreen(x, y, out){
@@ -1039,7 +1046,12 @@ function gridStepM(){
 }
 var RING_STEP = null;
 
-function drawGrid(){
+// The graticule depends only on the camera and the scene, so it belongs in the
+// cached static layer. The range rings below it are centred on LIVE.position —
+// they were split OUT of this function so the cached buffer can never freeze a
+// stale ring around wherever the viewer stood when the buffer was last built
+// (see drawRangeRings and the "static vs dynamic" note above rebuildStaticBuffer).
+function drawGridLines(){
   var step = gridStepM();
   RING_STEP = step;
   if (!LAYERS.grid) return;
@@ -1066,9 +1078,13 @@ function drawGrid(){
     }
     ctx.stroke();
   }
+}
 
-  // Range rings around the viewer: how far away things are, at a glance.
+/** Range rings around the viewer: how far away things are, at a glance. */
+function drawRangeRings(){
+  if (!LAYERS.grid) return;
   if (!LIVE.position) return;
+  var step = RING_STEP || gridStepM();
   var p = sxy(LIVE.position.lng, LIVE.position.lat);
   ctx.strokeStyle = "rgba(255,255,255,0.16)";
   for (var i=1;i<=3;i++){
@@ -1116,6 +1132,127 @@ var pending = false;
 // reading them mid-frame from drawTiles/drawTerrain/drawSlope/drawAspect
 // would rebudget while the frame it is meant to bound is already drawing.
 var DEM_STRIDE = 1;
+
+// ── The static-layer cache ───────────────────────────────────────────────
+//
+// THE FREEZE THIS FIXES. Every GPS fix and every compass reading used to run
+// the ENTIRE draw() below — geology, 136 faults, 5,960 lineaments, 1,538
+// contacts, 16,870 drainage features, terrain, tiles — just to move the small
+// "you are here" dot or rotate its direction cone. MEASURED on-device: the map
+// sat at 1.5-3 fps completely idle, because GPS alone delivers a fix every
+// second, UNCONDITIONALLY (WALKING_PROFILE.timeIntervalMs=1000, distance-gate
+// off — see locationService.ts), whether or not the geologist actually moved.
+//
+// STATIC = drawLand, tiles, drawGeology, drawTerrain, drawSlope, drawDrainage,
+// drawContacts, drawLineaments, drawFaults, drawAspect, drawGridLines,
+// drawGeologyLabels — everything that depends only on the camera, the layer
+// set and the scene/tile data, never on LIVE.position or LIVE.headingDeg.
+// These are rendered once into an offscreen canvas (the "static buffer"),
+// sized a bit larger than the viewport, and then BLITTED onto the screen with
+// a plain translate for every frame that does not actually need them redrawn.
+//
+// DYNAMIC = drawRangeRings, drawTrack, drawTarget, drawOccurrences,
+// drawWaypoints, drawSelected, drawMe — drawn fresh every frame, on top of the
+// blitted buffer, at real (not buffer) W/H so their own culling stays correct.
+// drawOccurrences is data-static (it never reads LIVE.position/headingDeg
+// either) but stays OUT of the buffer on purpose: caching it would blit
+// occurrence markers underneath the track/target instead of on top of them,
+// the stacking order they have always drawn in. At ~159 viewport-culled
+// points it is cheap enough to redraw live without reopening the freeze this
+// buffer exists to fix.
+//
+// The buffer is invalidated — and rebuilt, at full cost, exactly like today —
+// whenever anything that actually changes the static picture happens: a pan
+// or pinch gesture, a fling, zoom, rotation, __centre/__frame/__restore/__fit,
+// a layer toggle, new tiles, or a wider scene. Every one of those already
+// calls draw() directly and draw() ALWAYS rebuilds the buffer, so none of
+// them needed to change. The ONLY new call path is __setPosition's follow-only
+// tick (see drawFollowFrame), which reuses the existing buffer via a cheap
+// blit whenever the camera is still within its padded coverage, and falls
+// back to a full draw() — same cost as before, never worse — the moment it
+// isn't (e.g. real walking drift finally exceeds the padding, or the buffer
+// has never been built yet).
+var bufCanvas = null, bufCtx = null;
+var bufCam = { x:0, y:0, scale:0, rot:0 };
+var bufW = 0, bufH = 0;
+var bufValid = false;
+// Extra world shown beyond each viewport edge, as a fraction of that edge's
+// own length. 0.4 gives comfortable headroom for many seconds of walking
+// (a few metres of drift is a tiny fraction of a screen at any field zoom)
+// while keeping the offscreen canvas well under 2x the screen's pixel count.
+var BUF_PAD_FACTOR = 0.4;
+
+function ensureBufCanvas(){
+  if (bufCanvas) return;
+  bufCanvas = document.createElement("canvas");
+  bufCtx = bufCanvas.getContext("2d", { alpha:false });
+}
+
+/** True only when the last-built buffer still fully covers the current screen. */
+function bufferCoversViewport(){
+  if (!bufValid) return false;
+  // A blit is a pure translate: valid only when neither scale nor rotation has
+  // moved since the buffer was built. Zoom and twist gestures already force a
+  // full draw() (see their handlers), so this is normally exact equality, not
+  // a near-miss — but compare defensively rather than assume it.
+  if (cam.scale !== bufCam.scale || cam.rot !== bufCam.rot) return false;
+  toScreen(bufCam.x, bufCam.y, P);
+  var offX = P[0] - bufW/2, offY = P[1] - bufH/2;
+  return offX <= 0 && offY <= 0 && offX + bufW >= W && offY + bufH >= H;
+}
+
+/** Everything that does NOT depend on LIVE.position/headingDeg. */
+function drawStaticLayers(){
+  ctx.fillStyle = "#07070A"; ctx.fillRect(0,0,W,H);
+  drawLand();
+  tilesPainted = 0;
+  tileStrips = 0;
+  tileSpanDeg = 0;
+  if (LAYERS.satellite || LAYERS.hillshade) drawTiles(LIVE.baseTiles, true);
+  drawGeology();
+  drawTerrain();
+  drawSlope();
+  drawDrainage();
+  drawContacts();
+  drawLineaments();
+  drawFaults();
+  drawAspect();
+  if (LAYERS.roads || LAYERS.labels) drawTiles(LIVE.overlayTiles, false);
+  drawGridLines();
+  drawGeologyLabels();
+  // drawOccurrences is deliberately NOT here — see draw()/drawDynamicOnly().
+}
+
+/** Rebuilds the static buffer around the CURRENT camera, with padding. */
+function rebuildStaticBuffer(){
+  ensureBufCanvas();
+  var padW = W * BUF_PAD_FACTOR, padH = H * BUF_PAD_FACTOR;
+  bufW = Math.round(W + 2*padW); bufH = Math.round(H + 2*padH);
+  var pw = Math.max(1, Math.round(bufW*DPR)), ph = Math.max(1, Math.round(bufH*DPR));
+  if (bufCanvas.width !== pw || bufCanvas.height !== ph){
+    bufCanvas.width = pw; bufCanvas.height = ph;
+  }
+  var saveCtx = ctx, saveW = W, saveH = H;
+  ctx = bufCtx; W = bufW; H = bufH;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  computeTrig();
+  viewBox();
+  drawStaticLayers();
+  ctx = saveCtx; W = saveW; H = saveH;
+  bufCam.x = cam.x; bufCam.y = cam.y; bufCam.scale = cam.scale; bufCam.rot = cam.rot;
+  bufValid = true;
+  // Put CS/SN/HW/HH/VIEW back for the real viewport before the caller carries on.
+  computeTrig();
+  viewBox();
+}
+
+/** Paints the (possibly stale-but-still-covering) static buffer onto the real canvas. */
+function blitStaticBuffer(){
+  toScreen(bufCam.x, bufCam.y, P);
+  var offX = P[0] - bufW/2, offY = P[1] - bufH/2;
+  ctx.drawImage(bufCanvas, 0, 0, bufCanvas.width, bufCanvas.height, offX, offY, bufW, bufH);
+}
+
 function draw(){
   if (pending) return;
   pending = true;
@@ -1126,25 +1263,18 @@ function draw(){
     DEM_STRIDE = demStride();
     beginFrame();
     viewBox();
+    rebuildStaticBuffer();
     ctx.fillStyle = "#07070A"; ctx.fillRect(0,0,W,H);
-    drawLand();
-    tilesPainted = 0;
-    tileStrips = 0;
-    tileSpanDeg = 0;
-    if (LAYERS.satellite || LAYERS.hillshade) drawTiles(LIVE.baseTiles, true);
-    drawGeology();
-    drawTerrain();
-    drawSlope();
-    drawDrainage();
-    drawContacts();
-    drawLineaments();
-    drawFaults();
-    drawAspect();
-    if (LAYERS.roads || LAYERS.labels) drawTiles(LIVE.overlayTiles, false);
-    drawGrid();
-    drawGeologyLabels();
+    blitStaticBuffer();
+    drawRangeRings();
     drawTrack();
     drawTarget();
+    // Occurrences are static DATA (never read LIVE.position/headingDeg — same
+    // test as everything in drawStaticLayers) but are drawn HERE, live, not
+    // cached in the buffer: caching would blit them underneath the track/
+    // target instead of on top of them, as they have always been stacked.
+    // ~159 points, viewport-culled, a handful of arcs each — cheap enough to
+    // redraw every frame without reopening the freeze this file exists to fix.
     drawOccurrences();
     drawWaypoints();
     drawSelected();
@@ -1152,6 +1282,42 @@ function draw(){
     var frameEnd = (window.performance && performance.now) ? performance.now() : Date.now();
     lastDrawMs = frameEnd - frameStart;
     notePressure(lastDrawMs);
+    report();
+  });
+}
+
+/**
+ * The cheap path for anything that only touches DYNAMIC state — a GPS fix
+ * (position and/or the track it grows), a compass reading, a new target or
+ * waypoint set. Blits the cached static buffer instead of redrawing 24k+
+ * features, then draws only the handful of things that actually depend on
+ * that state. Falls back to a full draw() — never worse than before — the
+ * moment the camera has drifted beyond the buffer's padded coverage, e.g.
+ * real walking drift finally exceeding it, or the buffer never having been
+ * built yet.
+ */
+var dynamicPending = false;
+function drawDynamicOnly(){
+  if (pending || dynamicPending) return;   // a full draw() already covers this
+  dynamicPending = true;
+  requestAnimationFrame(function(){
+    dynamicPending = false;
+    if (pending) return;   // a full draw() slipped in first; it already covered this frame
+    beginFrame();
+    viewBox();
+    if (!bufferCoversViewport()){
+      draw();
+      return;
+    }
+    ctx.fillStyle = "#07070A"; ctx.fillRect(0,0,W,H);
+    blitStaticBuffer();
+    drawRangeRings();
+    drawTrack();
+    drawTarget();
+    drawOccurrences(); // kept out of the buffer — see the comment in draw()
+    drawWaypoints();
+    drawSelected();
+    drawMe();
     report();
   });
 }
@@ -1370,20 +1536,14 @@ function follow(){
   }
 }
 // A GPS fix and a compass reading arrive through this SAME call (see the React
-// effect that invokes it), but they are not equally cheap to act on: draw()
-// repaints every vector layer (faults, lineaments, contacts, terrain, tiles)
-// just to rotate the small direction cone in drawMe(). MEASURED on-device:
-// this alone pegged the map at 1.5-3 fps completely idle, because the
-// compass can emit up to 2x/sec (HeadingService's own ceiling) — a rate a
-// full redraw of ~24k features cannot keep up with, even though nothing the
-// geologist actually moved (position, pan, zoom) changed at all.
-//
-// GPS-driven and gesture-driven redraws (fling/pan/zoom below) are untouched
-// and always draw immediately. Only a heading-only call — position identical
-// to last time — is subject to this extra gate, on top of HeadingService's
-// existing ≤2 Hz / ≥3° filter: a small additional angle-or-time threshold
-// here absorbs the compass jitter that survives that filter (3-7° wobbles
-// are common from hand tremor) without perceptibly delaying a real turn.
+// effect that invokes it). Neither one ever needs the static layer (geology,
+// faults, lineaments, contacts, terrain, tiles) redrawn — see drawDynamicOnly
+// and the static-layer cache above draw() — so both go through it. The
+// heading-specific throttle below is layered ON TOP of that cache, not a
+// substitute for it: HeadingService already gates compass emission to ≤2 Hz /
+// ≥3° (headingService.ts), and this absorbs the 3-7° wobble that survives
+// that filter (ordinary hand tremor) so it doesn't even cost a blit + marker
+// redraw, without perceptibly delaying a real turn.
 var lastPosKey = null;
 var lastHeadingDrawDeg = null;
 var lastHeadingDrawAt = 0;
@@ -1397,23 +1557,26 @@ window.__setPosition = function(p, heading){
   follow();
   if (posChanged || heading == null || lastHeadingDrawDeg == null){
     lastHeadingDrawDeg = heading; lastHeadingDrawAt = Date.now();
-    draw();
+    drawDynamicOnly();
     return;
   }
   var deltaDeg = Math.abs(((heading - lastHeadingDrawDeg + 540) % 360) - 180);
   var sinceLastMs = Date.now() - lastHeadingDrawAt;
   if (deltaDeg < HEADING_REDRAW_MIN_DEG && sinceLastMs < HEADING_REDRAW_MIN_MS) return;
   lastHeadingDrawDeg = heading; lastHeadingDrawAt = Date.now();
-  draw();
+  drawDynamicOnly();
 };
-window.__setTrack = function(points){ LIVE.track = points; draw(); };
+// Track/pins are DYNAMIC data too (see the static-layer cache above draw()) —
+// a growing track or a new target must never force the static buffer to
+// rebuild, so these go through the same cheap path as position/heading.
+window.__setTrack = function(points){ LIVE.track = points; drawDynamicOnly(); };
 window.__addTrack = function(points){
   for (var i=0;i<points.length;i++) LIVE.track.push(points[i]);
-  draw();
+  drawDynamicOnly();
 };
 window.__setPins = function(target, waypoints, selected){
   LIVE.target = target; LIVE.waypoints = waypoints; LIVE.selected = selected;
-  draw();
+  drawDynamicOnly();
 };
 window.__setTiles = function(base, overlay){
   LIVE.baseTiles = base; LIVE.overlayTiles = overlay;

@@ -192,7 +192,37 @@ export function ExplorationProvider({ children }: { children: React.ReactNode })
       // deferFirstRun — it moves four seconds of cold-start work off the thread
       // that has to answer the geologist's first tap, and changes nothing about
       // what that pass computes.
-      deferFirstRun: (fn) => { InteractionManager.runAfterInteractions(fn); },
+      //
+      // runAfterInteractions ALONE is not enough on a cold boot with a resumed
+      // expedition (an open lease from a walk the process died in — see the
+      // "RESUME A WALK" effect below): there is no real interaction queue to
+      // wait for, so it fires within the same tick as the very first frame.
+      // MEASURED on a device with an open lease, from a fully killed cold boot:
+      //   [jsStall] UNRESPONSIVE 7763ms IN: subscription.fetch
+      //   [jsStall] UNRESPONSIVE 1497ms IN: ... › explore.retarget › targeting.rank[37]
+      // targeting.rank (37 cells against the full pack) ran in the SAME window
+      // subscription.fetch's response was ready to process and render, and
+      // being on one JS thread, one of them had to wait — which is why the
+      // header sat on "Sign in" / stale tier for over a minute even though the
+      // session and subscription were both already correct. The extra
+      // setTimeout gives auth/subscription a full second of the thread to
+      // themselves before the CPU-bound ranking pass is even scheduled. It
+      // changes nothing about what rank() computes or when a LIVE session's
+      // ongoing retargeting runs (deferRank, untouched, below) — only the
+      // start-of-session first pass, which is the one with nothing on screen
+      // yet to lose by arriving a second later.
+      //
+      // TRIED, on-device, and reverted: replacing this flat delay with a
+      // real "auth actually settled" signal (an event auth.tsx published)
+      // instead of a guessed 1000ms. MEASURED across 6 true-cold-boot trials
+      // (2 grace settings x 3 trials each): targeting.rank[37] still
+      // overlapped subscription.fetch in every trial, with genuine
+      // thread-block ("during:" in the jsStall log, not just an open phase)
+      // in the same 637-1163ms range as this flat delay produces —
+      // statistically indistinguishable, not an improvement. Reverted rather
+      // than ship the added complexity (a new module, two more files wired
+      // together) for a result the device evidence did not support.
+      deferFirstRun: (fn) => { InteractionManager.runAfterInteractions(() => setTimeout(fn, 1000)); },
       // Every ranking run (not just the first) is moved past the current
       // interaction, so tapping Start investigation / Finish section — or crossing
       // a cell — never holds the tap while rank() scores 37 cells. Same result,
