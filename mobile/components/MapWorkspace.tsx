@@ -20,6 +20,7 @@ import { compassPoint as compassPointOf } from "../../shared/geo-core/geo/spatia
 import { classifyDistance, type RegionalTarget } from "../lib/geo/expedition";
 import { roadFactor } from "../lib/geo/roadFactor";
 import { ExplorationMap, type CameraRestore, type MapLayers } from "./ExplorationMap";
+import { confirmStopIfUnfinished } from "../lib/exploration/confirmStop.ts";
 import {
   Compass, GpsChip, LayerPanel, MapRail, MapTopBar, RoundBtn, ScaleBar, TargetPill,
   type LayerGroup,
@@ -173,7 +174,15 @@ export function MapWorkspace({ children }: { children: React.ReactNode }) {
           online={w.isOnline}
           busy={w.downloading}
           onBack={() => router.back()}
-          onEnd={actions.stop}
+          // See confirmStop.ts: this used to call actions.stop directly,
+          // silently discarding an on-site investigation nothing had saved
+          // yet. Off-site (no mission, still navigating, or already
+          // delivering) this resolves straight to stop() — unchanged.
+          onEnd={() => {
+            void confirmStopIfUnfinished({
+              snapshot: s, finishSection: actions.finishSection, stop: actions.stop, t,
+            });
+          }}
           top={insets.top}
         />
 
