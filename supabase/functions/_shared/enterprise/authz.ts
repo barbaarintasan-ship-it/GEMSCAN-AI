@@ -12,8 +12,14 @@
 import type { DbClient } from "./clients.ts";
 import type { Actor } from "./auth.ts";
 import { ForbiddenError } from "./errors.ts";
-import { isOwnerEmail } from "../entitlements.ts";
+import { isOwnerEmail, resolveEffectiveTier } from "../entitlements.ts";
 import { hasActiveOrgEntitlement } from "./context.ts";
+
+// Consumer plan that unlocks the PERSONAL sample workflow (collect/scan a
+// specimen, run the Geological Intelligence Engine on it). ONLY Gem Collector
+// ($14.99) — the Explorer ($4.99 / premium) tier is deliberately excluded. The
+// exploration lane (missions, org data) stays enterprise-only.
+const PERSONAL_SAMPLE_TIERS = ["professional"];
 
 export function isOwner(actor: Actor): boolean {
   return isOwnerEmail(actor.email);
@@ -37,6 +43,28 @@ export async function requireEnterprise(actor: Actor, client: DbClient): Promise
   if (!(await isEnterpriseEnabled(actor, client))) {
     throw new ForbiddenError("enterprise access is not enabled for this account");
   }
+}
+
+// Access to the PERSONAL sample workflow: owner, an active-org member (they
+// already have the full platform), OR a paid consumer plan (Explorer / Gem
+// Collector). This is a SUPERSET of requireEnterprise — anyone requireEnterprise
+// admits also passes here — so it is the right default gate for reading and
+// managing one's OWN samples; the stricter requireEnterprise is layered on top
+// only for creating EXPLORATION-lane evidence.
+export async function requirePersonalSampleAccess(actor: Actor, client: DbClient): Promise<void> {
+  if (await isEnterpriseEnabled(actor, client)) return; // owner or active org
+  // subscriptions lives in public; our enterprise client must hop schemas.
+  const { data: sub } = await client
+    .schema("public")
+    .from("subscriptions")
+    .select("tier, status")
+    .eq("user_id", actor.userId)
+    .maybeSingle();
+  const tier = resolveEffectiveTier(actor.email, sub);
+  if (PERSONAL_SAMPLE_TIERS.includes(tier)) return;
+  throw new ForbiddenError(
+    "the Gem Collector plan is required to collect and analyze samples",
+  );
 }
 
 export function requireRole(actor: Actor, ...roles: string[]): void {

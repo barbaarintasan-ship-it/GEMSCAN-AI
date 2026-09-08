@@ -32,6 +32,7 @@ import {
 } from "../../../lib/enterpriseSamples";
 
 import { takeCapturedPhotos } from "../../../lib/captureHandoff";
+import { takeScanHandoff, type ScanHandoff } from "../../../lib/scanToSampleHandoff";
 import { putAnalysedSample } from "../../../lib/exploration/analysisHandoff";
 import {
   currentExpeditionSessionId, currentMissionId,
@@ -71,6 +72,15 @@ export default function NewSampleScreen() {
   // behind this screen — this is a push, not a replace — so finishing here
   // returns to the live map rather than starting anything new.
   const fromExploration = from === "exploration";
+  // Opened from a scan result (Scan → Sample bridge). The scan's identification
+  // pre-fills the Host rock as an AI CANDIDATE (method='ai', editable), and the
+  // server reuses the scan's photographs (see scan_id in the submit payload).
+  // Drained ONCE into state so a re-render can't re-apply or lose it.
+  const [scanHandoff] = useState<ScanHandoff | null>(() => (from === "scan" ? takeScanHandoff() : null));
+  const fromScan = from === "scan";
+  // Provenance of the Host rock value: 'ai' = the scan's guess (shown unconfirmed);
+  // 'field' = the collector typed/owned it. Sent to submit_sample.
+  const [rockMethod, setRockMethod] = useState<"field" | "ai">("field");
   const isEdit = !!edit;
   // Maps an already-uploaded photo's display URI → its Storage path, so on save we
   // reuse kept photos (never re-upload/​re-download them) and only upload new ones.
@@ -150,6 +160,18 @@ export default function NewSampleScreen() {
   // ── Draft persistence (NEW samples only): restore once, then autosave ────────
   useEffect(() => {
     if (isEdit) return; // edit mode prefills from the server, never the local draft
+    // A scan-sourced sample is a fresh, specific intent: pre-fill the Host rock
+    // from the scan (as an editable AI candidate) and IGNORE any leftover draft,
+    // which would otherwise clobber the identification with a stale rock name.
+    if (fromScan) {
+      if (scanHandoff) {
+        setName(scanHandoff.rockName);
+        setRockClass(scanHandoff.rockName);
+        setRockMethod("ai");
+      }
+      setRestored(true);
+      return;
+    }
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(DRAFT_KEY);
@@ -161,13 +183,13 @@ export default function NewSampleScreen() {
       } catch { /* ignore corrupt draft */ }
       setRestored(true);
     })();
-  }, [isEdit]);
+  }, [isEdit, fromScan, scanHandoff]);
 
   useEffect(() => {
-    if (isEdit || !restored) return; // never persist an edit session to the new-sample draft
+    if (isEdit || fromScan || !restored) return; // scan samples never touch the shared draft
     const d: DraftShape = { name, photos, minerals, rockClass, notes, loc };
     AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(d)).catch(() => {});
-  }, [isEdit, restored, name, photos, minerals, rockClass, notes, loc]);
+  }, [isEdit, fromScan, restored, name, photos, minerals, rockClass, notes, loc]);
 
   const clearDraft = useCallback(() => AsyncStorage.removeItem(DRAFT_KEY).catch(() => {}), []);
 
@@ -269,12 +291,14 @@ export default function NewSampleScreen() {
   // ── Validation (§4): mirrors the server checks; Submit disabled until all pass ─
   // AI-first: the collector only has to provide name + GPS + photos. Host rock and
   // minerals are optional — the Geological Intelligence Engine determines them.
+  // A scan-sourced sample reuses the scan's photographs (attached server-side),
+  // so the photo minimums are met by the scan, not by re-shooting here.
   const checks = useMemo(() => [
     { key: "name", label: "Sample name", ok: !!name.trim() },
     { key: "gps", label: "GPS location", ok: !!loc },
-    { key: "context", label: "Field-context photo", ok: photos.length >= 1 },
-    { key: "closeup", label: "Specimen close-up photo", ok: photos.length >= 2 },
-  ], [name, loc, photos.length]);
+    { key: "context", label: "Field-context photo", ok: fromScan || photos.length >= 1 },
+    { key: "closeup", label: "Specimen close-up photo", ok: fromScan || photos.length >= 2 },
+  ], [name, loc, photos.length, fromScan]);
   const canSubmit = checks.every((c) => c.ok) && !submitting;
 
   const onSubmit = useCallback(async () => {
@@ -299,7 +323,13 @@ export default function NewSampleScreen() {
       lat: loc.lat, lng: loc.lng, gps_accuracy_m: loc.gps_accuracy_m, gps_source: gpsSource,
       collected_at: collectedAt ?? new Date().toISOString(), // keep the original date on edit
       field_observations: notes.trim() || undefined,
-      observations: { rock: rockClass.trim() ? { rock_class: rockClass.trim() } : null, minerals },
+      observations: {
+        rock: rockClass.trim() ? { rock_class: rockClass.trim(), method: rockMethod } : null,
+        minerals,
+      },
+      // Scan → Sample: the server reuses THIS scan's photos (copied to the
+      // sample's own storage) so the user never re-shoots the rock.
+      scan_id: fromScan ? scanHandoff?.scanId : undefined,
       /**
        * WHICH WORKFLOW THIS SAMPLE BELONGS TO, and therefore what the analysis is
        * allowed to infer from it.
@@ -313,7 +343,7 @@ export default function NewSampleScreen() {
        * the server from whether an expedition happened to be open would file a
        * rock picked up on the way home as mission evidence.
        */
-      origin: fromExploration ? "exploration" : "personal",
+      origin: (fromExploration ? "exploration" : "personal") as "personal" | "exploration",
       field_mission_id: fromExploration ? currentMissionId() : null,
     };
 
@@ -420,7 +450,7 @@ export default function NewSampleScreen() {
       submitLock.current = false;
       setSubmitting(false);
     }
-  }, [loc, canSubmit, photos, uploadedByUri, name, notes, rockClass, minerals, gpsSource, collectedAt, clearDraft, isEdit, edit, fromExploration, isOnline]);
+  }, [loc, canSubmit, photos, uploadedByUri, name, notes, rockClass, rockMethod, minerals, gpsSource, collectedAt, clearDraft, isEdit, edit, fromExploration, fromScan, scanHandoff, isOnline]);
 
   const collectorName = (session?.user?.user_metadata?.display_name as string | undefined)?.trim()
     || session?.user?.email?.split("@")[0] || "—";
@@ -521,28 +551,37 @@ export default function NewSampleScreen() {
         )}
       </Card>
 
-      {/* Photos */}
-      <SectionLabel>Photos ({photos.length}) *</SectionLabel>
-      <Text style={styles.hint}>First photo = field context (wide). Add at least one close-up.</Text>
-      <View style={styles.photoRow}>
-        {photos.map((uri, i) => (
-          <View key={i} style={styles.thumbWrap}>
-            <Image source={{ uri }} style={styles.thumb} />
-            <View style={styles.roleTag}><Text style={styles.roleTagText}>{i === 0 ? "context" : "close-up"}</Text></View>
-            <Pressable style={styles.thumbX} onPress={() => setPhotos((cur) => cur.filter((_, j) => j !== i))} hitSlop={6}>
-              <Ionicons name="close" size={13} color={colors.text} />
+      {/* Photos — reused from the scan when opened from a scan result. */}
+      {fromScan ? (
+        <View style={styles.aiNote}>
+          <Ionicons name="images-outline" size={15} color={colors.gold} />
+          <Text style={styles.aiNoteText}>Your scan's photos will be used for this sample — no need to add more.</Text>
+        </View>
+      ) : (
+        <>
+          <SectionLabel>Photos ({photos.length}) *</SectionLabel>
+          <Text style={styles.hint}>First photo = field context (wide). Add at least one close-up.</Text>
+          <View style={styles.photoRow}>
+            {photos.map((uri, i) => (
+              <View key={i} style={styles.thumbWrap}>
+                <Image source={{ uri }} style={styles.thumb} />
+                <View style={styles.roleTag}><Text style={styles.roleTagText}>{i === 0 ? "context" : "close-up"}</Text></View>
+                <Pressable style={styles.thumbX} onPress={() => setPhotos((cur) => cur.filter((_, j) => j !== i))} hitSlop={6}>
+                  <Ionicons name="close" size={13} color={colors.text} />
+                </Pressable>
+              </View>
+            ))}
+            <Pressable style={styles.addPhoto} onPress={addPhoto}>
+              <Ionicons name="camera-outline" size={24} color={colors.gold} />
+              <Text style={styles.addPhotoText}>Add</Text>
             </Pressable>
           </View>
-        ))}
-        <Pressable style={styles.addPhoto} onPress={addPhoto}>
-          <Ionicons name="camera-outline" size={24} color={colors.gold} />
-          <Text style={styles.addPhotoText}>Add</Text>
-        </Pressable>
-      </View>
-      <Pressable style={styles.fieldCamBtn} onPress={() => openFieldCamera()}>
-        <Ionicons name="camera" size={20} color="#0B0B0C" />
-        <Text style={styles.fieldCamText}>Open field camera</Text>
-      </Pressable>
+          <Pressable style={styles.fieldCamBtn} onPress={() => openFieldCamera()}>
+            <Ionicons name="camera" size={20} color="#0B0B0C" />
+            <Text style={styles.fieldCamText}>Open field camera</Text>
+          </Pressable>
+        </>
+      )}
 
       {/* Optional geology — the AI determines these (§6). */}
       <View style={styles.aiNote}>
@@ -550,15 +589,32 @@ export default function NewSampleScreen() {
         <Text style={styles.aiNoteText}>Host rock and minerals are optional — the AI identifies them. Add what you know.</Text>
       </View>
 
-      {/* Host rock (optional) */}
+      {/* Host rock — pre-filled from the scan as an editable AI candidate. */}
       <SectionLabel>Host rock (optional)</SectionLabel>
+      {fromScan && rockMethod === "ai" && (
+        <View style={styles.aiCandidateNote}>
+          <Ionicons name="sparkles" size={13} color={colors.gold} />
+          <Text style={styles.aiCandidateText}>
+            {`AI candidate from your scan${scanHandoff ? ` · ${Math.round((scanHandoff.confidence ?? 0) * 100)}% confidence` : ""} — unconfirmed. Correct it if you know the rock.`}
+          </Text>
+        </View>
+      )}
       <TextInput
         style={styles.inputBlock}
         value={rockClass}
-        onChangeText={setRockClass}
+        onChangeText={(v) => { setRockClass(v); setRockMethod("field"); }}
         placeholder="e.g. granite, basalt, quartz vein"
         placeholderTextColor={colors.textFaint}
       />
+      {fromScan && !!scanHandoff?.alternatives?.length && (
+        <View style={styles.altChips}>
+          {scanHandoff.alternatives.map((alt) => (
+            <Pressable key={alt} style={styles.altChip} onPress={() => { setRockClass(alt); setRockMethod("ai"); }}>
+              <Text style={styles.altChipText}>{alt}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
 
       {/* Minerals (optional) */}
       <SectionLabel>Minerals (optional)</SectionLabel>
@@ -649,6 +705,11 @@ const styles = StyleSheet.create({
   manualBox: { marginTop: spacing.sm },
   aiNote: { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: colors.goldSoft, borderRadius: radius.md, borderWidth: 1, borderColor: colors.goldBorder, padding: spacing.md, marginTop: spacing.md },
   aiNoteText: { ...t.bodySmall, color: colors.text, flex: 1 },
+  aiCandidateNote: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: spacing.xs },
+  aiCandidateText: { ...t.caption, color: colors.textFaint, flex: 1 },
+  altChips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, marginTop: spacing.xs },
+  altChip: { borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10 },
+  altChipText: { ...t.caption, color: colors.text },
   locRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   locText: { ...t.body },
   locCoords: { ...t.subheading },

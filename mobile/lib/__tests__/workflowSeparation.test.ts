@@ -45,7 +45,9 @@ describe("a sample states which workflow it belongs to", () => {
   test("origin is decided at capture, from how the screen was reached", () => {
     // Deriving it on the server from whether an expedition happened to be open
     // would file a rock picked up on the way home as mission evidence.
-    expect(src).toMatch(/origin:\s*fromExploration\s*\?\s*"exploration"\s*:\s*"personal"/);
+    // An optional parenthesis/type-cast around the ternary is fine — the
+    // invariant is that origin is chosen from fromExploration here at capture.
+    expect(src).toMatch(/origin:\s*\(?\s*fromExploration\s*\?\s*"exploration"\s*:\s*"personal"/);
   });
 
   test("the mission id travels with an exploration sample", () => {

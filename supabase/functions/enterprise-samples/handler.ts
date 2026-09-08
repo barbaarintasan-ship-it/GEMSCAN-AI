@@ -8,8 +8,8 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { BadRequestError, ConflictError, errorResponse, ForbiddenError, json, NotFoundError } from "../_shared/enterprise/errors.ts";
 import { resolveActor as realResolveActor, type Actor } from "../_shared/enterprise/auth.ts";
-import { serviceClient, userClient } from "../_shared/enterprise/clients.ts";
-import { requireEnterprise as realRequireEnterprise } from "../_shared/enterprise/authz.ts";
+import { serviceClient, userClient, type DbClient } from "../_shared/enterprise/clients.ts";
+import { requireEnterprise as realRequireEnterprise, requirePersonalSampleAccess as realRequirePersonalSampleAccess } from "../_shared/enterprise/authz.ts";
 import { cellFor } from "../_shared/geocontext/h3.ts";
 
 const MEDIA_ROLES = ["context", "surface_closeup", "texture_structure", "key_feature", "scale_reference", "extra"];
@@ -32,6 +32,7 @@ const DETAIL = "id,name,collected_at,status,completeness_status,completeness_sco
 export interface Deps {
   resolveActor: (req: Request) => Promise<Actor>;
   requireEnterprise: (actor: Actor) => Promise<void>;
+  requirePersonalSampleAccess: (actor: Actor) => Promise<void>;
   createSample: (actor: Actor, payload: Record<string, unknown>) => Promise<unknown>;
   editSample: (actor: Actor, id: string, payload: Record<string, unknown>) => Promise<unknown>;
   listSamples: (req: Request, actor: Actor, origin?: string) => Promise<unknown>;
@@ -43,6 +44,7 @@ export interface Deps {
 export const defaultDeps: Deps = {
   resolveActor: realResolveActor,
   requireEnterprise: (a) => realRequireEnterprise(a, serviceClient()),
+  requirePersonalSampleAccess: (a) => realRequirePersonalSampleAccess(a, serviceClient()),
   createSample: async (actor, payload) => {
     const svc = serviceClient();
 
@@ -77,8 +79,18 @@ export const defaultDeps: Deps = {
       }
     }
 
-    // submit_sample validates its own payload and does not know this column.
-    const { client_local_id: _unused, ...submitPayload } = payload as Record<string, unknown>;
+    // submit_sample validates its own payload and does not know these columns.
+    const { client_local_id: _unused, scan_id: scanId, ...submitPayload } = payload as Record<string, unknown>;
+
+    // SCAN → SAMPLE bridge: reuse the scan's photographs instead of making the
+    // user re-shoot the same rock. The scan's images already live in the
+    // shared `scan-images` bucket; we COPY them to fresh, sample-owned paths so
+    // the sample owns its media outright — deleting a sample can never disturb
+    // the scan it came from. Only runs when the client sent a scanId and no media.
+    if (typeof scanId === "string" && scanId && !Array.isArray(submitPayload.media)) {
+      submitPayload.media = await copyScanMediaForActor(svc, actor.userId, scanId);
+    }
+
     const { data, error } = await svc.rpc("submit_sample", { p_actor: actor.userId, p_payload: submitPayload });
     // The RPC raises 'validation: …' for a bad request — surface that as a 400.
     if (error) {
@@ -278,6 +290,64 @@ function triggerAnalysis(sampleId: string, force = false): void {
 // Validate + normalize the POST body into the RPC payload (throws BadRequestError).
 // This is the authoritative SERVER-side validation (§4/§15) — the mobile client
 // mirrors it for UX, and the RPC guards again as defense-in-depth.
+// SCAN → SAMPLE media reuse. Verifies the caller owns the scan, then copies its
+// photographs to fresh, sample-owned paths in the same `scan-images` bucket and
+// returns them as sample media[]. First image is the field context, the rest are
+// close-ups; a lone image is copied into BOTH roles so the sample clears the
+// "context + close-up" minimum without a re-shoot. Throws (mapped to 4xx) when
+// the scan isn't the caller's or has no photos.
+const SCAN_BUCKET = "scan-images";
+async function copyScanMediaForActor(
+  svc: DbClient,
+  actorId: string,
+  scanId: string,
+): Promise<Array<Record<string, unknown>>> {
+  const { data: scan } = await svc.schema("public").from("scans")
+    .select("id").eq("id", scanId).eq("user_id", actorId).maybeSingle();
+  if (!scan) throw new ForbiddenError("scan not found for this account");
+
+  const { data: images } = await svc.schema("public").from("scan_images")
+    .select("angle, original_storage_path, processed_storage_path, width, height, quality_score")
+    .eq("scan_id", scanId);
+  const rows = (images ?? []) as Array<{
+    angle: string | null; original_storage_path: string; processed_storage_path: string | null;
+    width: number | null; height: number | null; quality_score: number | null;
+  }>;
+  if (rows.length === 0) throw new BadRequestError("this scan has no photos to reuse");
+
+  const copyOne = async (src: string): Promise<string> => {
+    const ext = (src.split(".").pop() || "jpg").split(/[?#]/)[0];
+    const dst = `personal/${actorId}/${crypto.randomUUID()}.${ext}`;
+    const { error } = await svc.storage.from(SCAN_BUCKET).copy(src, dst);
+    if (error) throw new Error(`scan photo copy failed: ${error.message}`);
+    return dst;
+  };
+
+  const media: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const src = r.processed_storage_path || r.original_storage_path;
+    if (!src) continue;
+    media.push({
+      role: i === 0 ? "context" : "surface_closeup",
+      storage_path: await copyOne(src),
+      width: r.width ?? undefined, height: r.height ?? undefined,
+      image_quality_score: r.quality_score ?? undefined,
+    });
+  }
+  if (media.length === 0) throw new BadRequestError("this scan has no usable photos to reuse");
+  // A single-photo scan still needs a close-up role to pass validation.
+  if (media.length === 1) {
+    const only = media[0];
+    media.push({
+      role: "surface_closeup",
+      storage_path: await copyOne(String(only.storage_path)),
+      width: only.width, height: only.height, image_quality_score: only.image_quality_score,
+    });
+  }
+  return media;
+}
+
 export function buildPayload(body: Record<string, unknown>): Record<string, unknown> {
   // Sample name (§1)
   const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -292,17 +362,23 @@ export function buildPayload(body: Record<string, unknown>): Record<string, unkn
   // Collection date (§4)
   if (!body.collected_at) throw new BadRequestError("collection date is required");
 
-  // Media + photo minimums (§3): >=1 context and >=1 close-up
+  // Media + photo minimums (§3): >=1 context and >=1 close-up.
+  // A scan-sourced sample sends NO media and a `scan_id` instead — the server
+  // copies the scan's photographs in createSample, so the minimums are enforced
+  // there (by submit_sample) rather than here.
+  const fromScan = typeof body.scan_id === "string" && (body.scan_id as string).length > 0;
   const media = Array.isArray(body.media) ? body.media : [];
-  let contextPhotos = 0, closeupPhotos = 0;
-  for (const m of media as Array<Record<string, unknown>>) {
-    if (!m || !MEDIA_ROLES.includes(String(m.role))) throw new BadRequestError(`invalid media role: ${m?.role}`);
-    if (!m.storage_path) throw new BadRequestError("each media item needs storage_path");
-    if (m.role === "context") contextPhotos++;
-    if (CLOSEUP_ROLES.includes(String(m.role))) closeupPhotos++;
+  if (!fromScan) {
+    let contextPhotos = 0, closeupPhotos = 0;
+    for (const m of media as Array<Record<string, unknown>>) {
+      if (!m || !MEDIA_ROLES.includes(String(m.role))) throw new BadRequestError(`invalid media role: ${m?.role}`);
+      if (!m.storage_path) throw new BadRequestError("each media item needs storage_path");
+      if (m.role === "context") contextPhotos++;
+      if (CLOSEUP_ROLES.includes(String(m.role))) closeupPhotos++;
+    }
+    if (contextPhotos === 0) throw new BadRequestError("a field-context photo is required");
+    if (closeupPhotos === 0) throw new BadRequestError("a specimen close-up photo is required");
   }
-  if (contextPhotos === 0) throw new BadRequestError("a field-context photo is required");
-  if (closeupPhotos === 0) throw new BadRequestError("a specimen close-up photo is required");
 
   // Geology is OPTIONAL — the AI determines host rock / minerals. The collector may
   // add them if known, but they never block a submission.
@@ -319,7 +395,15 @@ export function buildPayload(body: Record<string, unknown>): Record<string, unkn
     geological_environment: body.geological_environment ?? undefined,
     weather_conditions: body.weather_conditions ?? undefined,
     field_observations: body.field_observations ?? undefined,
-    media, observations: obs,
+    // Lane: the device asserts it. submit_sample defaults to 'personal' when
+    // absent; carrying it through is what keeps a mission's evidence recorded as
+    // 'exploration' (and a scanned specimen as 'personal').
+    origin: body.origin === "exploration" ? "exploration" : "personal",
+    field_mission_id: typeof body.field_mission_id === "string" ? body.field_mission_id : undefined,
+    // A scan-sourced sample carries the scanId (server copies its photos) and NO
+    // media; every other sample carries its uploaded media and no scanId.
+    ...(fromScan ? { scan_id: body.scan_id } : { media }),
+    observations: obs,
   };
 }
 
@@ -327,7 +411,11 @@ export async function handleSamples(req: Request, deps: Deps = defaultDeps): Pro
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
     const actor = await deps.resolveActor(req);
-    await deps.requireEnterprise(actor);
+    // Default gate: owner, active-org, OR a paid consumer plan (Explorer / Gem
+    // Collector). This admits everyone requireEnterprise admits, plus paid users
+    // managing their OWN (RLS-scoped) personal samples. Creating EXPLORATION-lane
+    // evidence layers the stricter requireEnterprise on top, in the POST branch.
+    await deps.requirePersonalSampleAccess(actor);
     const parts = new URL(req.url).pathname.split("/").filter(Boolean);
     const idx = parts.indexOf("enterprise-samples");
     const id = idx >= 0 && parts[idx + 1] ? parts[idx + 1] : (parts.length && parts[parts.length - 1] !== "enterprise-samples" ? parts[parts.length - 1] : null);
@@ -361,6 +449,11 @@ export async function handleSamples(req: Request, deps: Deps = defaultDeps): Pro
     }
     if (req.method === "POST") {
       const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+      // Exploration-lane evidence (a mission's field data) stays enterprise-only;
+      // personal specimens are open to the paid consumer plans already gated above.
+      if (String(body.origin ?? "personal") === "exploration") {
+        await deps.requireEnterprise(actor);
+      }
       const created = await deps.createSample(actor, buildPayload(body));
       return json(created, 201);
     }

@@ -43,8 +43,20 @@ export type NewSampleInput = {
   gps_source?: "gps" | "fused" | "network" | "manual";
   collected_at?: string;
   field_observations?: string;
+  /** personal = a collected/scanned specimen; exploration = a mission's evidence. */
+  origin?: "personal" | "exploration";
+  field_mission_id?: string | null;
+  /**
+   * Scan → Sample bridge. When set, the server reuses THIS scan's photographs
+   * (copied to sample-owned storage) and `media` is omitted — the user does not
+   * re-shoot the rock. Gated to paid plans server-side.
+   */
+  scan_id?: string;
   observations?: {
-    rock?: { rock_class?: string; texture?: string; notes?: string } | null;
+    // `method` records provenance: 'ai' = a scan/photo candidate (a guess, shown
+    // editable and unconfirmed), 'field' = the collector asserted it. Defaults to
+    // 'field' server-side when omitted.
+    rock?: { rock_class?: string; texture?: string; notes?: string; method?: "field" | "ai" | "expert" } | null;
     minerals?: MineralObservationInput[];
   };
   media?: SampleMediaInput[];

@@ -9,6 +9,7 @@ function base(over: Partial<Deps> = {}): Deps {
   return {
     resolveActor: async () => OWNER,
     requireEnterprise: async () => {},
+    requirePersonalSampleAccess: async () => {},
     createSample: async (_a, p) => ({ sample_id: "s1", area_id: "a1", media_count: (p.media as unknown[]).length, sample: { id: "s1" } }),
     editSample: async (_a, id, p) => ({ sample_id: id, revision_no: 2, media_count: (p.media as unknown[]).length, sample: { id } }),
     listSamples: async () => [{ id: "s1" }, { id: "s2" }],
@@ -71,9 +72,48 @@ Deno.test("POST bad JWT -> 401", async () => {
   const r = await handleSamples(req("POST", GOOD), base({ resolveActor: async () => { throw new UnauthorizedError(); } }));
   assertEquals(r.status, 401);
 });
-Deno.test("POST non-enterprise -> 403", async () => {
-  const r = await handleSamples(req("POST", GOOD), base({ requireEnterprise: async () => { throw new ForbiddenError(); } }));
+Deno.test("POST personal without a paid plan -> 403", async () => {
+  // A personal specimen is gated by requirePersonalSampleAccess (paid tiers).
+  const r = await handleSamples(req("POST", GOOD), base({ requirePersonalSampleAccess: async () => { throw new ForbiddenError(); } }));
   assertEquals(r.status, 403);
+});
+Deno.test("POST personal (paid plan) -> 201, does NOT require enterprise", async () => {
+  let enterpriseChecked = false;
+  const r = await handleSamples(req("POST", GOOD), base({
+    requireEnterprise: async () => { enterpriseChecked = true; throw new ForbiddenError(); },
+  }));
+  assertEquals(r.status, 201);
+  assert(!enterpriseChecked); // personal lane must not hit the enterprise gate
+});
+Deno.test("POST exploration lane still requires enterprise -> 403", async () => {
+  const r = await handleSamples(
+    req("POST", { ...GOOD, origin: "exploration" }),
+    base({ requireEnterprise: async () => { throw new ForbiddenError(); } }),
+  );
+  assertEquals(r.status, 403);
+});
+Deno.test("POST exploration lane allowed for an enterprise account -> 201", async () => {
+  const r = await handleSamples(req("POST", { ...GOOD, origin: "exploration" }), base());
+  assertEquals(r.status, 201);
+});
+Deno.test("buildPayload: a scan-sourced sample carries scanId, omits media, skips the photo minimum", () => {
+  const p = buildPayload({
+    name: "Scanned rock", lat: 2.05, lng: 45.32, collected_at: "2026-07-27T10:00:00Z",
+    scan_id: "scan-123",
+    observations: { rock: { rock_class: "Lamproite", method: "ai" } },
+    // deliberately NO media — the server copies the scan's photos
+  });
+  assertEquals(p.scan_id, "scan-123");
+  assertEquals(p.media, undefined); // omitted so createSample copies from the scan
+  assertEquals((p.observations as { rock: { method: string } }).rock.method, "ai");
+  assertEquals(p.origin, "personal");
+});
+Deno.test("buildPayload: a normal sample keeps its media and defaults method to field-by-omission", () => {
+  const p = buildPayload(GOOD);
+  assert(Array.isArray(p.media));
+  assertEquals(p.scan_id, undefined);
+  // GOOD's rock has no explicit method → submit_sample defaults it to 'field'
+  assertEquals((p.observations as { rock: { method?: string } }).rock.method, undefined);
 });
 Deno.test("GET list -> 200 with samples", async () => {
   const r = await handleSamples(req("GET"), base());

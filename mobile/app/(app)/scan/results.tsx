@@ -21,6 +21,7 @@ import { isGoldProspectHost } from "../../../lib/goldProspect";
 import { goldProspectEnabled } from "../../../lib/entitlements";
 import { EXPERT_WHATSAPP, HIGH_VALUE_THRESHOLD_USD, hasExpertContact } from "../../../lib/expertConfig";
 import { useSubscriptionStatus } from "../../../lib/subscription";
+import { putScanHandoff } from "../../../lib/scanToSampleHandoff";
 import { generateAndSharePdf, type PdfReportData } from "../../../lib/pdfReport";
 import type { ExplanationStyle, ExpertExplanationDTO } from "../../../lib/scanUpload";
 import { EXTERNAL_PURCHASES_ENABLED, PAYMENT_URL } from "../../../lib/appLinks";
@@ -694,6 +695,44 @@ export default function ResultsScreen() {
               <Text style={styles.explanationCalloutText}>{finalResult.recommendations}</Text>
             </View>
           )}
+        </Card>
+      )}
+
+      {/* ── Scan → Sample bridge: explore what this rock commonly hosts ─────── */}
+      {/* Gem Collector ($14.99) only — Explorer ($4.99) is excluded from this feature. */}
+      {!finalResult.insufficientConfidence && !!finalResult.bestMatch &&
+        sub?.tier === "professional" && (
+        <Card accent style={styles.verifyCard}>
+          <View style={styles.verifyHeader}>
+            <Ionicons name="sparkles-outline" size={18} color={colors.gold} />
+            <Text style={styles.verifyTitle}>
+              {L("Explore this rock's mineral potential", "Baadh macdanta dhagaxan")}
+            </Text>
+          </View>
+          <Text style={styles.body}>
+            {L(
+              "Send this identification to a Sample and the Geological Intelligence Engine will show which valuable minerals this rock commonly hosts and what to look for next. It's a starting guess from the photos — you can correct the rock name first.",
+              "U dir aqoonsigan Sample, Geological Intelligence Engine-kuna wuxuu ku tusayaa macdanta qiimaha leh ee dhagaxani caadi ahaan martida u yahay iyo waxa xiga ee la baadho. Waa male sawirrada laga qaaday — waad saxi kartaa magaca dhagaxa marka hore.",
+            )}
+          </Text>
+          <View style={styles.verifyButtonRow}>
+            <Button
+              title={L("Explore in a Sample", "Ku baadh Sample")}
+              variant="primary"
+              size="sm"
+              icon={<Ionicons name="arrow-forward" size={16} color="#0B0B0C" />}
+              onPress={() => {
+                putScanHandoff({
+                  scanId: scanId!,
+                  rockName: finalResult.bestMatch!,
+                  confidence: finalResult.confidenceScore ?? 0,
+                  alternatives: alternatives.map((c) => c.label),
+                });
+                router.push({ pathname: "/(app)/enterprise/new-sample", params: { from: "scan" } });
+              }}
+              style={{ flex: 1 }}
+            />
+          </View>
         </Card>
       )}
 
