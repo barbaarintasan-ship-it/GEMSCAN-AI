@@ -1,6 +1,10 @@
-// Shown when a free member runs out of scans (or hits a premium gate mid-scan):
-// a friendly card that explains the benefit and links out to the website to
-// subscribe. Purchasing happens on the website only — never in-app.
+// Shown when a free member runs out of today's 3 free scans (or hits a
+// premium gate mid-scan): a friendly card that explains the benefit and links
+// out to the website to subscribe. Purchasing happens on the website only —
+// never in-app. The limit is a DAILY allowance — standardScanDailyLimit: 3 in
+// supabase/functions/_shared/entitlements.ts, enforced against a UTC-midnight
+// window in orchestrate-scan — so it is true and correct to tell the member
+// to come back tomorrow.
 import React from "react";
 import { View, Text, Pressable, Linking, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,12 +23,12 @@ export function UpgradePrompt() {
       <View style={styles.card}>
         <Ionicons name="diamond" size={30} color="#C9A227" />
         <Text style={styles.title}>
-          {so ? "Waxaad dhammaysay scan-yadaada maanta" : "You've used your free scans for today"}
+          {so ? "Waxaad isticmaashay 3-da scan ee maanta bilaashka ah" : "You've used today's 3 free scans"}
         </Text>
         <Text style={styles.body}>
           {so
-            ? "Fadlan ku soo laabo berri si aad u sii wadato baaritaanka."
-            : "Please come back tomorrow to continue scanning."}
+            ? "Isticmaalayaasha bilaashka ah waxay helaan 3 scan maalin kasta. Soo noqo berri si aad u sii wadato."
+            : "Free users get 3 standard scans per day. Come back tomorrow to continue."}
         </Text>
       </View>
     );
@@ -34,12 +38,12 @@ export function UpgradePrompt() {
     <View style={styles.card}>
       <Ionicons name="diamond" size={30} color="#C9A227" />
       <Text style={styles.title}>
-        {so ? "Waxaad dhammaysay scan-yadaada bilaashka ah maanta" : "You've used your free scans for today"}
+        {so ? "Waxaad isticmaashay 3-da scan ee maanta bilaashka ah" : "You've used today's 3 free scans"}
       </Text>
       <Text style={styles.body}>
         {so
-          ? "Kor u qaad si aad u hesho scan aan xad lahayn, Deep Scan qoto-dheer, iyo qiimayn suuq."
-          : "Upgrade for unlimited scans, deeper analysis and market-value reports."}
+          ? "Isticmaalayaasha bilaashka ah waxay helaan 3 scan maalin kasta. Kor u qaad si aad u hesho scan dheeraad ah maalintii, Deep Scan qoto-dheer, iyo qiimayn suuq."
+          : "Free users get 3 standard scans per day. Upgrade for more scans per day, Deep Scan analysis, and market-value reports."}
       </Text>
       <Pressable style={styles.button} onPress={() => Linking.openURL(PAYMENT_URL)}>
         <Ionicons name="sparkles-outline" size={18} color="#0B0B0C" />
