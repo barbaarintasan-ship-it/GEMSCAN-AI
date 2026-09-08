@@ -665,6 +665,13 @@
       "keepRecording": "Log out, keep recording",
       "thisAccount": "this account"
     },
+    "stop": {
+      "title": "Finish this section?",
+      "body": "You're still on site and haven't filed what you've recorded here. Stopping now without finishing will discard it.",
+      "cancel": "Cancel",
+      "finish": "Finish section, then stop",
+      "discard": "Discard and stop"
+    },
     "evidenceRole": {
       "geology": "Mapped geology",
       "structural": "Faults",

@@ -665,6 +665,13 @@
       "keepRecording": "Ka bax, duubistu ha socoto",
       "thisAccount": "akoonkan"
     },
+    "stop": {
+      "title": "Qaybtan ma dhammaysiinaysaa?",
+      "body": "Weli goobta ayaad joogtaa, wixii aad halkan ka duubtayna lama faylin. Haddii aad hadda joojiso adigoo aan dhammaystirin, waa la tuurayaa.",
+      "cancel": "Jooji",
+      "finish": "Dhammaystir qaybta, dabadeedna joojiso",
+      "discard": "Tuur oo joojiso"
+    },
     "evidenceRole": {
       "geology": "Dhagaxa khariidadaysan",
       "structural": "Jeexyo",
