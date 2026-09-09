@@ -24,6 +24,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "../../lib/auth";
 import { useExploration } from "../../lib/exploration/provider";
 import { requestFieldLogout } from "../../lib/exploration/fieldLogout";
+import { confirmStopIfUnfinished } from "../../lib/exploration/confirmStop";
 import { supabase } from "../../lib/supabase";
 import { useSubscriptionStatus } from "../../lib/subscription";
 import { setAppLanguage, type AppLanguage } from "../../lib/i18n";
@@ -145,7 +146,21 @@ export default function SettingsScreen() {
     // logs out from Settings, no dialog appears, and the whole three-option
     // policy is bypassed — because the policy lived in account.tsx only. Two
     // doors to the same decision, one of them unguarded.
-    await requestFieldLogout({ signOut, endExpedition: exploration.actions.stop });
+    //
+    // endExpedition goes through the SAME on-site guard as the map's Stop
+    // icon (confirmStopIfUnfinished), not a raw actions.stop() — Handover
+    // was found reachable while on-site with an unfinished waypoint, which
+    // is the identical data-loss bug 9b9ceeb fixed for the map, one call
+    // site over.
+    await requestFieldLogout({
+      signOut,
+      endExpedition: () => confirmStopIfUnfinished({
+        snapshot: exploration.snapshot,
+        finishSection: exploration.actions.finishSection,
+        stop: exploration.actions.stop,
+        t,
+      }),
+    });
     setSigningOut(false);
   }
 

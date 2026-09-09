@@ -38,28 +38,36 @@ export interface ConfirmStopInput {
  * navigating/already delivering (nothing left `isOnSite` would apply to),
  * this proceeds straight to `stop()`, exactly as before: the prompt only
  * ever appears when there is something it would otherwise discard.
+ *
+ * Resolves `true` when the session was actually ended — either there was
+ * nothing on-site to lose, or the geologist chose Finish or Discard — and
+ * `false` when Cancel or a dismiss left it running untouched. A caller that
+ * must not proceed past "the session ended" (logout's Handover option is the
+ * reason this return value exists: it must not close the lease or sign out
+ * on a cancelled confirmation) checks this instead of assuming `stop()`
+ * always ran.
  */
-export async function confirmStopIfUnfinished(input: ConfirmStopInput): Promise<void> {
+export async function confirmStopIfUnfinished(input: ConfirmStopInput): Promise<boolean> {
   const m = input.snapshot.mission;
   if (!m || !isOnSite(m.state)) {
     input.stop();
-    return;
+    return true;
   }
 
   const t = input.t;
-  await new Promise<void>((resolve) => {
+  return new Promise<boolean>((resolve) => {
     Alert.alert(
       t("field.stop.title"),
       t("field.stop.body"),
       [
-        { text: t("field.stop.cancel"), style: "cancel", onPress: () => resolve() },
+        { text: t("field.stop.cancel"), style: "cancel", onPress: () => resolve(false) },
         {
           text: t("field.stop.finish"),
           onPress: () => {
             void (async () => {
               await input.finishSection();
               input.stop();
-              resolve();
+              resolve(true);
             })();
           },
         },
@@ -68,11 +76,11 @@ export async function confirmStopIfUnfinished(input: ConfirmStopInput): Promise<
           style: "destructive",
           onPress: () => {
             input.stop();
-            resolve();
+            resolve(true);
           },
         },
       ],
-      { cancelable: true, onDismiss: () => resolve() },
+      { cancelable: true, onDismiss: () => resolve(false) },
     );
   });
 }

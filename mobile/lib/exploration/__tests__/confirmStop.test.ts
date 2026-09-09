@@ -23,32 +23,37 @@ function missionInState(state: Mission["state"]): Mission {
 }
 
 describe("confirmStopIfUnfinished", () => {
-  test("no mission open: stops immediately, no prompt", async () => {
+  test("no mission open: stops immediately, no prompt, resolves true", async () => {
     const stop = jest.fn();
     const finishSection = jest.fn();
     const alertSpy = jest.spyOn(Alert, "alert");
 
-    await confirmStopIfUnfinished({ snapshot: snapshotWith(null), finishSection, stop, t });
+    const result = await confirmStopIfUnfinished({ snapshot: snapshotWith(null), finishSection, stop, t });
 
     expect(stop).toHaveBeenCalledTimes(1);
     expect(finishSection).not.toHaveBeenCalled();
     expect(alertSpy).not.toHaveBeenCalled();
+    // A caller gating on "did the session actually end" — Handover during
+    // logout is the reason this exists — must see true here: there was
+    // nothing on-site to lose, so stop() ran unconditionally.
+    expect(result).toBe(true);
   });
 
   test.each(["none", "target_selected", "navigating", "section_completed", "waiting_for_upload", "ai_analysis_complete", "mission_closed"] as const)(
-    "mission state %s (not on-site): stops immediately, no prompt",
+    "mission state %s (not on-site): stops immediately, no prompt, resolves true",
     async (state) => {
       const stop = jest.fn();
       const finishSection = jest.fn();
       const alertSpy = jest.spyOn(Alert, "alert");
 
-      await confirmStopIfUnfinished({
+      const result = await confirmStopIfUnfinished({
         snapshot: snapshotWith(missionInState(state)), finishSection, stop, t,
       });
 
       expect(stop).toHaveBeenCalledTimes(1);
       expect(finishSection).not.toHaveBeenCalled();
       expect(alertSpy).not.toHaveBeenCalled();
+      expect(result).toBe(true);
     },
   );
 
@@ -72,7 +77,7 @@ describe("confirmStopIfUnfinished", () => {
     },
   );
 
-  test("choosing Finish: calls finishSection() before stop()", async () => {
+  test("choosing Finish: calls finishSection() before stop(), resolves true", async () => {
     const order: string[] = [];
     const stop = jest.fn(() => order.push("stop"));
     const finishSection = jest.fn(async () => { order.push("finishSection"); });
@@ -81,14 +86,15 @@ describe("confirmStopIfUnfinished", () => {
       finish.onPress!();
     });
 
-    await confirmStopIfUnfinished({
+    const result = await confirmStopIfUnfinished({
       snapshot: snapshotWith(missionInState("field_investigation")), finishSection, stop, t,
     });
 
     expect(order).toEqual(["finishSection", "stop"]);
+    expect(result).toBe(true);
   });
 
-  test("choosing Discard: calls stop() without finishSection()", async () => {
+  test("choosing Discard: calls stop() without finishSection(), resolves true", async () => {
     const stop = jest.fn();
     const finishSection = jest.fn();
     jest.spyOn(Alert, "alert").mockImplementation((_title, _body, buttons) => {
@@ -96,15 +102,16 @@ describe("confirmStopIfUnfinished", () => {
       discard.onPress!();
     });
 
-    await confirmStopIfUnfinished({
+    const result = await confirmStopIfUnfinished({
       snapshot: snapshotWith(missionInState("arrived_at_target_area")), finishSection, stop, t,
     });
 
     expect(stop).toHaveBeenCalledTimes(1);
     expect(finishSection).not.toHaveBeenCalled();
+    expect(result).toBe(true);
   });
 
-  test("choosing Cancel: neither finishSection() nor stop() runs", async () => {
+  test("choosing Cancel: neither finishSection() nor stop() runs, resolves false", async () => {
     const stop = jest.fn();
     const finishSection = jest.fn();
     jest.spyOn(Alert, "alert").mockImplementation((_title, _body, buttons) => {
@@ -112,12 +119,31 @@ describe("confirmStopIfUnfinished", () => {
       cancel.onPress!();
     });
 
-    await confirmStopIfUnfinished({
+    const result = await confirmStopIfUnfinished({
       snapshot: snapshotWith(missionInState("field_investigation")), finishSection, stop, t,
     });
 
     expect(stop).not.toHaveBeenCalled();
     expect(finishSection).not.toHaveBeenCalled();
+    // A caller gating on this (Handover during logout) must see false: the
+    // session did NOT end, and must not treat it as though it did.
+    expect(result).toBe(false);
+  });
+
+  test("dismissing the prompt (e.g. Android back button): resolves false, same as Cancel", async () => {
+    const stop = jest.fn();
+    const finishSection = jest.fn();
+    jest.spyOn(Alert, "alert").mockImplementation((_title, _body, _buttons, options) => {
+      options!.onDismiss!();
+    });
+
+    const result = await confirmStopIfUnfinished({
+      snapshot: snapshotWith(missionInState("field_investigation")), finishSection, stop, t,
+    });
+
+    expect(stop).not.toHaveBeenCalled();
+    expect(finishSection).not.toHaveBeenCalled();
+    expect(result).toBe(false);
   });
 
   afterEach(() => { jest.restoreAllMocks(); });

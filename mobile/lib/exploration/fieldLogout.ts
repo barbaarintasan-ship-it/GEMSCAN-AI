@@ -38,8 +38,19 @@ import { expeditionLease } from "./expeditionLease";
 export interface FieldLogoutInput {
   /** The real sign-out. Always called on every path that proceeds. */
   signOut: () => Promise<void>;
-  /** Ends the walk. Only called when the geologist chooses to hand over. */
-  endExpedition?: () => void;
+  /**
+   * Ends the walk. Only called when the geologist chooses to hand over.
+   *
+   * May report back whether the walk was actually ended: `false` means a
+   * confirmation inside it was CANCELLED — no evidence was lost, but nothing
+   * was ended either, so Handover must abort rather than close the lease and
+   * sign out from under a walk that is still running. `true`, or no return
+   * value at all (a caller with nothing to confirm), means Handover proceeds
+   * exactly as before. This is what lets Handover be wired to
+   * `confirmStopIfUnfinished` — the same on-site guard the map's Stop icon
+   * uses — without this policy needing to know anything about missions.
+   */
+  endExpedition?: () => Promise<boolean> | boolean | void;
   /** How many records are waiting, so the dialog can be specific. */
   heldRecords?: number;
 }
@@ -80,7 +91,15 @@ export async function requestFieldLogout(input: FieldLogoutInput): Promise<void>
           text: t("field.logout.handover"),
           onPress: () => {
             void (async () => {
-              input.endExpedition?.();
+              // `endExpedition` may itself ask a question — the geologist can
+              // be on-site with a waypoint `finishSection()` has not saved
+              // yet, exactly the gap `confirmStopIfUnfinished` exists to
+              // close. `false` means that question was answered "cancel":
+              // Handover must stop here, with the lease untouched and the
+              // account still signed in, not race ahead and close/sign out
+              // under a walk the geologist just chose to keep.
+              const ended = await input.endExpedition?.();
+              if (ended === false) { resolve(); return; }
               await store.close();
               await input.signOut();
               resolve();

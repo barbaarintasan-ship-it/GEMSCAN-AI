@@ -8,9 +8,11 @@ import React, { useState } from "react";
 import { View, Text, Pressable, Linking, Alert, StyleSheet, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "../../lib/auth";
 import { useExploration } from "../../lib/exploration/provider";
 import { requestFieldLogout } from "../../lib/exploration/fieldLogout";
+import { confirmStopIfUnfinished } from "../../lib/exploration/confirmStop";
 import { useSubscriptionStatus } from "../../lib/subscription";
 import { PAYMENT_URL, EXTERNAL_PURCHASES_ENABLED } from "../../lib/appLinks";
 import { Card } from "../../components/ui/Card";
@@ -18,6 +20,7 @@ import { Button } from "../../components/ui/Button";
 import { colors, spacing, type as typo } from "../../lib/theme";
 
 export default function AccountScreen() {
+  const { t } = useTranslation();
   const { session, signOut, deleteAccount } = useAuth();
   const exploration = useExploration();
   const { data, isLoading, refetch, isRefetching } = useSubscriptionStatus();
@@ -50,7 +53,21 @@ export default function AccountScreen() {
     setSigningOut(true);
     // Routed through the field policy: with an expedition open this asks first
     // and never ends the walk. With none it is an ordinary sign-out.
-    await requestFieldLogout({ signOut, endExpedition: exploration.actions.stop });
+    //
+    // endExpedition goes through the SAME on-site guard as the map's Stop
+    // icon (confirmStopIfUnfinished), not a raw actions.stop() — Handover
+    // was found reachable while on-site with an unfinished waypoint, which
+    // is the identical data-loss bug 9b9ceeb fixed for the map, one call
+    // site over.
+    await requestFieldLogout({
+      signOut,
+      endExpedition: () => confirmStopIfUnfinished({
+        snapshot: exploration.snapshot,
+        finishSection: exploration.actions.finishSection,
+        stop: exploration.actions.stop,
+        t,
+      }),
+    });
     setSigningOut(false);
   }
 
