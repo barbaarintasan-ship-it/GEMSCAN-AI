@@ -3,7 +3,7 @@
     "name": "LuulScan",
     "slug": "gemestone",
     "owner": "gemestones-team",
-    "version": "1.38.20",
+    "version": "1.38.21",
     "scheme": "gemscanai",
     "userInterfaceStyle": "dark",
     "orientation": "portrait",
@@ -13,7 +13,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#080C14"
     },
-    "runtimeVersion": "1.38.20",
+    "runtimeVersion": "1.38.21",
     "updates": {
       "enabled": false,
       "fallbackToCacheTimeout": 0,
@@ -54,7 +54,7 @@
     },
     "android": {
       "package": "com.gemscan.ai",
-      "versionCode": 144,
+      "versionCode": 145,
       "permissions": [
         "CAMERA"
       ],
