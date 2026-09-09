@@ -7,7 +7,10 @@
 // and an interpretation layer able to adjust that number would replace a measured
 // model with an unmeasured opinion, invisibly.
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { buildMissionPrompt, parseMissionFindings, type EnginePackageSummary } from "./missionPrompt.ts";
+import {
+  buildMissionPrompt, parseMissionFindings,
+  type EnginePackageSummary, type StructuredEvidenceSummary,
+} from "./missionPrompt.ts";
 import { findForbiddenLanguage } from "../../../../shared/geo-core/gie/missionFindings.ts";
 
 const META = { model: "test-model", commodity: "gold", analysedAt: 1_760_000_000_000 };
@@ -36,6 +39,187 @@ function summary(over: Partial<EnginePackageSummary> = {}): EnginePackageSummary
     ...over,
   };
 }
+
+/** An empty five-section record, overridden per test with only what it needs. */
+function evidence(over: Partial<StructuredEvidenceSummary> = {}): StructuredEvidenceSummary {
+  return {
+    assays: [], geophysics: [], mapping: [], remoteSensing: [], fieldObservations: [],
+    ...over,
+  };
+}
+
+// ── STRUCTURED FIELD EVIDENCE reaching the AI context ───────────────────────
+
+Deno.test("A. assay: element, result, unit, sample id and verification reach the prompt exactly as entered", () => {
+  const p = buildMissionPrompt(summary({
+    structuredEvidence: evidence({
+      assays: [{
+        element: "Au", result: 8.42, unit: "g/t", sampleType: "grab", sampleId: "SOM-2026-014",
+        samplingDate: "2026-09-01", verificationStatus: "user_reported", labAccredited: false,
+        labName: "XYZ", notes: "quartz vein sample",
+      }],
+    }),
+  }));
+  assertStringIncludes(p, "WHAT THE GEOLOGIST ALREADY HAS");
+  assertStringIncludes(p, "LABORATORY / ASSAY");
+  assertStringIncludes(p, "Au: 8.42 g/t");
+  assertStringIncludes(p, "sample SOM-2026-014");
+  assertStringIncludes(p, "sampled 2026-09-01");
+  assertStringIncludes(p, "verification: user_reported");
+  assertStringIncludes(p, "lab: XYZ");
+  assertStringIncludes(p, "lab accredited: no");
+});
+
+Deno.test("A. assay: lab_verified and accredited is stated as such, and only when both are true", () => {
+  const p = buildMissionPrompt(summary({
+    structuredEvidence: evidence({
+      assays: [{
+        element: "Ag", result: 12.6, unit: "g/t", sampleType: "", sampleId: "", samplingDate: null,
+        verificationStatus: "lab_verified", labAccredited: true, labName: "Accredited Labs Ltd", notes: "",
+      }],
+    }),
+  }));
+  assertStringIncludes(p, "verification: lab_verified");
+  assertStringIncludes(p, "lab accredited: yes");
+});
+
+Deno.test("A. the prompt forbids upgrading a self-reported or unaccredited result to a lab-verified claim", () => {
+  const p = buildMissionPrompt(summary({
+    structuredEvidence: evidence({
+      assays: [{
+        element: "Au", result: 8.42, unit: "g/t", sampleType: "", sampleId: "", samplingDate: null,
+        verificationStatus: "user_reported", labAccredited: false, labName: "", notes: "",
+      }],
+    }),
+  }));
+  assertStringIncludes(p, "unless its verification is lab_verified AND its lab is accredited");
+  assertStringIncludes(p, "self-reported or expert-reported figure, not a confirmed laboratory result");
+});
+
+Deno.test("B. ground geophysics reaches the prompt when present", () => {
+  const p = buildMissionPrompt(summary({
+    structuredEvidence: evidence({
+      geophysics: [{
+        surveyType: "magnetics", anomalyPresent: true, anomalyDescription: "strong positive anomaly",
+        magnitude: 450, surveyArea: "200x200m grid", interpretation: "possible sulphide body",
+        verificationStatus: "expert_verified", notes: "surveyed by contractor",
+      }],
+    }),
+  }));
+  assertStringIncludes(p, "GROUND GEOPHYSICS");
+  assertStringIncludes(p, "magnetics");
+  assertStringIncludes(p, "strong positive anomaly");
+  assertStringIncludes(p, "magnitude 450");
+  assertStringIncludes(p, "verification: expert_verified");
+});
+
+Deno.test("C. detailed geological mapping reaches the prompt when present", () => {
+  const p = buildMissionPrompt(summary({
+    structuredEvidence: evidence({
+      mapping: [{
+        hostLithology: "greenstone", rockType: "metabasalt", formationUnit: "", alteration: "silicification",
+        veinType: "quartz", veinWidthM: 0.6, veinOrientation: "N30E", strikeDeg: 30, dipDeg: 70,
+        fault: true, shearZone: false, fold: false, breccia: false, gossan: true, sulfides: true,
+        visibleMineralization: "pyrite", mineralAssemblage: "pyrite-quartz", structuralRelationship: "along fault",
+        mappingConfidence: "expert_verified", notes: "mapped over 40m strike",
+      }],
+    }),
+  }));
+  assertStringIncludes(p, "DETAILED GEOLOGICAL MAPPING");
+  assertStringIncludes(p, "greenstone / metabasalt");
+  assertStringIncludes(p, "strike/dip: 30/70");
+  assertStringIncludes(p, "structure: fault, gossan, sulfides");
+  assertStringIncludes(p, "verification: expert_verified");
+});
+
+Deno.test("D. remote sensing reaches the prompt when present", () => {
+  const p = buildMissionPrompt(summary({
+    structuredEvidence: evidence({
+      remoteSensing: [{
+        source: "sentinel2", alterationAnomaly: "iron oxide alteration halo", spectralAnomaly: "",
+        structuralAnomaly: "", lineamentInterpretation: "NE-trending lineament through target",
+        areaCovered: "5km2", interpretation: "alteration halo coincides with mapped fault",
+        confidence: "user_reported", notes: "",
+      }],
+    }),
+  }));
+  assertStringIncludes(p, "REMOTE SENSING");
+  assertStringIncludes(p, "sentinel2");
+  assertStringIncludes(p, "alteration halo coincides with mapped fault");
+  assertStringIncludes(p, "verification: user_reported");
+});
+
+Deno.test("E. expert/field observation reaches the prompt, including a specifically-confirmed-absent finding", () => {
+  const p = buildMissionPrompt(summary({
+    structuredEvidence: evidence({
+      fieldObservations: [{
+        visibleMineral: false, quartzVein: true, gossanRust: true, sulfides: false, alteration: false,
+        shearing: false, faultExposure: false, oldWorkings: false, activeArtisanalMining: false,
+        pits: false, shafts: false, adits: false, tailings: false, historicalProduction: false,
+        localMiningEvidence: false, otherObservations: "boulder train downslope",
+        expertInterpretation: "consistent with a hydrothermal system", confidence: "expert_verified",
+        notes: "", confirmedAbsent: { sulfides: true },
+      }],
+    }),
+  }));
+  assertStringIncludes(p, "EXPERT / FIELD OBSERVATION");
+  assertStringIncludes(p, "quartz vein, gossan/iron oxide");
+  assertStringIncludes(p, "boulder train downslope");
+  assertStringIncludes(p, "SPECIFICALLY CHECKED AND CONFIRMED ABSENT: sulfides");
+  assertStringIncludes(p, "verification: expert_verified");
+});
+
+Deno.test("F. no structured evidence at all: the whole section is omitted, no fake evidence", () => {
+  const p = buildMissionPrompt(summary());
+  assertEquals(p.includes("WHAT THE GEOLOGIST ALREADY HAS"), false);
+  assertEquals(p.includes("LABORATORY / ASSAY"), false);
+});
+
+Deno.test("F. an all-empty structured-evidence record also omits the section", () => {
+  const p = buildMissionPrompt(summary({ structuredEvidence: evidence() }));
+  assertEquals(p.includes("WHAT THE GEOLOGIST ALREADY HAS"), false);
+});
+
+Deno.test("G. a mission with all five categories: all five reach the AI context together", () => {
+  const p = buildMissionPrompt(summary({
+    structuredEvidence: {
+      assays: [{
+        element: "Au", result: 8.42, unit: "g/t", sampleType: "grab", sampleId: "S1",
+        samplingDate: null, verificationStatus: "user_reported", labAccredited: false,
+        labName: "", notes: "",
+      }],
+      geophysics: [{
+        surveyType: "magnetics", anomalyPresent: true, anomalyDescription: "anomaly",
+        magnitude: null, surveyArea: "", interpretation: "", verificationStatus: "user_reported", notes: "",
+      }],
+      mapping: [{
+        hostLithology: "schist", rockType: "", formationUnit: "", alteration: "", veinType: "",
+        veinWidthM: null, veinOrientation: "", strikeDeg: null, dipDeg: null, fault: false, shearZone: false,
+        fold: false, breccia: false, gossan: false, sulfides: false, visibleMineralization: "",
+        mineralAssemblage: "", structuralRelationship: "", mappingConfidence: "user_reported", notes: "",
+      }],
+      remoteSensing: [{
+        source: "sentinel2", alterationAnomaly: "halo", spectralAnomaly: "", structuralAnomaly: "",
+        lineamentInterpretation: "", areaCovered: "", interpretation: "", confidence: "user_reported", notes: "",
+      }],
+      fieldObservations: [{
+        visibleMineral: false, quartzVein: true, gossanRust: false, sulfides: false, alteration: false,
+        shearing: false, faultExposure: false, oldWorkings: false, activeArtisanalMining: false,
+        pits: false, shafts: false, adits: false, tailings: false, historicalProduction: false,
+        localMiningEvidence: false, otherObservations: "", expertInterpretation: "",
+        confidence: "user_reported", notes: "",
+      }],
+    },
+  }));
+  for (
+    const heading of [
+      "LABORATORY / ASSAY", "GROUND GEOPHYSICS", "DETAILED GEOLOGICAL MAPPING",
+      "REMOTE SENSING", "EXPERT / FIELD OBSERVATION",
+    ]
+  ) {
+    assertStringIncludes(p, heading);
+  }
+});
 
 Deno.test("the prompt hands the engine's score over as a FACT, not a question", () => {
   const p = buildMissionPrompt(summary());

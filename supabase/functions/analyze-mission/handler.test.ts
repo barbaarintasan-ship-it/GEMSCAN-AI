@@ -263,6 +263,75 @@ Deno.test("observations and photo counts are summarised from the package itself"
   assertEquals(s.gpsAccuracyM, 6);
 });
 
+// ── STRUCTURED FIELD EVIDENCE (User Geological Evidence form) ───────────────
+//
+// The package already carries `payload.structuredEvidence` verbatim
+// (evidencePackage.ts) and the deterministic engine already scores it
+// (structuredEvidenceSource.ts, via payload.integratedEvidenceItems). What
+// was missing was this function ever reading it for the PROMPT. These pin
+// that `engineSummaryFrom` now does, without inventing a second gate on
+// verificationStatus/labAccredited — those travel exactly as entered.
+
+Deno.test("structured evidence in the payload reaches the engine summary, fields preserved exactly", async () => {
+  const withEvidence = pkg();
+  (withEvidence.payload as any).structuredEvidence = {
+    assays: [{
+      element: "Au", result: 8.42, unit: "g/t", sampleType: "grab", sampleId: "S1",
+      samplingDate: "2026-09-01", verificationStatus: "user_reported", labAccredited: false,
+      labName: "XYZ", notes: "",
+    }],
+    geophysics: [], mapping: [], remoteSensing: [], fieldObservations: [],
+  };
+  const s = engineSummaryFrom(withEvidence);
+  assertEquals(s.structuredEvidence?.assays.length, 1);
+  assertEquals(s.structuredEvidence?.assays[0].element, "Au");
+  assertEquals(s.structuredEvidence?.assays[0].result, 8.42);
+  assertEquals(s.structuredEvidence?.assays[0].verificationStatus, "user_reported");
+  assertEquals(s.structuredEvidence?.assays[0].labAccredited, false);
+});
+
+Deno.test("no structured evidence in the payload: the summary field is undefined, not five empty arrays", async () => {
+  const s = engineSummaryFrom(pkg());
+  assertEquals(s.structuredEvidence, undefined);
+});
+
+Deno.test("an all-empty structuredEvidence record in the payload also yields undefined", async () => {
+  const withEmpty = pkg();
+  (withEmpty.payload as any).structuredEvidence = {
+    assays: [], geophysics: [], mapping: [], remoteSensing: [], fieldObservations: [],
+  };
+  const s = engineSummaryFrom(withEmpty);
+  assertEquals(s.structuredEvidence, undefined);
+});
+
+Deno.test("a malformed assay entry (no element, or a non-numeric result) is dropped, not passed through as garbage", async () => {
+  const withJunk = pkg();
+  (withJunk.payload as any).structuredEvidence = {
+    assays: [
+      { element: "", result: 5, unit: "g/t" },
+      { element: "Sn", result: "not a number", unit: "ppm" },
+      { element: "Cu", result: 120, unit: "ppm" },
+    ],
+    geophysics: [], mapping: [], remoteSensing: [], fieldObservations: [],
+  };
+  const s = engineSummaryFrom(withJunk);
+  assertEquals(s.structuredEvidence?.assays.length, 1);
+  assertEquals(s.structuredEvidence?.assays[0].element, "Cu");
+});
+
+Deno.test("a confirmedAbsent record keeps only the keys explicitly true, tri-state preserved", async () => {
+  const withField = pkg();
+  (withField.payload as any).structuredEvidence = {
+    assays: [], geophysics: [], mapping: [], remoteSensing: [],
+    fieldObservations: [{
+      visibleMineral: true, confidence: "expert_verified",
+      confirmedAbsent: { sulfides: true, alteration: false, quartzVein: undefined },
+    }],
+  };
+  const s = engineSummaryFrom(withField);
+  assertEquals(s.structuredEvidence?.fieldObservations[0].confirmedAbsent, { sulfides: true });
+});
+
 // ── HEALTH ──────────────────────────────────────────────────────────────────
 
 Deno.test("health: a 404 from R2 is a PASS — the signature was accepted", async () => {

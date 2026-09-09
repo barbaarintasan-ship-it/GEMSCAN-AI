@@ -54,6 +54,56 @@ const REJECTED_KEYS = [
   "percentage", "chance", "odds", "likelihood", "grade", "tonnage",
 ];
 
+/**
+ * The User Geological Evidence form's record for this mission (mobile
+ * StructuredEvidenceForm.tsx / structuredEvidenceTypes.ts), reduced to what
+ * the prompt renders. Fields are named to match the source types exactly —
+ * this is a read-only view of that record, not a second schema for it.
+ *
+ * Every category carries its own `verificationStatus`/confidence field
+ * (`"user_reported" | "expert_verified" | "lab_verified"`), and the assay
+ * carries `labAccredited` besides. Neither is gated or upgraded here — that
+ * would duplicate structuredEvidenceSource.ts's `gatedTier()`, which this
+ * module cannot import (mobile-only tree). Instead the prompt itself carries
+ * the honesty rule (see ABSOLUTE RULES §6): the raw claim goes in, and the
+ * model is told exactly how it may and may not describe it.
+ */
+export interface StructuredEvidenceSummary {
+  assays: Array<{
+    element: string; result: number; unit: string; sampleType: string; sampleId: string;
+    samplingDate: string | null; verificationStatus: string; labAccredited: boolean;
+    labName: string; notes: string;
+  }>;
+  geophysics: Array<{
+    surveyType: string; anomalyPresent: boolean; anomalyDescription: string;
+    magnitude: number | null; surveyArea: string; interpretation: string;
+    verificationStatus: string; notes: string;
+  }>;
+  mapping: Array<{
+    hostLithology: string; rockType: string; formationUnit: string; alteration: string;
+    veinType: string; veinWidthM: number | null; veinOrientation: string;
+    strikeDeg: number | null; dipDeg: number | null;
+    fault: boolean; shearZone: boolean; fold: boolean; breccia: boolean;
+    gossan: boolean; sulfides: boolean; visibleMineralization: string;
+    mineralAssemblage: string; structuralRelationship: string;
+    mappingConfidence: string; notes: string;
+  }>;
+  remoteSensing: Array<{
+    source: string; alterationAnomaly: string; spectralAnomaly: string;
+    structuralAnomaly: string; lineamentInterpretation: string; areaCovered: string;
+    interpretation: string; confidence: string; notes: string;
+  }>;
+  fieldObservations: Array<{
+    visibleMineral: boolean; quartzVein: boolean; gossanRust: boolean; sulfides: boolean;
+    alteration: boolean; shearing: boolean; faultExposure: boolean; oldWorkings: boolean;
+    activeArtisanalMining: boolean; pits: boolean; shafts: boolean; adits: boolean;
+    tailings: boolean; historicalProduction: boolean; localMiningEvidence: boolean;
+    otherObservations: string; expertInterpretation: string; confidence: string; notes: string;
+    /** Only keys explicitly checked and confirmed absent are ever present here. */
+    confirmedAbsent?: Record<string, boolean | undefined>;
+  }>;
+}
+
 /** What the engine already knows, handed to the model as given facts. */
 export interface EnginePackageSummary {
   missionId: string;
@@ -85,6 +135,142 @@ export interface EnginePackageSummary {
   }>;
   photoCount: number;
   trackPoints: number;
+  /**
+   * The User Geological Evidence form's record, when the geologist entered
+   * one. Undefined when nothing was entered — never an object with empty
+   * arrays, so `structuredEvidenceSection()` has one honest way to render
+   * nothing: skip the whole block rather than print five empty headings.
+   */
+  structuredEvidence?: StructuredEvidenceSummary;
+}
+
+/**
+ * The five User Geological Evidence sections, rendered as facts for the
+ * model to read and interpret — never as evidence the deterministic engine
+ * itself produced. Returns nothing (not even a heading) for a section with
+ * no entries: an empty section printed as text reads as "checked, nothing
+ * found", which is not what an empty array here means.
+ */
+function structuredEvidenceSection(s: StructuredEvidenceSummary | undefined): string[] {
+  if (!s) return [];
+  const blocks: string[] = [];
+
+  if (s.assays.length > 0) {
+    blocks.push(
+      "",
+      "LABORATORY / ASSAY (reported by the geologist, not measured by the engine)",
+      ...s.assays.map((a) =>
+        `  - ${a.element}: ${a.result} ${a.unit}` +
+        (a.sampleType ? ` (${a.sampleType})` : "") +
+        (a.sampleId ? `, sample ${a.sampleId}` : "") +
+        (a.samplingDate ? `, sampled ${a.samplingDate}` : "") +
+        ` — verification: ${a.verificationStatus}, lab: ${a.labName || "unnamed"}, ` +
+        `lab accredited: ${a.labAccredited ? "yes" : "no"}` +
+        (a.notes ? `; notes: ${a.notes}` : "")),
+    );
+  }
+
+  if (s.geophysics.length > 0) {
+    blocks.push(
+      "",
+      "GROUND GEOPHYSICS",
+      ...s.geophysics.map((g) =>
+        `  - ${g.surveyType}: ` +
+        (g.anomalyPresent ? (g.anomalyDescription || "anomaly reported") : "surveyed, no anomaly reported") +
+        (g.magnitude != null ? ` (magnitude ${g.magnitude})` : "") +
+        (g.surveyArea ? `, area ${g.surveyArea}` : "") +
+        ` — verification: ${g.verificationStatus}` +
+        (g.interpretation ? `; interpretation: ${g.interpretation}` : "") +
+        (g.notes ? `; notes: ${g.notes}` : "")),
+    );
+  }
+
+  if (s.mapping.length > 0) {
+    blocks.push(
+      "",
+      "DETAILED GEOLOGICAL MAPPING",
+      ...s.mapping.map((m) => {
+        const structure = [
+          m.fault && "fault", m.shearZone && "shear zone", m.fold && "fold", m.breccia && "breccia",
+          m.gossan && "gossan", m.sulfides && "sulfides",
+        ].filter(Boolean).join(", ");
+        return `  - ${[m.hostLithology, m.rockType, m.formationUnit].filter(Boolean).join(" / ") || "unit not stated"}` +
+          (m.alteration ? `, alteration: ${m.alteration}` : "") +
+          (m.veinType ? `, vein: ${m.veinType}` : "") +
+          (m.veinWidthM != null ? ` (${m.veinWidthM} m wide)` : "") +
+          (m.veinOrientation ? `, orientation ${m.veinOrientation}` : "") +
+          (m.strikeDeg != null || m.dipDeg != null
+            ? `, strike/dip: ${m.strikeDeg ?? "?"}/${m.dipDeg ?? "?"}` : "") +
+          (structure ? `, structure: ${structure}` : "") +
+          (m.visibleMineralization ? `, visible mineralization: ${m.visibleMineralization}` : "") +
+          (m.mineralAssemblage ? `, assemblage: ${m.mineralAssemblage}` : "") +
+          (m.structuralRelationship ? `, structural relationship: ${m.structuralRelationship}` : "") +
+          ` — verification: ${m.mappingConfidence}` +
+          (m.notes ? `; notes: ${m.notes}` : "");
+      }),
+    );
+  }
+
+  if (s.remoteSensing.length > 0) {
+    blocks.push(
+      "",
+      "REMOTE SENSING",
+      ...s.remoteSensing.map((r) =>
+        `  - ${r.source}: ${
+          r.interpretation ||
+          [r.alterationAnomaly, r.spectralAnomaly, r.structuralAnomaly, r.lineamentInterpretation]
+            .filter(Boolean).join("; ") ||
+          "reported, no interpretation given"
+        }` +
+        (r.areaCovered ? `, area ${r.areaCovered}` : "") +
+        ` — verification: ${r.confidence}` +
+        (r.notes ? `; notes: ${r.notes}` : "")),
+    );
+  }
+
+  if (s.fieldObservations.length > 0) {
+    blocks.push(
+      "",
+      "EXPERT / FIELD OBSERVATION",
+      ...s.fieldObservations.map((f) => {
+        const flags = [
+          f.visibleMineral && "visible mineral", f.quartzVein && "quartz vein",
+          f.gossanRust && "gossan/iron oxide", f.sulfides && "sulfides", f.alteration && "alteration",
+          f.shearing && "shearing", f.faultExposure && "fault exposure", f.oldWorkings && "old workings",
+          f.activeArtisanalMining && "active artisanal mining", f.pits && "pits", f.shafts && "shafts",
+          f.adits && "adits", f.tailings && "tailings", f.historicalProduction && "historical production",
+          f.localMiningEvidence && "local mining evidence",
+        ].filter(Boolean).join(", ");
+        const absent = f.confirmedAbsent
+          ? Object.entries(f.confirmedAbsent).filter(([, v]) => v === true).map(([k]) => k).join(", ")
+          : "";
+        return `  - ${flags || "no indicator flags set"}` +
+          (f.otherObservations ? `; other: ${f.otherObservations}` : "") +
+          (f.expertInterpretation ? `; interpretation: ${f.expertInterpretation}` : "") +
+          (absent ? `; SPECIFICALLY CHECKED AND CONFIRMED ABSENT: ${absent}` : "") +
+          ` — verification: ${f.confidence}` +
+          (f.notes ? `; notes: ${f.notes}` : "");
+      }),
+    );
+  }
+
+  if (blocks.length === 0) return [];
+  return [
+    "",
+    "WHAT THE GEOLOGIST ALREADY HAS (structured evidence, entered separately from the field notes above)",
+    "Every item below states its own verification — user_reported, expert_verified,",
+    "or lab_verified — and an assay separately states whether the lab is accredited.",
+    "Describe each EXACTLY as claimed.",
+    "Do NOT call a result laboratory-verified, or an assay an accredited laboratory",
+    "result, unless its verification is lab_verified AND its lab is accredited.",
+    "A user_reported or expert_verified figure — even with a lab name attached — is",
+    "self-reported or expert-reported figure, not a confirmed laboratory result, and",
+    "must read that way in both languages. If none of the reported assays are both",
+    "lab_verified and lab-accredited, you may still list the absence of independently",
+    "verified assay data in missing_evidence — a self-reported number is evidence to",
+    "weigh, not a substitute for one.",
+    ...blocks,
+  ];
 }
 
 export function buildMissionPrompt(p: EnginePackageSummary): string {
@@ -144,6 +330,7 @@ export function buildMissionPrompt(p: EnginePackageSummary): string {
       photographs: ${o.photoIds.join(", ")}` : ""))
       : ["  NOTHING RECORDED. This is itself a finding — say so plainly."]),
     `  photographs: ${p.photoCount}   track points: ${p.trackPoints}`,
+    ...structuredEvidenceSection(p.structuredEvidence),
     "",
     "OUTPUT — STRICT JSON, no markdown, no commentary:",
     "{",

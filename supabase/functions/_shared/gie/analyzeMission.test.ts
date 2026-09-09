@@ -736,3 +736,47 @@ Deno.test("a mission with real structural evidence and no geophysics/mapping rec
   if (out.status !== "analysed") throw new Error("expected analysed");
   assertEquals(out.findings.recommendations.some((r) => r.action === "recommend_geophysics"), true);
 });
+
+// ── H. Structured evidence reaching the PROMPT must not move the DETERMINISTIC
+// score or the next-action recommendation ───────────────────────────────────
+//
+// `engine.structuredEvidence` (this change) feeds ONLY buildMissionPrompt's
+// text. `finalIntegratedProspectivity`/`determineNextActions` read
+// `payload.integratedEvidenceItems`/`clientEvidenceItemsFrom(payload)` —
+// a completely different input, untouched by this change. Same payload, same
+// deterministic outputs, whether or not the engine summary also carries a
+// structured-evidence block for the model to read.
+
+Deno.test("H. structured evidence reaching the AI prompt does not change the integrated score", async () => {
+  const items = [
+    { weight: 0.6, tier: "mapped", role: "structural", group: "structure:f1" },
+  ];
+  const withEvidence = await analyzeExplorationPackage(
+    input({
+      engine: engine({
+        structuredEvidence: {
+          assays: [{
+            element: "Au", result: 8.42, unit: "g/t", sampleType: "grab", sampleId: "S1",
+            samplingDate: null, verificationStatus: "user_reported", labAccredited: false,
+            labName: "", notes: "",
+          }],
+          geophysics: [], mapping: [], remoteSensing: [], fieldObservations: [],
+        },
+      }),
+      payload: { missionId: "ms-abc", integratedEvidenceItems: items },
+    }),
+    { provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW },
+  );
+  const withoutEvidence = await analyzeExplorationPackage(
+    input({ payload: { missionId: "ms-abc", integratedEvidenceItems: items } }),
+    { provider: provider(GOOD_RESPONSE), r2: R2, verify: allPresent, now: () => NOW },
+  );
+  if (withEvidence.status !== "analysed" || withoutEvidence.status !== "analysed") {
+    throw new Error("expected analysed");
+  }
+  assertEquals(withEvidence.findings.integratedProspectivity, withoutEvidence.findings.integratedProspectivity);
+  assertEquals(
+    withEvidence.findings.recommendations.map((r) => r.action),
+    withoutEvidence.findings.recommendations.map((r) => r.action),
+  );
+});

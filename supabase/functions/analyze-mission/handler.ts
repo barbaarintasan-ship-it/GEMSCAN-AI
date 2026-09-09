@@ -47,7 +47,7 @@ import {
   type AIProvider, type AnalyzeOutcome,
 } from "../_shared/gie/analyzeMission.ts";
 import { runVision, defaultVisionDeps } from "../_shared/gie/vision.ts";
-import type { EnginePackageSummary } from "../_shared/gie/missionPrompt.ts";
+import type { EnginePackageSummary, StructuredEvidenceSummary } from "../_shared/gie/missionPrompt.ts";
 import type { MissionFindings } from "../../../shared/geo-core/gie/missionFindings.ts";
 
 /**
@@ -313,7 +313,137 @@ export function engineSummaryFrom(pkg: StoredPackage): EnginePackageSummary {
       (n: number, o: any) => n + (Array.isArray(o?.photos) ? o.photos.length : 0), 0,
     ),
     trackPoints: Array.isArray(p.track) ? p.track.length : 0,
+    structuredEvidence: structuredEvidenceSummaryFrom(p.structuredEvidence),
   };
+}
+
+/**
+ * The package's `structuredEvidence` (evidencePackage.ts's field of the same
+ * name, carried verbatim from the device — see StructuredEvidenceForm.tsx /
+ * structuredEvidenceTypes.ts), read defensively rather than imported typed:
+ * that type lives in the mobile-only tree and cannot be imported here, and by
+ * the time it reaches this JSONB payload it is untyped JSON regardless.
+ *
+ * Undefined — not an object with five empty arrays — when nothing was
+ * entered, or the field predates this package version. That is what lets
+ * `structuredEvidenceSection()` (missionPrompt.ts) skip the block entirely
+ * rather than print five empty headings, which would read as "checked, found
+ * nothing" when the truth is "never asked".
+ *
+ * NO GATING, NO RE-SCORING. `verificationStatus`/`labAccredited` are carried
+ * exactly as entered — the honesty rule lives in the prompt itself (ABSOLUTE
+ * RULES §6), not here, because the gate that already exists for THIS data —
+ * `gatedTier()` in structuredEvidenceSource.ts — lives in the mobile tree and
+ * governs the DETERMINISTIC score, a separate concern this function must not
+ * duplicate or drift from.
+ */
+function structuredEvidenceSummaryFrom(raw: unknown): StructuredEvidenceSummary | undefined {
+  const s = raw as Record<string, any> | null | undefined;
+  if (!s || typeof s !== "object") return undefined;
+  const list = (v: unknown): any[] => Array.isArray(v) ? v : [];
+
+  const assays = list(s.assays).map((a) => ({
+    element: String(a?.element ?? ""),
+    result: Number(a?.result),
+    unit: String(a?.unit ?? ""),
+    sampleType: String(a?.sampleType ?? ""),
+    sampleId: String(a?.sampleId ?? ""),
+    samplingDate: typeof a?.samplingDate === "string" ? a.samplingDate : null,
+    verificationStatus: String(a?.verificationStatus ?? "user_reported"),
+    labAccredited: a?.labAccredited === true,
+    labName: String(a?.labName ?? ""),
+    notes: String(a?.notes ?? ""),
+    // A malformed entry (no element, no finite result) is dropped here rather
+    // than shown to the model as "undefined ppm undefined" — the form itself
+    // never saves one, so this only guards against corrupt/old data.
+  })).filter((a) => a.element.length > 0 && Number.isFinite(a.result));
+
+  const geophysics = list(s.geophysics).map((g) => ({
+    surveyType: String(g?.surveyType ?? "other"),
+    anomalyPresent: g?.anomalyPresent === true,
+    anomalyDescription: String(g?.anomalyDescription ?? ""),
+    magnitude: num(g?.magnitude),
+    surveyArea: String(g?.surveyArea ?? ""),
+    interpretation: String(g?.interpretation ?? ""),
+    verificationStatus: String(g?.verificationStatus ?? "user_reported"),
+    notes: String(g?.notes ?? ""),
+  }));
+
+  const mapping = list(s.mapping).map((m) => ({
+    hostLithology: String(m?.hostLithology ?? ""),
+    rockType: String(m?.rockType ?? ""),
+    formationUnit: String(m?.formationUnit ?? ""),
+    alteration: String(m?.alteration ?? ""),
+    veinType: String(m?.veinType ?? ""),
+    veinWidthM: num(m?.veinWidthM),
+    veinOrientation: String(m?.veinOrientation ?? ""),
+    strikeDeg: num(m?.strikeDeg),
+    dipDeg: num(m?.dipDeg),
+    fault: m?.fault === true,
+    shearZone: m?.shearZone === true,
+    fold: m?.fold === true,
+    breccia: m?.breccia === true,
+    gossan: m?.gossan === true,
+    sulfides: m?.sulfides === true,
+    visibleMineralization: String(m?.visibleMineralization ?? ""),
+    mineralAssemblage: String(m?.mineralAssemblage ?? ""),
+    structuralRelationship: String(m?.structuralRelationship ?? ""),
+    mappingConfidence: String(m?.mappingConfidence ?? "user_reported"),
+    notes: String(m?.notes ?? ""),
+  }));
+
+  const remoteSensing = list(s.remoteSensing).map((r) => ({
+    source: String(r?.source ?? "other"),
+    alterationAnomaly: String(r?.alterationAnomaly ?? ""),
+    spectralAnomaly: String(r?.spectralAnomaly ?? ""),
+    structuralAnomaly: String(r?.structuralAnomaly ?? ""),
+    lineamentInterpretation: String(r?.lineamentInterpretation ?? ""),
+    areaCovered: String(r?.areaCovered ?? ""),
+    interpretation: String(r?.interpretation ?? ""),
+    confidence: String(r?.confidence ?? "user_reported"),
+    notes: String(r?.notes ?? ""),
+  }));
+
+  const fieldObservations = list(s.fieldObservations).map((f) => ({
+    visibleMineral: f?.visibleMineral === true,
+    quartzVein: f?.quartzVein === true,
+    gossanRust: f?.gossanRust === true,
+    sulfides: f?.sulfides === true,
+    alteration: f?.alteration === true,
+    shearing: f?.shearing === true,
+    faultExposure: f?.faultExposure === true,
+    oldWorkings: f?.oldWorkings === true,
+    activeArtisanalMining: f?.activeArtisanalMining === true,
+    pits: f?.pits === true,
+    shafts: f?.shafts === true,
+    adits: f?.adits === true,
+    tailings: f?.tailings === true,
+    historicalProduction: f?.historicalProduction === true,
+    localMiningEvidence: f?.localMiningEvidence === true,
+    otherObservations: String(f?.otherObservations ?? ""),
+    expertInterpretation: String(f?.expertInterpretation ?? ""),
+    confidence: String(f?.confidence ?? "user_reported"),
+    notes: String(f?.notes ?? ""),
+    // Tri-state preserved: only keys the geologist explicitly set true survive
+    // this filter, exactly as ConfirmedAbsentFindings (structuredEvidenceTypes.ts)
+    // requires — "not mentioned" must never read as "confirmed absent".
+    ...(f?.confirmedAbsent && typeof f.confirmedAbsent === "object"
+      ? {
+          confirmedAbsent: Object.fromEntries(
+            Object.entries(f.confirmedAbsent as Record<string, unknown>)
+              .filter((e): e is [string, true] => e[1] === true),
+          ),
+        }
+      : {}),
+  }));
+
+  if (
+    assays.length === 0 && geophysics.length === 0 && mapping.length === 0 &&
+    remoteSensing.length === 0 && fieldObservations.length === 0
+  ) {
+    return undefined;
+  }
+  return { assays, geophysics, mapping, remoteSensing, fieldObservations };
 }
 
 /** A finite number, or null. Never 0 for "absent" — 0 metres is a real reading. */
