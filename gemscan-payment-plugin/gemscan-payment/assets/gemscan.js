@@ -33,6 +33,7 @@
         var paySection = document.getElementById("gs-pay");
         var payPlanLabel = document.getElementById("gs-pay-plan");
         var formPlan = document.getElementById("gs-form-plan");
+        var formItem = document.getElementById("gs-form-item");
         var formEmail = document.getElementById("gs-form-email");
         var stripeBtn = document.getElementById("gs-stripe");
         var stripePlan = document.getElementById("gs-stripe-plan");
@@ -63,6 +64,12 @@
         wrap.querySelectorAll(".gs-buy").forEach(function (btn) {
             btn.addEventListener("click", function () {
                 var plan = btn.getAttribute("data-plan");
+                // Display-only override: the three Enterprise tiers all post the
+                // same data-plan ("Enterprise") so the backend's isEnterprise
+                // check keeps matching, but that reads as a bare "Enterprise"
+                // heading with no seat tier — data-label carries the specific
+                // name (e.g. "Enterprise — Team") for on-screen text only.
+                var label = btn.getAttribute("data-label") || plan;
                 var price = btn.getAttribute("data-price") || "";
                 var mode = btn.getAttribute("data-mode") || "";
                 var item = btn.getAttribute("data-item") || "";
@@ -73,8 +80,9 @@
                 // direct link on the pack), so hide the card group for mode="momo".
                 if (cardGroup) cardGroup.style.display = (mode === "momo") ? "none" : "";
 
-                if (payPlanLabel) payPlanLabel.textContent = plan;
+                if (payPlanLabel) payPlanLabel.textContent = label;
                 if (formPlan) formPlan.value = plan;
+                if (formItem) formItem.value = item;
                 if (formEmail && email) formEmail.value = email;
 
                 // Show the exact amount to send in the mobile-money instructions.
@@ -102,9 +110,11 @@
                     btn.setAttribute("data-copy", tpl.replace("{amount}", amtUssd));
                 });
 
-                // Per-plan Stripe Payment Link: point the button at this plan's link,
-                // carrying the email + item so the webhook can auto-activate.
-                var planLink = cfg.links && cfg.links[plan];
+                // Stripe Payment Link for this purchase, carrying the email + item
+                // so the webhook can auto-activate. Looked up by ITEM first (the
+                // three Enterprise tiers share one plan name but have different
+                // links/prices), falling back to plan name for Explorer/Collector.
+                var planLink = cfg.links && (cfg.links[item] || cfg.links[plan]);
                 if (stripeBtn && planLink) stripeBtn.setAttribute("href", buildCardUrl(planLink, email, item));
 
                 // Keys-based Stripe Checkout form (only used if no links configured).
@@ -123,7 +133,7 @@
             stripeBtn.addEventListener("click", function (e) {
                 var email = emailMain ? emailMain.value.trim() : "";
                 if (!email) { e.preventDefault(); needEmail(); return; }
-                var link = cfg.links && cfg.links[selPlan];
+                var link = cfg.links && (cfg.links[selItem] || cfg.links[selPlan]);
                 if (link) stripeBtn.setAttribute("href", buildCardUrl(link, email, selItem));
             });
         }

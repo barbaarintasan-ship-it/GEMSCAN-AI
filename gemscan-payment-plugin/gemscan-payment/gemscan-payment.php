@@ -3,7 +3,7 @@
  * Plugin Name: GemScan Payments
  * Plugin URI:  https://barbaarintasan.com/gemscanpayment
  * Description: GemScan landing + pricing + payment page, and the bridge that upgrades a member's account after payment. Adds the [gemscan_payment] shortcode. Configure everything under Settings → GemScan.
- * Version:     1.9.6
+ * Version:     1.10.0
  * Author:      GemScan
  * License:     GPL-2.0+
  * Text Domain: gemscan-payment
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
 }
 
 define('GEMSCAN_OPT', 'gemscan_payment_options');
-define('GEMSCAN_VER', '1.9.6');
+define('GEMSCAN_VER', '1.10.0');
 define('GEMSCAN_TPL', 'gemscan-fullpage.php'); // standalone page template slug
 define('GEMSCAN_URL', plugin_dir_url(__FILE__));
 define('GEMSCAN_DIR', plugin_dir_path(__FILE__));
@@ -81,12 +81,20 @@ function gemscan_defaults() {
         'pack30_price'      => '4.99',
         'pack100_credits'   => 100,
         'pack100_price'     => '9.99',
+        // Enterprise per-seat annual tiers — billed yearly (12 months, see
+        // gemscan_activate()). Solo=1 seat, Team=2 seats, Business=3 seats.
+        'enterprise_solo_price'     => '149',
+        'enterprise_team_price'     => '200',
+        'enterprise_business_price' => '300',
         // Per-plan Stripe Payment Links (simplest — one link per plan/pack).
         'stripe_link_explorer'  => 'https://buy.stripe.com/3cIbJ0dHw3Zo3Is5Pn4Vy04',
         'stripe_link_collector' => 'https://buy.stripe.com/3cIaEW9rg0Nc4MwdhP4Vy05',
         'stripe_link_pack5'     => 'https://buy.stripe.com/8x28wOeLA2VkfrafpX4Vy06',
         'stripe_link_pack30'    => '',
         'stripe_link_pack100'   => '',
+        'stripe_link_enterprise_solo'     => '',
+        'stripe_link_enterprise_team'     => '',
+        'stripe_link_enterprise_business' => '',
         // Advanced alternative: Stripe API keys (auto-activation). Used only if
         // no per-plan links are set above.
         'stripe_pk'         => '',
@@ -135,23 +143,30 @@ function gemscan_opts() {
  * Activation bridge — upgrade an account by calling the backend function.
  * Returns array('ok'=>bool, 'msg'=>string).
  * ---------------------------------------------------------------------- */
-function gemscan_activate($o, $email, $plan, $method = '', $reference = '') {
+function gemscan_activate($o, $email, $plan, $method = '', $reference = '', $seats = null) {
     if (empty($o['functions_url']) || empty($o['activation_secret'])) {
         return array('ok' => false, 'msg' => 'Set the Functions URL and Activation secret first.');
     }
     $url = rtrim($o['functions_url'], '/') . '/activate-subscription';
+    $body = array(
+        'secret'    => $o['activation_secret'],
+        'email'     => $email,
+        'plan'      => $plan,
+        'method'    => $method,
+        'reference' => $reference,
+        // Enterprise is billed yearly (12 months); the standard plans per 6-month period.
+        'months'    => (strtolower(trim($plan)) === 'enterprise') ? 12 : 6,
+    );
+    // Seat cap for the per-seat Enterprise tiers (Solo=1/Team=2/Business=3).
+    // Omitted for non-Enterprise plans and for legacy manual Enterprise
+    // activations with no seat tier — the server leaves max_seats uncapped then.
+    if ($seats !== null && (int) $seats > 0) {
+        $body['seats'] = (int) $seats;
+    }
     $res = wp_remote_post($url, array(
         'timeout' => 20,
         'headers' => array('Content-Type' => 'application/json'),
-        'body'    => wp_json_encode(array(
-            'secret'    => $o['activation_secret'],
-            'email'     => $email,
-            'plan'      => $plan,
-            'method'    => $method,
-            'reference' => $reference,
-            // Enterprise is billed yearly (12 months); the standard plans per 6-month period.
-            'months'    => (strtolower(trim($plan)) === 'enterprise') ? 12 : 6,
-        )),
+        'body'    => wp_json_encode($body),
     ));
     if (is_wp_error($res)) {
         return array('ok' => false, 'msg' => $res->get_error_message());
@@ -271,6 +286,9 @@ function gemscan_expected_amount_cents($o, $item) {
         'pack5' => $o['pack5_price'],
         'pack30' => $o['pack30_price'],
         'pack100' => $o['pack100_price'],
+        'enterprise_solo' => $o['enterprise_solo_price'],
+        'enterprise_team' => $o['enterprise_team_price'],
+        'enterprise_business' => $o['enterprise_business_price'],
     );
     if (!isset($prices[$item])) {
         return null;
@@ -278,10 +296,43 @@ function gemscan_expected_amount_cents($o, $item) {
     return (int) round(floatval($prices[$item]) * 100);
 }
 
+/* Subscription item slug → { plan, seats, price option key, human label }.
+ * The three Enterprise tiers all activate the SAME "Enterprise" plan
+ * server-side (that literal string is what activate-subscription's
+ * isEnterprise check matches on) — they differ only in seat count and price.
+ * Centralised here so the Stripe webhook, the admin tool, and the mobile-money
+ * confirmation email all agree on labels/seats instead of re-deriving them. */
+function gemscan_subscription_items($o) {
+    return array(
+        'explorer'  => array('plan' => 'Explorer', 'seats' => null, 'price' => $o['explorer_price'], 'label' => 'Explorer'),
+        'collector' => array('plan' => 'Gem Collector', 'seats' => null, 'price' => $o['collector_price'], 'label' => 'Gem Collector'),
+        'enterprise_solo' => array(
+            'plan' => 'Enterprise', 'seats' => 1, 'price' => $o['enterprise_solo_price'],
+            'label' => 'Enterprise — Solo (1 seat)',
+        ),
+        'enterprise_team' => array(
+            'plan' => 'Enterprise', 'seats' => 2, 'price' => $o['enterprise_team_price'],
+            'label' => 'Enterprise — Team (2 seats)',
+        ),
+        'enterprise_business' => array(
+            'plan' => 'Enterprise', 'seats' => 3, 'price' => $o['enterprise_business_price'],
+            'label' => 'Enterprise — Business (3 seats)',
+        ),
+    );
+}
+
+/* Human label for an item slug (falls back to the raw plan text for anything
+ * unrecognized, e.g. a credit pack or a legacy manual "Enterprise" pick). */
+function gemscan_item_label($o, $item, $fallback = '') {
+    $items = gemscan_subscription_items($o);
+    $item = strtolower(trim($item));
+    return isset($items[$item]) ? $items[$item]['label'] : $fallback;
+}
+
 /* Map the paid item to an activation / credit grant, and record the revenue. */
 function gemscan_fulfill_stripe($o, $item, $email, $session_id) {
     $item = strtolower(trim($item));
-    $subs = array('explorer' => 'Explorer', 'collector' => 'Gem Collector');
+    $subs = gemscan_subscription_items($o);
     $packs = array(
         'pack5'   => array((int) $o['pack5_credits'],   $o['pack5_price']),
         'pack30'  => array((int) $o['pack30_credits'],  $o['pack30_price']),
@@ -289,14 +340,15 @@ function gemscan_fulfill_stripe($o, $item, $email, $session_id) {
     );
 
     if (isset($subs[$item])) {
-        $plan = $subs[$item];
-        $r = gemscan_activate($o, $email, $plan, 'stripe', $session_id);
+        $plan  = $subs[$item]['plan'];
+        $seats = $subs[$item]['seats'];
+        $r = gemscan_activate($o, $email, $plan, 'stripe', $session_id, $seats);
         if (!empty($r['ok']) && class_exists('GemScan_Data')) {
             GemScan_Data::record_revenue(array(
                 'email'     => $email,
                 'type'      => 'subscription',
-                'plan'      => $plan,
-                'amount'    => ('collector' === $item) ? $o['collector_price'] : $o['explorer_price'],
+                'plan'      => $subs[$item]['label'],
+                'amount'    => $subs[$item]['price'],
                 'currency'  => $o['currency'],
                 'method'    => 'stripe',
                 'reference' => $session_id,
@@ -599,14 +651,25 @@ function gemscan_settings_page() {
     // Handle the "activate an account" admin tool.
     $activation_notice = '';
     if (!empty($_POST['gemscan_do_activate']) && check_admin_referer('gemscan_activate_now')) {
-        $email  = isset($_POST['act_email']) ? sanitize_email(wp_unslash($_POST['act_email'])) : '';
-        $plan   = isset($_POST['act_plan']) ? sanitize_text_field(wp_unslash($_POST['act_plan'])) : '';
-        $method = isset($_POST['act_method']) ? sanitize_text_field(wp_unslash($_POST['act_method'])) : '';
-        $r = gemscan_activate($o, $email, $plan, $method);
+        $email     = isset($_POST['act_email']) ? sanitize_email(wp_unslash($_POST['act_email'])) : '';
+        $act_raw   = isset($_POST['act_plan']) ? sanitize_text_field(wp_unslash($_POST['act_plan'])) : '';
+        $method    = isset($_POST['act_method']) ? sanitize_text_field(wp_unslash($_POST['act_method'])) : '';
+        // The Enterprise seat tiers post as "Enterprise|<seats>" (e.g.
+        // "Enterprise|2") so one dropdown carries both the plan and the seat
+        // count; every other option posts its plan name with nothing to split.
+        $act_parts = explode('|', $act_raw, 2);
+        $plan      = $act_parts[0];
+        $act_seats = isset($act_parts[1]) ? (int) $act_parts[1] : null;
+        $r = gemscan_activate($o, $email, $plan, $method, '', $act_seats);
         $activation_notice = '<div class="notice ' . ($r['ok'] ? 'notice-success' : 'notice-error') . '"><p>' . esc_html($r['msg']) . '</p></div>';
         // Record subscription revenue for the business dashboard.
         if ($r['ok'] && class_exists('GemScan_Data')) {
-            $amt = (strtolower($plan) === 'gem collector') ? $o['collector_price'] : $o['explorer_price'];
+            if (strtolower($plan) === 'enterprise' && $act_seats) {
+                $seat_prices = array(1 => $o['enterprise_solo_price'], 2 => $o['enterprise_team_price'], 3 => $o['enterprise_business_price']);
+                $amt = isset($seat_prices[$act_seats]) ? $seat_prices[$act_seats] : $o['enterprise_business_price'];
+            } else {
+                $amt = (strtolower($plan) === 'gem collector') ? $o['collector_price'] : $o['explorer_price'];
+            }
             GemScan_Data::record_revenue(array(
                 'email'    => $email,
                 'type'     => 'subscription',
@@ -656,11 +719,17 @@ function gemscan_settings_page() {
         'pack5_price'       => 'Credit pack 1 — price (5 Deep Scans)',
         'pack30_price'      => 'Credit pack 2 — price (30 Deep Scans)',
         'pack100_price'     => 'Credit pack 3 — price (100 Deep Scans)',
+        'enterprise_solo_price'     => 'Enterprise — Solo (1 seat) — price per year',
+        'enterprise_team_price'     => 'Enterprise — Team (2 seats) — price per year',
+        'enterprise_business_price' => 'Enterprise — Business (3 seats) — price per year',
         'stripe_link_explorer'  => 'Stripe Payment Link — Explorer',
         'stripe_link_collector' => 'Stripe Payment Link — Gem Collector',
         'stripe_link_pack5'     => 'Stripe Payment Link — 5 Deep Scans',
         'stripe_link_pack30'    => 'Stripe Payment Link — 30 Deep Scans',
         'stripe_link_pack100'   => 'Stripe Payment Link — 100 Deep Scans',
+        'stripe_link_enterprise_solo'     => 'Stripe Payment Link — Enterprise Solo (1 seat)',
+        'stripe_link_enterprise_team'     => 'Stripe Payment Link — Enterprise Team (2 seats)',
+        'stripe_link_enterprise_business' => 'Stripe Payment Link — Enterprise Business (3 seats)',
         'stripe_pk'             => 'Stripe Publishable Key (optional — only if not using links above)',
         'stripe_sk'             => 'Stripe Secret Key (optional — kept server-side, never shown)',
         'stripe_webhook_secret' => 'Stripe Webhook signing secret (whsec_… — enables AUTOMATIC card activation)',
@@ -702,7 +771,10 @@ function gemscan_settings_page() {
                         <select name="act_plan">
                             <option value="Explorer">Explorer</option>
                             <option value="Gem Collector">Gem Collector</option>
-                            <option value="Enterprise">Enterprise (12 months)</option>
+                            <option value="Enterprise|1">Enterprise — Solo (1 seat) — <?php echo esc_html($o['currency'] . ' ' . $o['enterprise_solo_price']); ?>/yr</option>
+                            <option value="Enterprise|2">Enterprise — Team (2 seats) — <?php echo esc_html($o['currency'] . ' ' . $o['enterprise_team_price']); ?>/yr</option>
+                            <option value="Enterprise|3">Enterprise — Business (3 seats) — <?php echo esc_html($o['currency'] . ' ' . $o['enterprise_business_price']); ?>/yr</option>
+                            <option value="Enterprise">Enterprise — legacy (no seat cap, 12 months)</option>
                         </select>
                     </td></tr>
                     <tr><th>Method</th><td>
@@ -834,8 +906,14 @@ function gemscan_maybe_handle_form($o) {
     $name  = isset($_POST['gs_name']) ? sanitize_text_field(wp_unslash($_POST['gs_name'])) : '';
     $email = isset($_POST['gs_email']) ? sanitize_email(wp_unslash($_POST['gs_email'])) : '';
     $plan  = isset($_POST['gs_plan']) ? sanitize_text_field(wp_unslash($_POST['gs_plan'])) : '';
+    $item  = isset($_POST['gs_item']) ? sanitize_text_field(wp_unslash($_POST['gs_item'])) : '';
     $txn   = isset($_POST['gs_txn']) ? sanitize_text_field(wp_unslash($_POST['gs_txn'])) : '';
     $note  = isset($_POST['gs_note']) ? sanitize_text_field(wp_unslash($_POST['gs_note'])) : '';
+    // The three Enterprise tiers all carry the same plan text ("Enterprise") —
+    // the item slug is what actually tells them apart, so prefer its label
+    // here (e.g. "Enterprise — Team (2 seats)") so the owner knows exactly
+    // which seat tier to pick in the admin "Activate an account" tool.
+    $plan_label = gemscan_item_label($o, $item, $plan);
 
     if (!$email || !$txn) {
         return '<div class="gs-alert gs-error">'
@@ -854,15 +932,15 @@ function gemscan_maybe_handle_form($o) {
     $cta_text  = $is_credit ? 'Add credits to this account →' : 'Verify &amp; open this account →';
     $guidance  = $is_credit
         ? 'After verifying the payment, use the button above (Settings → GemScan → “Add Deep Scan credits”), enter <strong>' . esc_html($email) . '</strong> and choose the matching pack, then click Add.'
-        : 'After verifying the payment, use the button above (Settings → GemScan → Activate an account), enter <strong>' . esc_html($email) . '</strong> and the plan, then click Activate now.';
+        : 'After verifying the payment, use the button above (Settings → GemScan → Activate an account), enter <strong>' . esc_html($email) . '</strong> and choose <strong>' . esc_html($plan_label) . '</strong> from the Plan list, then click Activate now.';
 
-    $subject = 'GemScan ' . ($is_credit ? 'credits' : 'payment') . ' — ' . $plan . ' — ' . $email;
+    $subject = 'GemScan ' . ($is_credit ? 'credits' : 'payment') . ' — ' . $plan_label . ' — ' . $email;
     $body = '<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:15px;color:#1c1c1e;line-height:1.6">'
           . '<h2 style="margin:0 0 12px">💎 New GemScan ' . ($is_credit ? 'Deep Scan credit' : 'payment') . ' confirmation</h2>'
           . '<table cellpadding="6" style="border-collapse:collapse;font-size:15px">'
           . '<tr><td><strong>Name</strong></td><td>' . esc_html($name) . '</td></tr>'
           . '<tr><td><strong>Email</strong></td><td>' . esc_html($email) . '</td></tr>'
-          . '<tr><td><strong>' . ($is_credit ? 'Credit pack' : 'Plan') . '</strong></td><td>' . esc_html($plan) . '</td></tr>'
+          . '<tr><td><strong>' . ($is_credit ? 'Credit pack' : 'Plan') . '</strong></td><td>' . esc_html($plan_label) . '</td></tr>'
           . '<tr><td><strong>Transaction ID</strong></td><td>' . esc_html($txn) . '</td></tr>'
           . '<tr><td><strong>Paid with</strong></td><td>' . esc_html($note) . '</td></tr>'
           . '</table>'
@@ -976,19 +1054,47 @@ function gemscan_render() {
                 <button type="button" class="gs-buy" data-plan="Gem Collector" data-item="collector" data-price="<?php echo esc_attr($o['collector_price']); ?>"><?php echo gs_t('Choose Gem Collector', 'Dooro Gem Collector'); ?></button>
             </div>
 
-            <div class="gs-plan">
-                <h3>Enterprise</h3>
-                <div class="gs-price"><?php echo gs_t('Custom', 'Heshiis'); ?><span><?php echo gs_t('by agreement', 'qiimaha waa heshiis'); ?></span></div>
+            <?php
+            // The three Enterprise seat tiers — same feature set, priced by how
+            // many people on the team need their own login (self-serve "Manage
+            // Team" in the app adds/removes teammates up to the seat count).
+            $gs_ent_tiers = array(
+                array(
+                    'item' => 'enterprise_solo', 'name' => 'Enterprise — Solo', 'seats_en' => '1 seat', 'seats_so' => '1 xubin',
+                    'price' => $o['enterprise_solo_price'],
+                ),
+                array(
+                    'item' => 'enterprise_team', 'name' => 'Enterprise — Team', 'seats_en' => '2 seats', 'seats_so' => '2 xubnood',
+                    'price' => $o['enterprise_team_price'], 'popular' => true,
+                ),
+                array(
+                    'item' => 'enterprise_business', 'name' => 'Enterprise — Business', 'seats_en' => '3 seats', 'seats_so' => '3 xubnood',
+                    'price' => $o['enterprise_business_price'],
+                ),
+            );
+            foreach ($gs_ent_tiers as $gs_ent) : ?>
+            <div class="gs-plan<?php echo !empty($gs_ent['popular']) ? ' gs-popular' : ''; ?>">
+                <?php if (!empty($gs_ent['popular'])) : ?>
+                <div class="gs-badge"><?php echo gs_t('Most Popular', 'Ugu Caansan'); ?></div>
+                <?php endif; ?>
+                <h3><?php echo esc_html($gs_ent['name']); ?></h3>
+                <div class="gs-price"><?php echo $cur; ?> <?php echo esc_html($gs_ent['price']); ?><span>/<?php echo gs_t('year', 'sanadkii'); ?></span></div>
+                <div class="gs-plan-seats"><?php echo gs_t($gs_ent['seats_en'], $gs_ent['seats_so']); ?></div>
                 <ul>
                     <li><?php echo gs_t('Everything in Gem Collector', 'Dhammaan waxa Gem Collector'); ?></li>
                     <li><?php echo gs_t('Field Exploration &amp; offline field work', 'Sahamin goobeed &amp; shaqo offline ah'); ?></li>
                     <li><?php echo gs_t('AI Geological Field Reports', 'Warbixino juqraafi (AI) goobeed'); ?></li>
-                    <li><?php echo gs_t('Team accounts &amp; collaboration', 'Akoonno koox &amp; wada-shaqayn'); ?></li>
+                    <li><?php echo gs_t('Team accounts — add/remove teammates yourself', 'Akoonno koox — adigu ku dar/ka saar xubnaha'); ?></li>
                     <li><?php echo gs_t('Dedicated support', 'Taageero gaar ah'); ?></li>
                 </ul>
-                <div class="gs-plan-cta gs-muted"><?php echo gs_t('Contact us for pricing', 'Nala soo xiriir qiimaha'); ?></div>
+                <button type="button" class="gs-buy" data-plan="Enterprise" data-label="<?php echo esc_attr($gs_ent['name']); ?>" data-item="<?php echo esc_attr($gs_ent['item']); ?>" data-price="<?php echo esc_attr($gs_ent['price']); ?>"><?php echo gs_t('Choose ' . $gs_ent['name'], 'Dooro ' . $gs_ent['name']); ?></button>
             </div>
+            <?php endforeach; ?>
         </section>
+        <p class="gs-enterprise-note"><?php echo gs_t(
+            'Need more than 3 seats? Contact us for a custom team plan.',
+            'Ma u baahan tahay in ka badan 3 xubin? Nala soo xiriir qorshe koox oo gaar ah.'
+        ); ?></p>
 
         <section class="gs-credit-packs">
             <h3>➕ <?php echo gs_t('Deep Scan Credits', 'Credits Deep Scan'); ?></h3>
@@ -1146,6 +1252,7 @@ function gemscan_render() {
                         <?php wp_nonce_field('gemscan_confirm', 'gemscan_nonce'); ?>
                         <input type="hidden" name="gemscan_confirm" value="1">
                         <input type="hidden" name="gs_plan" id="gs-form-plan" value="">
+                        <input type="hidden" name="gs_item" id="gs-form-item" value="">
 
                         <label class="gs-field-label"><?php echo gs_t('Your full name', 'Magacaaga oo dhan'); ?></label>
                         <input type="text" name="gs_name" placeholder="Aamina Yuusuf Cali">
@@ -1171,9 +1278,16 @@ function gemscan_render() {
         <script type="application/json" id="gs-config">
             <?php echo wp_json_encode(array(
                 'currency' => $o['currency'],
+                // Keyed by plan name for the two legacy plans, and additionally
+                // by item slug for anything sharing a plan name (the three
+                // Enterprise tiers all activate plan="Enterprise" but need
+                // different links) — gemscan.js looks up by item first.
                 'links'    => array(
                     'Explorer'      => $o['stripe_link_explorer'],
                     'Gem Collector' => $o['stripe_link_collector'],
+                    'enterprise_solo'     => $o['stripe_link_enterprise_solo'],
+                    'enterprise_team'     => $o['stripe_link_enterprise_team'],
+                    'enterprise_business' => $o['stripe_link_enterprise_business'],
                 ),
             )); ?>
         </script>

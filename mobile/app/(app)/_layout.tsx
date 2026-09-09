@@ -76,6 +76,9 @@ export default function AppLayout() {
       <Stack.Screen name="enterprise/sample/[id]" options={{ title: "Sample" }} />
       {/* A sample still held on the device — readable with no signal. */}
       <Stack.Screen name="enterprise/local-sample/[localId]" options={{ title: "Held on device" }} />
+      {/* Self-serve team management — draws its own header (matches the other
+          enterprise/ surfaces), reached from Settings. */}
+      <Stack.Screen name="enterprise/team" options={{ headerShown: false }} />
     </Stack>
   );
 }

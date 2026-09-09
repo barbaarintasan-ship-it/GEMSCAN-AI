@@ -124,6 +124,12 @@ Deno.serve(async (req) => {
     const tier = isEnterprise ? "professional" : PLAN_TIER[planKey];
     if (!tier) return json({ error: "a valid plan is required" }, 400);
 
+    // Seat count for the per-seat Enterprise tiers (Solo=1/Team=2/Business=3).
+    // Omitted (or 0) means "no cap" — preserves the old manual "Enterprise
+    // (12 months)" admin-activation behaviour for accounts predating seat tiers.
+    const seatsRaw = Math.floor(Number(body.seats ?? 0));
+    const seats = isEnterprise && seatsRaw > 0 && seatsRaw <= 20 ? seatsRaw : null;
+
     // Resolve the account by email (profiles.id === auth user id).
     const { data: profile } = await admin
       .from("profiles")
@@ -158,15 +164,22 @@ Deno.serve(async (req) => {
 
       let orgId = existingOrg?.id as string | undefined;
       if (orgId) {
-        const { error: upErr } = await ent.from("organization")
-          .update({ status: "active", plan: "enterprise", updated_at: now.toISOString() })
-          .eq("id", orgId);
+        const update: Record<string, unknown> = {
+          status: "active", plan: "enterprise", updated_at: now.toISOString(),
+        };
+        // Only touch max_seats when this activation specifies a tier — a
+        // renewal/reactivation that omits `seats` leaves the existing cap alone.
+        if (seats !== null) update.max_seats = seats;
+        const { error: upErr } = await ent.from("organization").update(update).eq("id", orgId);
         if (upErr) return json({ error: upErr.message }, 500);
       } else {
         const orgName = String(body.org_name ?? "").trim() || email;
         const { data: created, error: orgErr } = await ent
           .from("organization")
-          .insert({ name: orgName, plan: "enterprise", status: "active", created_by: profile.id })
+          .insert({
+            name: orgName, plan: "enterprise", status: "active", created_by: profile.id,
+            max_seats: seats,
+          })
           .select("id")
           .single();
         if (orgErr) return json({ error: orgErr.message }, 500);

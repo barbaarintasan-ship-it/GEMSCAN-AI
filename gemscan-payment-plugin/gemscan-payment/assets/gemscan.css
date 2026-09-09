@@ -91,6 +91,11 @@
 }
 .gs-buy:hover { background: #b8941f; }
 .gs-plan-cta.gs-muted { text-align: center; color: #999; font-size: 13px; padding: 10px; }
+.gs-plan-seats {
+    display: inline-block; background: #f4efe0; color: #8a6d1a; font-size: 12px; font-weight: 700;
+    padding: 3px 10px; border-radius: 999px; align-self: flex-start;
+}
+.gs-enterprise-note { text-align: center; color: #999; font-size: 13px; margin: -8px 0 20px; }
 
 .gs-credits { text-align: center; color: #555; font-size: 14px; margin: 8px 0 24px; }
 .gs-credits-link { color: #635bff; font-weight: 700; text-decoration: underline; margin-left: 6px; }

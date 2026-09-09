@@ -28,6 +28,7 @@ import { confirmStopIfUnfinished } from "../../lib/exploration/confirmStop";
 import { supabase } from "../../lib/supabase";
 import { useSubscriptionStatus } from "../../lib/subscription";
 import { setAppLanguage, type AppLanguage } from "../../lib/i18n";
+import { isOwnerEmail } from "../../lib/enterpriseSamples";
 import { getStoredExplanationStyle, setExplanationStyle } from "../../lib/explanationStyle";
 import type { ExplanationStyle } from "../../lib/scanUpload";
 import { checkForUpdate } from "../../lib/appUpdate";
@@ -41,6 +42,10 @@ export default function SettingsScreen() {
   const { session, signOut } = useAuth();
   const exploration = useExploration();
   const { data: subscription } = useSubscriptionStatus();
+  // Same gate as the Home screen's Field Work entry (lib/enterpriseSamples.ts's
+  // isOwnerEmail + the active-org signal from verify-subscription) — a paying
+  // Enterprise org member manages their team from here.
+  const showTeam = subscription?.enterprise === true || isOwnerEmail(session?.user?.email);
 
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
@@ -277,6 +282,22 @@ export default function SettingsScreen() {
           </View>
         </Pressable>
       </View>
+
+      {/* Enterprise team management — self-serve, gated to org members */}
+      {showTeam && (
+        <>
+          <SectionLabel>{i18n.language === "so" ? "Shirkadda" : "Organization"}</SectionLabel>
+          <View style={styles.card}>
+            <Pressable style={styles.selectRow} onPress={() => router.push("/(app)/enterprise/team")}>
+              <View style={styles.rowLeft}>
+                <Ionicons name="people-outline" size={18} color={colors.textFaint} />
+                <Text style={styles.rowValue}>{i18n.language === "so" ? "Maamul Kooxda" : "Manage Team"}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#8A8A8E" />
+            </Pressable>
+          </View>
+        </>
+      )}
 
       {/* App information */}
       <SectionLabel>{t("settings.aboutSection")}</SectionLabel>

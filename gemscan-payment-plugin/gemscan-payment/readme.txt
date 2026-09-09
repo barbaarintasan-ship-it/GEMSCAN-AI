@@ -1,5 +1,5 @@
 === GemScan Payments ===
-Version: 1.9.4
+Version: 1.10.0
 Requires: WordPress 5.5+
 License: GPL-2.0+
 
@@ -58,6 +58,21 @@ a member's account after payment. It does NOT touch the mobile app.
   switcher at the top toggles to English.
 
 == Changelog ==
+= 1.10.0 =
+* Enterprise is now sold as three priced, self-serve seat tiers instead of
+  "Contact us": Solo (1 seat), Team (2 seats), Business (3 seats) — each with
+  its own price, Stripe Payment Link, and mobile-money flow.
+* New Settings → GemScan fields: price + Stripe Payment Link per Enterprise
+  tier.
+* "Activate an account" now has one dropdown option per Enterprise tier
+  (sets the seat cap automatically) plus the old uncapped "legacy" option.
+* The mobile-money payment-confirmation email now shows the specific
+  Enterprise tier (e.g. "Enterprise — Team (2 seats)") instead of a bare
+  "Enterprise", so the owner picks the right seat count when activating.
+* Requires the matching app-side update (seat cap + self-serve "Manage Team"
+  screen) to be live on the Supabase project — deploy `activate-subscription`
+  and the `0110_enterprise_seat_management` migration together with this.
+
 = 1.9.4 =
 * New "Registered Users" page under GemScan Business: the full app sign-up
   list (email, joined date, plan, status, scan counts) from Supabase, with
