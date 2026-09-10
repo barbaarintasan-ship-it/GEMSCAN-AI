@@ -43,6 +43,24 @@ export type MissionArea = { area_id: string; name: string };
 
 export type MyProject = { id: string; name: string; organization_id: string | null; owner_id: string | null };
 
+/**
+ * Phase 2D — mission-level only. `observation_count` counts rows across the
+ * four structured-observation tables (rock/mineral/alteration/structural),
+ * NOT samples — the same meaning `submit_sample`'s own `observation_count`
+ * return value has carried since its first version. `coverage_pct` is
+ * always 0: `mission_assignment.target_h3` (H3 res 7) and
+ * `sample_location.h3_cell` (res 9) are different resolutions with no
+ * persisted mapping between them, so a percentage here would be invented,
+ * not measured. Deferred until assignment-cell provenance is persisted.
+ */
+export type MissionProgress = {
+  mission_id: string;
+  observation_count: number;
+  sample_count: number;
+  coverage_pct: number;
+  updated_at: string;
+};
+
 /** Missions the caller is a contributor (or owner) on. */
 export async function fetchMyMissions(): Promise<MyMission[]> {
   const { data: auth } = await supabase.auth.getUser();
@@ -150,6 +168,54 @@ export async function assignCells(
   });
   if (error) throw error;
   return data as number;
+}
+
+/**
+ * Recomputes mission_progress from source-of-truth tables and returns the
+ * fresh row — one round trip, not a write followed by a separate read.
+ * Idempotent: calling this twice with unchanged underlying data returns
+ * identical observation_count/sample_count/coverage_pct.
+ */
+export async function recomputeMissionProgress(missionId: string): Promise<MissionProgress> {
+  const { data, error } = await supabase.schema("enterprise")
+    .rpc("recompute_mission_progress", { p_mission: missionId })
+    .single();
+  if (error) throw error;
+  return data as MissionProgress;
+}
+
+/** Reads the last-computed snapshot without recomputing it. */
+export async function fetchMissionProgress(missionId: string): Promise<MissionProgress | null> {
+  const { data, error } = await supabase.schema("enterprise")
+    .from("mission_progress")
+    .select("mission_id,observation_count,sample_count,coverage_pct,updated_at")
+    .eq("mission_id", missionId)
+    .maybeSingle();
+  if (error) throw error;
+  return data as MissionProgress | null;
+}
+
+export type MissionProgressDetail = {
+  per_contributor: Array<{ contributor_id: string; sample_count: number }>;
+  outside_assignment_count: number;
+  last_activity_at: string | null;
+};
+
+/**
+ * The per-contributor/outside-assignment/last-activity breakdown.
+ *
+ * NOT a plain `.from("sample").select()` — enterprise.sample's own RLS
+ * (sample_select) only lets a caller see samples they collected themselves,
+ * or ones already past review. A manager reading their whole team's numbers
+ * needs the RPC's SECURITY DEFINER boundary (gated on mission membership,
+ * same as recomputeMissionProgress), or they would silently see only their
+ * own rows and report a wrong count that looks like a real one.
+ */
+export async function fetchMissionProgressDetail(missionId: string): Promise<MissionProgressDetail> {
+  const { data, error } = await supabase.schema("enterprise")
+    .rpc("mission_progress_detail", { p_mission: missionId });
+  if (error) throw error;
+  return data as MissionProgressDetail;
 }
 
 async function authHeader(): Promise<Record<string, string>> {

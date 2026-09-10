@@ -22,7 +22,9 @@ import { supabase } from "../../../../lib/supabase";
 import {
   fetchMissionAssignments, fetchMissionContributors, fetchMissionAreas,
   addMissionContributor, assignCells, generateMissionCells,
+  recomputeMissionProgress, fetchMissionProgressDetail,
   type Assignment, type MissionContributor, type MissionArea,
+  type MissionProgress, type MissionProgressDetail,
 } from "../../../../lib/enterprise/missions";
 
 const TERMINAL = new Set(["completed", "skipped", "expired"]);
@@ -35,9 +37,13 @@ export default function ManagerMissionScreen() {
 
   const [loading, setLoading] = useState(true);
   const [missionName, setMissionName] = useState("");
+  const [targetObservationCount, setTargetObservationCount] = useState(0);
+  const [targetCoveragePct, setTargetCoveragePct] = useState(0);
   const [areas, setAreas] = useState<MissionArea[]>([]);
   const [contributors, setContributors] = useState<MissionContributor[]>([]);
   const [cells, setCells] = useState<Assignment[]>([]);
+  const [progress, setProgress] = useState<MissionProgress | null>(null);
+  const [progressDetail, setProgressDetail] = useState<MissionProgressDetail | null>(null);
   const [expandedCell, setExpandedCell] = useState<string | null>(null);
   const [generating, setGenerating] = useState<string | null>(null);
   const [addEmail, setAddEmail] = useState("");
@@ -48,16 +54,26 @@ export default function ManagerMissionScreen() {
     if (!missionId) return;
     setLoading(true);
     try {
-      const [{ data: mission }, areaRows, contributorRows, cellRows] = await Promise.all([
-        supabase.schema("enterprise").from("exploration_mission").select("name").eq("id", missionId).maybeSingle(),
+      const [{ data: mission }, areaRows, contributorRows, cellRows, progressRow, detail] = await Promise.all([
+        supabase.schema("enterprise").from("exploration_mission")
+          .select("name,target_observation_count,target_coverage_pct").eq("id", missionId).maybeSingle(),
         fetchMissionAreas(missionId),
         fetchMissionContributors(missionId),
         fetchMissionAssignments(missionId),
+        // Explicit on-demand recompute (Phase 2D refresh strategy) — every
+        // time this screen opens, not on a trigger/cron. recompute returns
+        // the fresh row directly, so this is the only progress round trip.
+        recomputeMissionProgress(missionId),
+        fetchMissionProgressDetail(missionId),
       ]);
       setMissionName((mission as any)?.name ?? "");
+      setTargetObservationCount((mission as any)?.target_observation_count ?? 0);
+      setTargetCoveragePct(Number((mission as any)?.target_coverage_pct ?? 0));
       setAreas(areaRows);
       setContributors(contributorRows);
       setCells(cellRows);
+      setProgress(progressRow);
+      setProgressDetail(detail);
     } finally {
       setLoading(false);
     }
@@ -150,6 +166,71 @@ export default function ManagerMissionScreen() {
                 ? `${cells.length} unug · ${cells.length - unassignedCount} la qoondeeyay · ${unassignedCount} bilaash`
                 : `${cells.length} cells · ${cells.length - unassignedCount} assigned · ${unassignedCount} unassigned`}
             </Text>
+          </Card>
+
+          <SectionLabel>{so ? "Horumarka (Progress)" : "Progress"}</SectionLabel>
+          <Card style={styles.progressCard}>
+            <View style={styles.progressRow}>
+              <Text style={styles.progressLabel}>{so ? "Unugyo la qoondeeyay" : "Assigned cells"}</Text>
+              <Text style={styles.progressValue}>{cells.length}</Text>
+            </View>
+            <View style={styles.progressRow}>
+              <Text style={styles.progressLabel}>{so ? "Caddaymo la ururiyay" : "Samples collected"}</Text>
+              <Text style={styles.progressValue}>{progress?.sample_count ?? 0}</Text>
+            </View>
+            <View style={styles.progressRow}>
+              <Text style={styles.progressLabel}>{so ? "Indho-indhayn (observations)" : "Observations"}</Text>
+              <Text style={styles.progressValue}>{progress?.observation_count ?? 0}</Text>
+            </View>
+            <View style={styles.progressRow}>
+              <Text style={styles.progressLabel}>
+                {so ? "Caddaymo ka baxsan qoondaynta" : "Outside-assignment samples"}
+              </Text>
+              <Text style={styles.progressValue}>{progressDetail?.outside_assignment_count ?? 0}</Text>
+            </View>
+            {(progressDetail?.per_contributor.length ?? 0) > 0 && (
+              <View style={styles.perContributorBlock}>
+                <Text style={styles.progressLabel}>{so ? "Xubin kasta" : "Per contributor"}</Text>
+                {progressDetail!.per_contributor.map((row) => (
+                  <View key={row.contributor_id} style={styles.perContributorRow}>
+                    <Text style={styles.perContributorEmail} numberOfLines={1}>
+                      {emailFor(row.contributor_id) ?? row.contributor_id}
+                    </Text>
+                    <Text style={styles.progressValue}>{row.sample_count}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            <View style={styles.progressRow}>
+              <Text style={styles.progressLabel}>{so ? "Waqtiga ugu dambeeyay" : "Last activity"}</Text>
+              <Text style={styles.progressValue}>
+                {progressDetail?.last_activity_at
+                  ? new Date(progressDetail.last_activity_at).toLocaleString()
+                  : (so ? "Wax lama diirin" : "None yet")}
+              </Text>
+            </View>
+            {targetObservationCount > 0 && (
+              <View style={styles.progressRow}>
+                <Text style={styles.progressLabel}>{so ? "Bartilmaameedka indho-indhaynta" : "Target observations"}</Text>
+                <Text style={styles.progressValue}>{targetObservationCount}</Text>
+              </View>
+            )}
+            {targetCoveragePct > 0 && (
+              <View style={styles.progressRow}>
+                <Text style={styles.progressLabel}>{so ? "Bartilmaameedka daboolka" : "Target coverage"}</Text>
+                <Text style={styles.progressValue}>{targetCoveragePct}%</Text>
+              </View>
+            )}
+            <Text style={styles.mutedText}>
+              {so
+                ? "Daboolka unugyada (cell coverage) weli lama xisaabin — waxay u baahan tahay in la kaydiyo unugga H3 ee saxda ah ee caddaymo kasta, oo weli aan la dhisin."
+                : "Cell-level coverage isn't calculated yet — it needs the exact H3 assignment cell each sample landed in to be persisted, which hasn't been built."}
+            </Text>
+            {progress?.updated_at && (
+              <Text style={styles.progressUpdatedAt}>
+                {so ? "La cusboonaysiiyay: " : "Updated: "}{new Date(progress.updated_at).toLocaleString()}
+              </Text>
+            )}
           </Card>
 
           <SectionLabel>{so ? "Aagagga (Areas)" : "Areas"}</SectionLabel>
@@ -252,6 +333,16 @@ const styles = StyleSheet.create({
   body: { padding: spacing.md, gap: spacing.sm, paddingBottom: 40 },
   summaryCard: { marginBottom: spacing.sm },
   summaryText: { color: colors.gold, fontSize: 13, fontWeight: "700" },
+  progressCard: { marginBottom: spacing.sm, gap: 6 },
+  progressRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  progressLabel: { color: colors.textMuted, fontSize: 13, flexShrink: 1 },
+  progressValue: { color: colors.text, fontSize: 13, fontWeight: "700" },
+  perContributorBlock: { gap: 4, marginTop: 2 },
+  perContributorRow: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingLeft: spacing.sm,
+  },
+  perContributorEmail: { color: colors.textMuted, fontSize: 12, flexShrink: 1 },
+  progressUpdatedAt: { color: colors.textFaint, fontSize: 11, fontStyle: "italic", marginTop: 2 },
   mutedText: { color: colors.textFaint, fontSize: 12, fontStyle: "italic", marginBottom: spacing.sm },
   areaRow: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
