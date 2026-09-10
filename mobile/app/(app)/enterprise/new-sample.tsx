@@ -65,8 +65,13 @@ export default function NewSampleScreen() {
   // Edit mode: /enterprise/new-sample?edit=<sampleId>. Prefills from the existing
   // sample and PUTs instead of POSTing. No AsyncStorage draft in edit mode — the
   // server copy is the source of truth.
-  const { edit, from, lat, lng } = useLocalSearchParams<{
+  const { edit, from, lat, lng, enterpriseMissionId, assignmentH3 } = useLocalSearchParams<{
     edit?: string; from?: string; lat?: string; lng?: string;
+    // Team Mission Mode (Phase 2C/My Mission screen) — set only when reached
+    // from "My Mission › Submit Evidence" for a specific assigned H3 cell.
+    // Unrelated to the solo field_mission_id below; kept as separate params
+    // so the two systems can never be confused at the navigation layer either.
+    enterpriseMissionId?: string; assignmentH3?: string;
   }>();
   // Opened from a running exploration session. The session is still alive
   // behind this screen — this is a push, not a replace — so finishing here
@@ -343,8 +348,15 @@ export default function NewSampleScreen() {
        * the server from whether an expedition happened to be open would file a
        * rock picked up on the way home as mission evidence.
        */
-      origin: (fromExploration ? "exploration" : "personal") as "personal" | "exploration",
+      origin: (fromExploration || enterpriseMissionId ? "exploration" : "personal") as "personal" | "exploration",
       field_mission_id: fromExploration ? currentMissionId() : null,
+      // Team Mission Mode — which enterprise.exploration_mission this evidence
+      // belongs to. Deliberately NOT sending assignment_h3 here: the server
+      // (enterprise-samples/handler.ts's buildPayload) always recomputes it
+      // from the ACTUAL submitted GPS, never a client-sent value — the
+      // `assignmentH3` param above is display-only (shown in the banner
+      // below) so the field worker can confirm which cell they're on.
+      enterprise_mission_id: enterpriseMissionId || undefined,
     };
 
     /**
@@ -476,6 +488,18 @@ export default function NewSampleScreen() {
       contentContainerStyle={[styles.content, { paddingBottom: spacing.xl }]}
       keyboardShouldPersistTaps="handled"
     >
+      {/* Team Mission Mode context — display only; the server independently
+          re-derives and re-validates both the mission membership and the
+          actual H3 cell from the GPS at submit time. */}
+      {enterpriseMissionId ? (
+        <Card accent style={styles.missionBanner}>
+          <Ionicons name="flag-outline" size={16} color={colors.gold} />
+          <Text style={styles.missionBannerText}>
+            {assignmentH3 ? `Mission evidence — cell ${assignmentH3.slice(0, 9)}…` : "Mission evidence"}
+          </Text>
+        </Card>
+      ) : null}
+
       {/* Sample Name (§1) */}
       <SectionLabel>Sample name *</SectionLabel>
       <TextInput
@@ -694,6 +718,8 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.lg, paddingBottom: spacing.xxxl },
+  missionBanner: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.lg },
+  missionBannerText: { color: colors.gold, fontSize: 13, fontWeight: "700" },
   footer: {
     paddingHorizontal: spacing.lg, paddingTop: spacing.md,
     backgroundColor: colors.bg, borderTopWidth: 1, borderTopColor: colors.border,

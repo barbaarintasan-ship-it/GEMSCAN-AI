@@ -46,8 +46,13 @@ describe("a sample states which workflow it belongs to", () => {
     // Deriving it on the server from whether an expedition happened to be open
     // would file a rock picked up on the way home as mission evidence.
     // An optional parenthesis/type-cast around the ternary is fine — the
-    // invariant is that origin is chosen from fromExploration here at capture.
-    expect(src).toMatch(/origin:\s*\(?\s*fromExploration\s*\?\s*"exploration"\s*:\s*"personal"/);
+    // invariant is that origin is chosen from EXPLICIT route params at
+    // capture, never inferred from ambient session state. Team Mission Mode
+    // (Phase 2C) added a second explicit route param, enterpriseMissionId —
+    // reaching this screen for a mission sample is just as explicit a signal
+    // as fromExploration, so it widened the same ternary rather than
+    // bypassing it.
+    expect(src).toMatch(/origin:\s*\(?\s*fromExploration\s*\|\|\s*enterpriseMissionId\s*\?\s*"exploration"\s*:\s*"personal"/);
   });
 
   test("the mission id travels with an exploration sample", () => {

@@ -24,8 +24,9 @@ import { useTranslation } from "react-i18next";
 import { colors, radius, spacing } from "../../../lib/theme";
 
 export default function EnterpriseFieldWorkScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const insets = useSafeAreaInsets();
+  const so = i18n.language === "so";
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -70,6 +71,22 @@ export default function EnterpriseFieldWorkScreen() {
           title={t("fieldWork.samples.title")}
           body={t("fieldWork.samples.body")}
           onPress={() => router.push("/(app)/enterprise/samples")}
+        />
+
+        {/* ── Team Mission Mode ───────────────────────────────────────────────
+            Separate from the solo three above: this is evidence collected as
+            part of an assigned team campaign, not a personal outing. */}
+        <Card
+          icon="flag-outline"
+          title={so ? "Mission-kayga" : "My Mission"}
+          body={so ? "Arag mission-ka lagaa qoondeeyay iyo unugyada goobta." : "See your assigned mission and H3 work cells."}
+          onPress={() => router.push("/(app)/enterprise/my-mission")}
+        />
+        <Card
+          icon="grid-outline"
+          title={so ? "Maamul Mission-nada" : "Manage Missions"}
+          body={so ? "Abuur mission, qaybi dhulka, oo u qoondee xubnaha koox." : "Create missions, split the area into cells, and assign your team."}
+          onPress={() => router.push("/(app)/enterprise/manager-missions")}
         />
 
         {/* THE EMPTY HALF OF THIS SCREEN, filled with the thing a first-time

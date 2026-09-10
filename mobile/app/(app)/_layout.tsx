@@ -79,6 +79,13 @@ export default function AppLayout() {
       {/* Self-serve team management — draws its own header (matches the other
           enterprise/ surfaces), reached from Settings. */}
       <Stack.Screen name="enterprise/team" options={{ headerShown: false }} />
+      {/* Team Mission Mode (Phase 2A-2C backend, this the first UI on top of
+          it) — field worker's "what's my mission" and the manager's roster/
+          H3-assignment list (a list, not a hex map — see that screen's own
+          header comment for why). */}
+      <Stack.Screen name="enterprise/my-mission" options={{ headerShown: false }} />
+      <Stack.Screen name="enterprise/manager-missions" options={{ headerShown: false }} />
+      <Stack.Screen name="enterprise/manager-mission/[missionId]" options={{ headerShown: false }} />
     </Stack>
   );
 }
