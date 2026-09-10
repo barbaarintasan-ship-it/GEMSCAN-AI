@@ -127,3 +127,9 @@ verify_jwt = true
 # HTML). Public page — no JWT; the app's own login + RLS gate all data.
 [functions.console]
 verify_jwt = false
+
+# Phase 2B — H3 area enumeration (Team Mission Mode). User-facing: acts as the
+# caller's own JWT throughout (never service role); every SECURITY DEFINER RPC
+# it calls makes its own auth.uid() authorization decision.
+[functions.generate-mission-cells]
+verify_jwt = true
