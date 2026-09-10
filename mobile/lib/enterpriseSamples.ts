@@ -45,7 +45,24 @@ export type NewSampleInput = {
   field_observations?: string;
   /** personal = a collected/scanned specimen; exploration = a mission's evidence. */
   origin?: "personal" | "exploration";
+  /** The SOLO geo.field_mission id — unrelated to enterprise_mission_id below. */
   field_mission_id?: string | null;
+  /**
+   * Team Mission Mode (Phase 2C) — the enterprise.exploration_mission this
+   * sample was collected under. Deliberately a separate field from the solo
+   * field_mission_id above; the server keeps the two entirely apart. Not yet
+   * set by any screen (no mission-picker UI exists) — carried here purely so
+   * the type contract exists and the field survives the offline queue
+   * unmodified (LocalSample stores this whole payload object) once a future
+   * screen starts setting it.
+   */
+  enterprise_mission_id?: string;
+  /**
+   * GPS provenance (Phase 2C). 'observed' (default) = the collector recorded
+   * this location themselves; 'reported' = it came from another source. The
+   * server never infers or overwrites this — always exactly what was sent.
+   */
+  location_origin?: "observed" | "reported";
   /**
    * Scan → Sample bridge. When set, the server reuses THIS scan's photographs
    * (copied to sample-owned storage) and `media` is omitted — the user does not

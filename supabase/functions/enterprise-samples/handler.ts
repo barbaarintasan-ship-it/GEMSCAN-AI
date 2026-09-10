@@ -10,12 +10,17 @@ import { BadRequestError, ConflictError, errorResponse, ForbiddenError, json, No
 import { resolveActor as realResolveActor, type Actor } from "../_shared/enterprise/auth.ts";
 import { serviceClient, userClient, type DbClient } from "../_shared/enterprise/clients.ts";
 import { requireEnterprise as realRequireEnterprise, requirePersonalSampleAccess as realRequirePersonalSampleAccess } from "../_shared/enterprise/authz.ts";
-import { cellFor } from "../_shared/geocontext/h3.ts";
+import { cellFor, H3_RESOLUTION } from "../_shared/geocontext/h3.ts";
 
 const MEDIA_ROLES = ["context", "surface_closeup", "texture_structure", "key_feature", "scale_reference", "extra"];
 const CLOSEUP_ROLES = ["surface_closeup", "texture_structure", "key_feature"]; // count as a "specimen close-up"
 const GPS_SOURCES = ["gps", "fused", "network", "manual"];
+const LOCATION_ORIGINS = ["observed", "reported"];
 const H3_RES = 9; // ~174 m cells for sample points
+// Mission-assignment resolution (Phase 2B/2C) — the SAME shared H3_RESOLUTION
+// mission_assignment.target_h3 is generated at, deliberately coarser than the
+// sample's own H3_RES=9 point cell. Two different questions: "exactly where
+// is this rock" (9) vs "whose work-allocation cell is this rock inside" (7).
 const LIST_COLS = "id,name,collected_at,status,completeness_status,completeness_score," +
   "ai_confidence,geologist_confidence,confidence_score,area_id,created_at,origin";
 const DETAIL = "id,name,collected_at,status,completeness_status,completeness_score," +
@@ -358,9 +363,22 @@ export function buildPayload(body: Record<string, unknown>): Record<string, unkn
   if (lat === null || lng === null) throw new BadRequestError("GPS (lat/lng) is required");
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) throw new BadRequestError("GPS coordinates out of range");
   if (body.gps_source && !GPS_SOURCES.includes(String(body.gps_source))) throw new BadRequestError("invalid gps_source");
+  if (body.location_origin && !LOCATION_ORIGINS.includes(String(body.location_origin))) {
+    throw new BadRequestError("invalid location_origin");
+  }
 
   // Collection date (§4)
   if (!body.collected_at) throw new BadRequestError("collection date is required");
+
+  // Enterprise mission context (Phase 2C) — OPTIONAL. When present, this
+  // sample is being submitted under a team mission rather than personally.
+  // assignment_h3 is computed HERE, server-side, from the same verified
+  // lat/lng as h3_cell above — never sent by the client, never trusted from
+  // one — submit_sample re-validates mission membership independently.
+  const enterpriseMissionId = typeof body.enterprise_mission_id === "string" && body.enterprise_mission_id
+    ? body.enterprise_mission_id
+    : undefined;
+  const assignmentH3 = enterpriseMissionId ? cellFor(lat, lng, H3_RESOLUTION) : undefined;
 
   // Media + photo minimums (§3): >=1 context and >=1 close-up.
   // A scan-sourced sample sends NO media and a `scan_id` instead — the server
@@ -400,6 +418,12 @@ export function buildPayload(body: Record<string, unknown>): Record<string, unkn
     // 'exploration' (and a scanned specimen as 'personal').
     origin: body.origin === "exploration" ? "exploration" : "personal",
     field_mission_id: typeof body.field_mission_id === "string" ? body.field_mission_id : undefined,
+    // Enterprise team mission (Phase 2C) — deliberately separate keys from
+    // the solo field_mission_id above; submit_sample keeps the two systems
+    // from ever being confused at the payload level.
+    enterprise_mission_id: enterpriseMissionId,
+    assignment_h3: assignmentH3,
+    location_origin: body.location_origin ?? undefined,
     // A scan-sourced sample carries the scanId (server copies its photos) and NO
     // media; every other sample carries its uploaded media and no scanId.
     ...(fromScan ? { scan_id: body.scan_id } : { media }),
@@ -451,7 +475,10 @@ export async function handleSamples(req: Request, deps: Deps = defaultDeps): Pro
       const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
       // Exploration-lane evidence (a mission's field data) stays enterprise-only;
       // personal specimens are open to the paid consumer plans already gated above.
-      if (String(body.origin ?? "personal") === "exploration") {
+      // A team-mission sample is exploration-lane by definition regardless of
+      // what `origin` claims — gated independently so a payload can't skip
+      // this by simply omitting/misrepresenting origin.
+      if (String(body.origin ?? "personal") === "exploration" || typeof body.enterprise_mission_id === "string") {
         await deps.requireEnterprise(actor);
       }
       const created = await deps.createSample(actor, buildPayload(body));

@@ -58,6 +58,57 @@ Deno.test("buildPayload accepts a sample with NO geology (AI-first)", () => {
   // geology omitted is fine — required set is just name + GPS + date + photos
 });
 
+// ── Phase 2C: enterprise mission context ────────────────────────────────────
+Deno.test("buildPayload: no enterprise_mission_id -> no assignment_h3 computed", () => {
+  const p = buildPayload(GOOD);
+  assertEquals(p.enterprise_mission_id, undefined);
+  assertEquals(p.assignment_h3, undefined);
+});
+Deno.test("buildPayload: enterprise_mission_id present -> assignment_h3 is server-computed", () => {
+  const p = buildPayload({ ...GOOD, enterprise_mission_id: "11111111-1111-1111-1111-111111111111" });
+  assertEquals(p.enterprise_mission_id, "11111111-1111-1111-1111-111111111111");
+  assert(typeof p.assignment_h3 === "string" && (p.assignment_h3 as string).length > 0);
+  // Resolution 7 (mission-assignment grain) must differ from resolution 9
+  // (the sample's own point cell, h3_cell) for the same coordinate — they
+  // answer different questions and must never collapse to the same value.
+  assert(p.assignment_h3 !== p.h3_cell);
+});
+Deno.test("buildPayload: a client cannot supply its own assignment_h3 — it is always recomputed", () => {
+  const p = buildPayload({
+    ...GOOD,
+    enterprise_mission_id: "11111111-1111-1111-1111-111111111111",
+    assignment_h3: "spoofed-not-a-real-cell",
+  });
+  assert(p.assignment_h3 !== "spoofed-not-a-real-cell");
+});
+Deno.test("buildPayload: invalid location_origin is rejected", () => {
+  rejects({ ...GOOD, location_origin: "made_up_value" });
+});
+Deno.test("buildPayload: valid location_origin passes through unchanged", () => {
+  const observed = buildPayload({ ...GOOD, location_origin: "observed" });
+  const reported = buildPayload({ ...GOOD, location_origin: "reported" });
+  assertEquals(observed.location_origin, "observed");
+  assertEquals(reported.location_origin, "reported");
+});
+Deno.test("POST with enterprise_mission_id but origin=personal still requires enterprise access", async () => {
+  // A payload cannot dodge the enterprise gate just by leaving origin unset/
+  // "personal" while still claiming to be a team-mission sample.
+  const r = await handleSamples(
+    req("POST", { ...GOOD, origin: "personal", enterprise_mission_id: "11111111-1111-1111-1111-111111111111" }),
+    base({ requireEnterprise: async () => { throw new ForbiddenError(); } }),
+  );
+  assertEquals(r.status, 403);
+});
+Deno.test("POST with enterprise_mission_id, enterprise access granted -> 201", async () => {
+  let enterpriseChecked = false;
+  const r = await handleSamples(
+    req("POST", { ...GOOD, enterprise_mission_id: "11111111-1111-1111-1111-111111111111" }),
+    base({ requireEnterprise: async () => { enterpriseChecked = true; } }),
+  );
+  assertEquals(r.status, 201);
+  assert(enterpriseChecked);
+});
+
 Deno.test("POST valid -> 201 and calls createSample", async () => {
   let called = false;
   const r = await handleSamples(req("POST", GOOD), base({ createSample: async (_a, p) => { called = true; return { sample_id: "s1", media_count: (p.media as unknown[]).length }; } }));
