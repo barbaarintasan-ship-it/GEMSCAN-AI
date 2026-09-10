@@ -39,15 +39,14 @@ export async function fetchOrgMembers(organizationId: string): Promise<OrgMember
 
 // Errors from add_org_member_by_email are prefixed by the RPC ("no_account: …",
 // "seat_limit_reached: …", "forbidden: …") — callers can match on these to show
-// a specific message rather than a generic failure.
-export async function addOrgMemberByEmail(organizationId: string, email: string): Promise<OrgMember> {
-  const { data, error } = await supabase.schema("enterprise").rpc("add_org_member_by_email", {
+// a specific message rather than a generic failure. The RPC returns void —
+// the caller re-fetches the roster (fetchOrgMembers) to see the new member.
+export async function addOrgMemberByEmail(organizationId: string, email: string): Promise<void> {
+  const { error } = await supabase.schema("enterprise").rpc("add_org_member_by_email", {
     p_org: organizationId,
     p_email: email.trim(),
   });
   if (error) throw error;
-  const row = Array.isArray(data) ? data[0] : data;
-  return row as OrgMember;
 }
 
 export async function removeOrgMember(organizationId: string, userId: string): Promise<void> {
