@@ -371,6 +371,22 @@ export function destinationKey(p: { lat: number; lng: number }): string {
   return `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
 }
 
+/**
+ * The fields of a freshly-built `ExplorationTarget` that describe what the
+ * evidence says — never where to stand or how to get there. Used to refresh a
+ * HELD target's figures (`retargetInner`'s `rescoredHere`) without disturbing
+ * its `cell`/`centre`/`bearingDeg`/`compass`/`distanceM`/`scoredForCommodity`,
+ * which are the destination's own identity and must survive untouched.
+ */
+function evidenceFieldsOf(t: ExplorationTarget): Pick<
+  ExplorationTarget, "score" | "reportScore" | "band" | "reasons" | "commodities" | "coverage" | "evidence"
+> {
+  return {
+    score: t.score, reportScore: t.reportScore, band: t.band,
+    reasons: t.reasons, commodities: t.commodities, coverage: t.coverage, evidence: t.evidence,
+  };
+}
+
 type Listener = () => void;
 
 export class ExplorationOrchestrator {
@@ -772,7 +788,16 @@ export class ExplorationOrchestrator {
     if (commitment !== "committed") return m;
     if (m && isMissionLive(m.state)) {
       if (m.cell !== active.cell) return m;   // held target wins; see `locked`
-      return m.state === "target_selected" ? advance(m, "navigating", this.now) : m;
+      // SAME held cell. `active` may now be a fresh re-score of it (see
+      // `retargetInner`'s `rescoredHere`) — a committed target is a PLACE, not a
+      // frozen number, so the figures the package will read (`prospectivityScore`/
+      // `reportScore`) are refreshed here rather than staying pinned to whatever
+      // they were when the mission opened. Everything else about the mission
+      // (id, cell, centre, hotspot, timestamps, outcome) is untouched.
+      const rescored = active.score !== m.score || active.reportScore !== m.reportScore
+        ? { ...m, score: active.score, reportScore: active.reportScore }
+        : m;
+      return rescored.state === "target_selected" ? advance(rescored, "navigating", this.now) : rescored;
     }
     return newMission(`ms-${this.now.toString(36)}-${++this.seq}`, active.cell, active.centre, {
       commodity: this.snap.commodity, score: active.score, reportScore: active.reportScore, at: this.now,
@@ -1325,8 +1350,35 @@ export class ExplorationOrchestrator {
       const stillRanked = prev
         ? result.targets.find((t) => t.cell === prev.cell) ?? null
         : null;
+
+      // A HELD TARGET STANDING IN ITS OWN CELL never turns up in `stillRanked`:
+      // `rank()`'s candidate set structurally excludes `here` (`kRing(...).filter(c
+      // => c !== here)`), because a cell is never a "walk to" recommendation for
+      // someone already standing in it. That is right for the RANKING, but it
+      // silently froze the score of a target the geologist has ARRIVED at and is
+      // recording evidence for — the lookup above always misses while `prev.cell
+      // === cell`, so a new observation never reached the mission's own figures.
+      // `targetAt()` scores exactly one named cell with no such exclusion (already
+      // used for this — see `baselineEvidenceFor()`), so it refreshes the held
+      // target IN PLACE. Gated on `prev.cell === cell`: it can only ever recompute
+      // the SAME destination, never substitute a different one, so this cannot
+      // move the geologist off the target they are standing on.
+      //
+      // ONLY THE EVIDENCE-DERIVED FIELDS ARE TAKEN FROM IT. `targetAt()` builds a
+      // fresh target from scratch, which means a fresh `centre` too — always the
+      // H3 cell's own centre — and that quietly overwrote a hand-picked target's
+      // exact tapped point (`selectTargetAt(..., { aimAtChosenPoint: true })`
+      // deliberately overrides `centre` to that point). Splicing in only
+      // `score`/`reportScore`/`band`/`reasons`/`commodities`/`coverage`/`evidence`
+      // and keeping `prev`'s `cell`/`centre`/`bearingDeg`/`compass`/`distanceM`
+      // leaves navigation untouched — `updateGuidance` derives bearing and
+      // distance from the live fix on every call regardless.
+      const rescoredHere = locked && prev && prev.cell === cell && !stillRanked
+        ? await this.deps.targeting.targetAt(point, prev.centre, { commodity: this.snap.commodity })
+        : null;
+
       const active = locked
-        ? stillRanked ?? prev
+        ? (rescoredHere ? { ...prev, ...evidenceFieldsOf(rescoredHere) } : stillRanked ?? prev)
         : stillRanked ?? result.targets[0] ?? null;
 
       // Only a replaceable suggestion records where it was issued from.
