@@ -1,5 +1,5 @@
 === GemScan Payments ===
-Version: 1.10.0
+Version: 1.10.1
 Requires: WordPress 5.5+
 License: GPL-2.0+
 
@@ -58,6 +58,12 @@ a member's account after payment. It does NOT touch the mobile app.
   switcher at the top toggles to English.
 
 == Changelog ==
+= 1.10.1 =
+* Enterprise tiers now sit in their own "Enterprise — for teams" section with
+  a fixed 3-column layout (Solo/Team/Business always form one full row,
+  instead of wrapping awkwardly under Free/Explorer/Collector).
+* Every plan card now has a short one-line description of who it's for.
+
 = 1.10.0 =
 * Enterprise is now sold as three priced, self-serve seat tiers instead of
   "Contact us": Solo (1 seat), Team (2 seats), Business (3 seats) — each with

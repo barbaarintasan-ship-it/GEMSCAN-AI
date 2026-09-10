@@ -80,6 +80,7 @@
     padding: 4px 12px; border-radius: 999px; white-space: nowrap;
 }
 .gs-plan h3 { margin: 4px 0 0; font-size: 18px; }
+.gs-plan-tagline { margin: -6px 0 2px; font-size: 13px; color: #7a7a72; line-height: 1.4; min-height: 36px; }
 .gs-price { font-size: 26px; font-weight: 800; color: #1c1c1e; }
 .gs-price span { font-size: 14px; color: #888; font-weight: 600; }
 .gs-plan ul { list-style: none; padding: 0; margin: 4px 0; flex: 1; }
@@ -95,7 +96,21 @@
     display: inline-block; background: #f4efe0; color: #8a6d1a; font-size: 12px; font-weight: 700;
     padding: 3px 10px; border-radius: 999px; align-self: flex-start;
 }
-.gs-enterprise-note { text-align: center; color: #999; font-size: 13px; margin: -8px 0 20px; }
+.gs-enterprise-section {
+    margin: 40px 0 24px; padding: 28px 24px; border-radius: 20px;
+    background: linear-gradient(180deg, #fbf7ea, #fdfcf7); border: 1px solid #ecdfb3;
+}
+.gs-enterprise-head { text-align: center; max-width: 640px; margin: 0 auto 22px; }
+.gs-enterprise-head h2 { margin: 0 0 8px; font-size: 22px; color: #1c1c1e; }
+.gs-enterprise-head p { margin: 0; font-size: 14px; color: #6b6b63; line-height: 1.5; }
+/* Fixed 3 columns (not auto-fit) — Solo/Team/Business always form ONE complete
+   row instead of the leftover-items-in-a-half-empty-row look auto-fit gave
+   when these three shared a single grid with Free/Explorer/Collector. */
+.gs-enterprise-grid {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px;
+}
+.gs-enterprise-grid .gs-plan { background: #fff; }
+.gs-enterprise-note { text-align: center; color: #999; font-size: 13px; margin: 18px 0 0; }
 
 .gs-credits { text-align: center; color: #555; font-size: 14px; margin: 8px 0 24px; }
 .gs-credits-link { color: #635bff; font-weight: 700; text-decoration: underline; margin-left: 6px; }
@@ -216,5 +231,12 @@
 
 @media (max-width: 720px) {
     .gs-plans { grid-template-columns: 1fr; }
+    .gs-enterprise-grid { grid-template-columns: 1fr; }
+    .gs-enterprise-section { padding: 22px 16px; }
     .gs-hero h1 { font-size: 24px; }
+}
+@media (max-width: 980px) and (min-width: 721px) {
+    /* Between phone and desktop: 3 equal-width Enterprise cards get tight —
+       drop to 2-up rather than let text/prices start wrapping awkwardly. */
+    .gs-enterprise-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

@@ -3,7 +3,7 @@
  * Plugin Name: GemScan Payments
  * Plugin URI:  https://barbaarintasan.com/gemscanpayment
  * Description: GemScan landing + pricing + payment page, and the bridge that upgrades a member's account after payment. Adds the [gemscan_payment] shortcode. Configure everything under Settings → GemScan.
- * Version:     1.10.0
+ * Version:     1.10.1
  * Author:      GemScan
  * License:     GPL-2.0+
  * Text Domain: gemscan-payment
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
 }
 
 define('GEMSCAN_OPT', 'gemscan_payment_options');
-define('GEMSCAN_VER', '1.10.0');
+define('GEMSCAN_VER', '1.10.1');
 define('GEMSCAN_TPL', 'gemscan-fullpage.php'); // standalone page template slug
 define('GEMSCAN_URL', plugin_dir_url(__FILE__));
 define('GEMSCAN_DIR', plugin_dir_path(__FILE__));
@@ -1021,6 +1021,10 @@ function gemscan_render() {
         <section class="gs-plans">
             <div class="gs-plan">
                 <h3><?php echo gs_t('Free', 'Bilaash'); ?></h3>
+                <p class="gs-plan-tagline"><?php echo gs_t(
+                    'Just curious? Try it with no card and no commitment.',
+                    'Ma tijaabin rabtaa? Isku day iyada oo aan card lagu baahnayn.'
+                ); ?></p>
                 <div class="gs-price">$0</div>
                 <ul>
                     <li><?php echo gs_t('3 scans per day', '3 scan maalintii'); ?></li>
@@ -1032,6 +1036,10 @@ function gemscan_render() {
             <div class="gs-plan gs-popular">
                 <div class="gs-badge"><?php echo gs_t('Most Popular', 'Ugu Caansan'); ?></div>
                 <h3>Explorer</h3>
+                <p class="gs-plan-tagline"><?php echo gs_t(
+                    'For the occasional scan — a weekend find, a gift, a hunch worth checking.',
+                    'Ku habboon qofka marmar isticmaala — helitaan usbuuc dhamaad ah, hadiyad, ama shaki aad rabto inaad hubiso.'
+                ); ?></p>
                 <div class="gs-price"><?php echo $cur; ?> <?php echo esc_html($o['explorer_price']); ?><span>/<?php echo gs_t('6 months', '6 bilood'); ?></span></div>
                 <ul>
                     <li><?php echo gs_t('Standard AI scans', 'Scan Standard AI ah'); ?></li>
@@ -1044,6 +1052,10 @@ function gemscan_render() {
 
             <div class="gs-plan">
                 <h3>Gem Collector</h3>
+                <p class="gs-plan-tagline"><?php echo gs_t(
+                    'For the regular collector who scans often and wants proof they can show.',
+                    'Ku habboon qofka joogtada ah ee wax badan scan-gareeya oo rabta caddayn uu tusi karo.'
+                ); ?></p>
                 <div class="gs-price"><?php echo $cur; ?> <?php echo esc_html($o['collector_price']); ?><span>/<?php echo gs_t('6 months', '6 bilood'); ?></span></div>
                 <ul>
                     <li><?php echo gs_t('Standard AI scans', 'Scan Standard AI ah'); ?></li>
@@ -1053,7 +1065,17 @@ function gemscan_render() {
                 </ul>
                 <button type="button" class="gs-buy" data-plan="Gem Collector" data-item="collector" data-price="<?php echo esc_attr($o['collector_price']); ?>"><?php echo gs_t('Choose Gem Collector', 'Dooro Gem Collector'); ?></button>
             </div>
+        </section>
 
+        <section class="gs-enterprise-section">
+            <div class="gs-enterprise-head">
+                <h2>🏢 <?php echo gs_t('Enterprise — for teams in the field', 'Enterprise — kooxaha goobta ka shaqeeya'); ?></h2>
+                <p><?php echo gs_t(
+                    'Field exploration, AI geological reports, and a team your account can manage itself — priced by how many people need their own login.',
+                    'Sahamin goobeed, warbixino juqraafi oo AI ah, iyo koox aad akoonkaagu si toos ah u maamuli karo — qiimuhu wuxuu ku xiran yahay tirada dadka u baahan login gaarkooda ah.'
+                ); ?></p>
+            </div>
+            <div class="gs-enterprise-grid">
             <?php
             // The three Enterprise seat tiers — same feature set, priced by how
             // many people on the team need their own login (self-serve "Manage
@@ -1062,14 +1084,20 @@ function gemscan_render() {
                 array(
                     'item' => 'enterprise_solo', 'name' => 'Enterprise — Solo', 'seats_en' => '1 seat', 'seats_so' => '1 xubin',
                     'price' => $o['enterprise_solo_price'],
+                    'tagline_en' => 'A solo geologist who needs professional field tools.',
+                    'tagline_so' => 'Khabiir keligiis ah oo u baahan qalab xirfadeed oo goob ah.',
                 ),
                 array(
                     'item' => 'enterprise_team', 'name' => 'Enterprise — Team', 'seats_en' => '2 seats', 'seats_so' => '2 xubnood',
                     'price' => $o['enterprise_team_price'], 'popular' => true,
+                    'tagline_en' => 'A small team working one project together, sharing evidence.',
+                    'tagline_so' => 'Koox yar oo hal mashruuc wada shaqeysa oo caddayn wada isticmaasha.',
                 ),
                 array(
                     'item' => 'enterprise_business', 'name' => 'Enterprise — Business', 'seats_en' => '3 seats', 'seats_so' => '3 xubnood',
                     'price' => $o['enterprise_business_price'],
+                    'tagline_en' => 'A growing company running multiple sites or projects at once.',
+                    'tagline_so' => 'Shirkad koraysa oo isla mar ah maamusha dhowr goob ama mashruuc.',
                 ),
             );
             foreach ($gs_ent_tiers as $gs_ent) : ?>
@@ -1078,6 +1106,7 @@ function gemscan_render() {
                 <div class="gs-badge"><?php echo gs_t('Most Popular', 'Ugu Caansan'); ?></div>
                 <?php endif; ?>
                 <h3><?php echo esc_html($gs_ent['name']); ?></h3>
+                <p class="gs-plan-tagline"><?php echo gs_t($gs_ent['tagline_en'], $gs_ent['tagline_so']); ?></p>
                 <div class="gs-price"><?php echo $cur; ?> <?php echo esc_html($gs_ent['price']); ?><span>/<?php echo gs_t('year', 'sanadkii'); ?></span></div>
                 <div class="gs-plan-seats"><?php echo gs_t($gs_ent['seats_en'], $gs_ent['seats_so']); ?></div>
                 <ul>
@@ -1090,11 +1119,12 @@ function gemscan_render() {
                 <button type="button" class="gs-buy" data-plan="Enterprise" data-label="<?php echo esc_attr($gs_ent['name']); ?>" data-item="<?php echo esc_attr($gs_ent['item']); ?>" data-price="<?php echo esc_attr($gs_ent['price']); ?>"><?php echo gs_t('Choose ' . $gs_ent['name'], 'Dooro ' . $gs_ent['name']); ?></button>
             </div>
             <?php endforeach; ?>
+            </div>
+            <p class="gs-enterprise-note"><?php echo gs_t(
+                'Need more than 3 seats? Contact us for a custom team plan.',
+                'Ma u baahan tahay in ka badan 3 xubin? Nala soo xiriir qorshe koox oo gaar ah.'
+            ); ?></p>
         </section>
-        <p class="gs-enterprise-note"><?php echo gs_t(
-            'Need more than 3 seats? Contact us for a custom team plan.',
-            'Ma u baahan tahay in ka badan 3 xubin? Nala soo xiriir qorshe koox oo gaar ah.'
-        ); ?></p>
 
         <section class="gs-credit-packs">
             <h3>➕ <?php echo gs_t('Deep Scan Credits', 'Credits Deep Scan'); ?></h3>
