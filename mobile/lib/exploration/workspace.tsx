@@ -251,10 +251,20 @@ export function MapWorkspaceProvider({ children }: { children: React.ReactNode }
   // A layer set is a working preference, not a session detail. Loaded once and
   // written back on every change, so the geologist who turns satellite off to
   // read the geology does not have to do it again tomorrow.
+  //
+  // EXCEPT the four Esri raster layers (satellite, hillshade, roads, labels):
+  // these are the only layers backed by a live tile fetch rather than the
+  // offline pack, and a stored "on" from a prior session made the map retry
+  // that fetch on every subsequent boot — a real, reported stall opening or
+  // closing the app, on top of whatever the network happens to be doing at
+  // that moment. Forced off on every LOAD, regardless of what was last
+  // saved; a session that turns one back on can still use it normally for
+  // that session (setLayers/saveLayers below are untouched), it just never
+  // starts pre-armed on the next cold open.
   const layersLoaded = React.useRef(false);
   React.useEffect(() => {
     void loadLayers(DEFAULT_LAYERS).then((stored) => {
-      setLayers(stored);
+      setLayers({ ...stored, satellite: false, hillshade: false, roads: false, labels: false });
       layersLoaded.current = true;
     });
   }, []);

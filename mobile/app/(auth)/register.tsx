@@ -27,13 +27,9 @@ export default function RegisterScreen() {
   const L = (en: string, so: string) => (i18n.language === "so" ? so : en);
 
   const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [confirmEmail, setConfirmEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [country, setCountry] = useState("");
-  const [city, setCity] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmationEmail, setConfirmationEmail] = useState<string | null>(null);
@@ -41,45 +37,26 @@ export default function RegisterScreen() {
   const onSubmit = async () => {
     setError(null);
 
-    if (fullName.trim().split(/\s+/).filter(Boolean).length < 3) {
-      setError(L("Please enter your full name (three names).", "Fadlan geli magacaaga oo saddexan."));
-      return;
-    }
-    if (phone.trim().replace(/[^0-9]/g, "").length < 7) {
-      setError(L("Please enter a valid phone number.", "Fadlan geli lambar taleefan oo sax ah."));
+    if (fullName.trim().length === 0) {
+      setError(L("Please enter your name.", "Fadlan geli magacaaga."));
       return;
     }
     if (!EMAIL_RE.test(email.trim())) {
       setError(L("Please enter a valid email address.", "Fadlan geli email sax ah."));
       return;
     }
-    if (email.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) {
-      setError(L("The two email addresses do not match.", "Labada email isku mid ma aha."));
-      return;
-    }
-    if (password.length < 8) {
-      setError(L("Password must be at least 8 characters.", "Furaha sirtu waa inuu ugu yaraan 8 xaraf noqdaa."));
+    if (password.length < 4) {
+      setError(L("Password must be at least 4 characters.", "Furaha sirtu waa inuu ugu yaraan 4 xaraf noqdaa."));
       return;
     }
     if (password !== confirmPassword) {
       setError(L("The two passwords do not match.", "Labada fure isku mid ma aha."));
       return;
     }
-    if (country.trim().length === 0) {
-      setError(L("Please enter your country.", "Fadlan geli wadankaaga."));
-      return;
-    }
-    if (city.trim().length === 0) {
-      setError(L("Please enter your city.", "Fadlan geli magaaladaada."));
-      return;
-    }
 
     setIsSubmitting(true);
     const { error: signUpError, needsEmailConfirmation } = await signUp(email.trim(), password, {
       fullName,
-      phone,
-      country,
-      city,
     });
     setIsSubmitting(false);
     if (signUpError) {
@@ -158,15 +135,10 @@ export default function RegisterScreen() {
               )}
         </Text>
 
-        {field(L("Full name (three names)", "Magaca oo saddexan"), "person-outline", fullName, setFullName, {
-          placeholder: L("e.g. Cabdi Xasan Cali", "tusaale: Cabdi Xasan Cali"),
+        {field(L("Name", "Magaca"), "person-outline", fullName, setFullName, {
+          placeholder: L("e.g. Cabdi", "tusaale: Cabdi"),
           autoCapitalize: "words",
           autoComplete: "name",
-        })}
-        {field(L("Phone number", "Lambarka taleefanka"), "call-outline", phone, setPhone, {
-          placeholder: "+252 61 234 5678",
-          keyboardType: "phone-pad",
-          autoComplete: "tel",
         })}
         {field(L("Email", "Email-ka"), "mail-outline", email, setEmail, {
           placeholder: "you@example.com",
@@ -174,27 +146,13 @@ export default function RegisterScreen() {
           autoComplete: "email",
           keyboardType: "email-address",
         })}
-        {field(L("Confirm email", "Xaqiiji email-ka"), "mail-outline", confirmEmail, setConfirmEmail, {
-          placeholder: L("Re-enter your email", "Dib u geli email-kaaga"),
-          autoCapitalize: "none",
-          keyboardType: "email-address",
-        })}
         {field(L("Password", "Furaha sirta"), "lock-closed-outline", password, setPassword, {
-          placeholder: L("At least 8 characters", "Ugu yaraan 8 xaraf"),
+          placeholder: L("At least 4 characters", "Ugu yaraan 4 xaraf"),
           secureTextEntry: true,
         })}
         {field(L("Confirm password", "Xaqiiji furaha"), "lock-closed-outline", confirmPassword, setConfirmPassword, {
           placeholder: L("Re-enter your password", "Dib u geli furahaaga"),
           secureTextEntry: true,
-        })}
-        {field(L("Country", "Wadanka"), "globe-outline", country, setCountry, {
-          placeholder: L("e.g. Somalia", "tusaale: Soomaaliya"),
-          autoCapitalize: "words",
-          autoComplete: "country",
-        })}
-        {field(L("City", "Magaalada"), "location-outline", city, setCity, {
-          placeholder: L("e.g. Mogadishu", "tusaale: Muqdisho"),
-          autoCapitalize: "words",
         })}
 
         {error && <Text style={styles.error}>{error}</Text>}
