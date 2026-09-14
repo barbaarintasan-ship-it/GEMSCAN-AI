@@ -430,3 +430,50 @@ export async function acceptRecommendedArea(
   if (!res.ok) throw new Error(body?.detail || body?.error || `Area creation failed (${res.status})`);
   return body as AcceptedRecommendedArea;
 }
+
+// Phase 7 (Solo→Team shared-targeting) — cross-contributor cell synthesis.
+// Claude narrates where multiple contributors' evidence for the same cell
+// agrees or conflicts; it never sets a score, which is why there's no
+// numeric field on this type. The deterministic score stays in
+// Assignment.prospectivityScore — this is purely explanatory context.
+export type CellSynthesisAgreement = "consistent" | "mixed" | "conflicting" | "insufficient_data";
+export interface CellSynthesis {
+  id: string;
+  contributor_count: number;
+  sample_count: number;
+  agreement: CellSynthesisAgreement;
+  headline: string;
+  headline_so: string;
+  narrative: string;
+  narrative_so: string;
+  model?: string;
+  created_at?: string;
+}
+
+/** Asks Claude to compare every contributor's evidence for one mission cell
+ *  and saves the result. Costs an API call — call on demand (a button),
+ *  never automatically. */
+export async function generateCellSynthesis(missionId: string, targetH3: string): Promise<CellSynthesis> {
+  const res = await fetch(`${FUNCTIONS_URL}/enterprise-mission-synthesis`, {
+    method: "POST",
+    headers: await authHeader(),
+    body: JSON.stringify({ missionId, targetH3 }),
+  });
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!res.ok) throw new Error(body?.detail || body?.error || `Synthesis failed (${res.status})`);
+  return body as CellSynthesis;
+}
+
+/** Returns the last saved synthesis for a cell, or null if none exists yet. */
+export async function fetchCellSynthesis(missionId: string, targetH3: string): Promise<CellSynthesis | null> {
+  const res = await fetch(
+    `${FUNCTIONS_URL}/enterprise-mission-synthesis?missionId=${encodeURIComponent(missionId)}&targetH3=${encodeURIComponent(targetH3)}`,
+    { headers: await authHeader() },
+  );
+  if (res.status === 404) return null;
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!res.ok) throw new Error(body?.detail || body?.error || `Synthesis lookup failed (${res.status})`);
+  return body as CellSynthesis;
+}

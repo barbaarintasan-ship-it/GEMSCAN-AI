@@ -95,6 +95,11 @@ verify_jwt = true
 [functions.enterprise-samples]
 verify_jwt = true
 
+# Team Phase 7 — cross-contributor cell synthesis (Claude narrates, never scores).
+# User-facing, requires a valid app JWT (+ enterprise gate + is_mission_manager in the RPCs).
+[functions.enterprise-mission-synthesis]
+verify_jwt = true
+
 # Field sync: an expedition, its observations and its traverse, uploaded from a
 # device outbox. Authenticated like every other enterprise route.
 [functions.expeditions]

@@ -24,13 +24,23 @@ import {
   addMissionContributor, assignCells, unassignMissionCellContributor,
   generateMissionCells, scoreMissionCells, groupMissionCells,
   recomputeMissionProgress, fetchMissionProgressDetail,
+  generateCellSynthesis, fetchCellSynthesis,
   type Assignment, type MissionContributor, type MissionArea,
-  type MissionProgress, type MissionProgressDetail, type MissionCellGroup,
+  type MissionProgress, type MissionProgressDetail, type MissionCellGroup, type CellSynthesis,
 } from "../../../../lib/enterprise/missions";
 // Phase 3 (Solo→Team shared-targeting): the SAME band thresholds Solo's own
 // confidence readout uses (shared/geo-core/confidence.ts) — reused here for
 // display only, never recomputed. No new interpretation scale invented.
 import { bandFor } from "../../../../../shared/geo-core/confidence.ts";
+
+// Phase 7 — the fixed vocabulary enterprise.cell_synthesis.agreement is
+// constrained to (0130); bilingual display labels.
+const AGREEMENT_LABEL: Record<string, { en: string; so: string }> = {
+  consistent: { en: "Consistent", so: "Isku mid" },
+  mixed: { en: "Mixed", so: "Isku dhafan" },
+  conflicting: { en: "Conflicting", so: "Iska hor imaad" },
+  insufficient_data: { en: "Not enough data yet", so: "Xog kuma filna weli" },
+};
 
 export default function ManagerMissionScreen() {
   const { missionId } = useLocalSearchParams<{ missionId: string }>();
@@ -48,6 +58,11 @@ export default function ManagerMissionScreen() {
   const [progress, setProgress] = useState<MissionProgress | null>(null);
   const [progressDetail, setProgressDetail] = useState<MissionProgressDetail | null>(null);
   const [expandedCell, setExpandedCell] = useState<string | null>(null);
+  // Phase 7 — cross-contributor synthesis, keyed by target_h3. Fetched lazily
+  // (existing saved result) when a multi-contributor cell is opened; only
+  // regenerated (a real API call) when the manager explicitly asks.
+  const [synthesis, setSynthesis] = useState<Record<string, CellSynthesis>>({});
+  const [synthesizing, setSynthesizing] = useState<string | null>(null);
   const [generating, setGenerating] = useState<string | null>(null);
   const [scoring, setScoring] = useState(false);
   const [addEmail, setAddEmail] = useState("");
@@ -205,6 +220,32 @@ export default function ManagerMissionScreen() {
         },
       ],
     );
+  }
+
+  /** Opening a multi-contributor cell silently checks for an already-saved
+   *  synthesis (free — a read) without generating a new one (a Claude call,
+   *  costs money) — that only happens when the manager taps "Synthesize". */
+  function handleToggleCell(group: MissionCellGroup) {
+    const opening = expandedCell !== group.targetH3;
+    setExpandedCell(opening ? group.targetH3 : null);
+    if (opening && group.contributors.length > 1 && !synthesis[group.targetH3] && missionId) {
+      fetchCellSynthesis(missionId, group.targetH3)
+        .then((s) => { if (s) setSynthesis((prev) => ({ ...prev, [group.targetH3]: s })); })
+        .catch(() => {});
+    }
+  }
+
+  async function handleSynthesize(group: MissionCellGroup) {
+    if (!missionId) return;
+    setSynthesizing(group.targetH3);
+    try {
+      const s = await generateCellSynthesis(missionId, group.targetH3);
+      setSynthesis((prev) => ({ ...prev, [group.targetH3]: s }));
+    } catch (err) {
+      Alert.alert(so ? "Khalad" : "Error", (err as Error).message);
+    } finally {
+      setSynthesizing(null);
+    }
   }
 
   const emailFor = (id: string | null) => contributors.find((c) => c.contributor_id === id)?.email;
@@ -374,7 +415,7 @@ export default function ManagerMissionScreen() {
               );
               return (
                 <Card key={group.targetH3} style={styles.cellCard}>
-                  <Pressable onPress={() => setExpandedCell(isOpen ? null : group.targetH3)} style={styles.cellRow}>
+                  <Pressable onPress={() => handleToggleCell(group)} style={styles.cellRow}>
                     <Text style={styles.cellRank}>#{index + 1}</Text>
                     <View style={styles.cellIdBlock}>
                       <Text style={styles.cellId} numberOfLines={1}>{group.targetH3}</Text>
@@ -438,6 +479,39 @@ export default function ManagerMissionScreen() {
                               <Text style={styles.chipText}>{ct.email}</Text>
                             </Pressable>
                           ))}
+                        </View>
+                      )}
+                      {group.contributors.length > 1 && (
+                        <View style={styles.synthesisSection}>
+                          <View style={styles.synthesisHeader}>
+                            <Text style={[styles.assignSectionLabel, styles.assignAlsoLabel]}>
+                              {so ? "Isbarbardhig (AI)" : "Cross-check (AI)"}
+                            </Text>
+                            <Pressable
+                              style={styles.synthesizeBtn}
+                              disabled={synthesizing === group.targetH3}
+                              onPress={() => handleSynthesize(group)}
+                            >
+                              {synthesizing === group.targetH3
+                                ? <ActivityIndicator color={colors.gold} size="small" />
+                                : <Text style={styles.synthesizeBtnText}>
+                                    {synthesis[group.targetH3] ? (so ? "Dib u samee" : "Regenerate") : (so ? "Isbarbardhig" : "Synthesize")}
+                                  </Text>}
+                            </Pressable>
+                          </View>
+                          {synthesis[group.targetH3] && (
+                            <View>
+                              <Text style={styles.synthesisAgreement}>
+                                {AGREEMENT_LABEL[synthesis[group.targetH3].agreement]?.[so ? "so" : "en"] ?? synthesis[group.targetH3].agreement}
+                              </Text>
+                              <Text style={styles.synthesisHeadline}>
+                                {so ? synthesis[group.targetH3].headline_so : synthesis[group.targetH3].headline}
+                              </Text>
+                              <Text style={styles.synthesisNarrative}>
+                                {so ? synthesis[group.targetH3].narrative_so : synthesis[group.targetH3].narrative}
+                              </Text>
+                            </View>
+                          )}
                         </View>
                       )}
                     </View>
@@ -512,4 +586,14 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: colors.goldSoft, borderColor: colors.goldBorder },
   chipText: { color: colors.textMuted, fontSize: 12 },
   chipTextActive: { color: colors.gold, fontWeight: "700" },
+  synthesisSection: { marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, gap: 4 },
+  synthesisHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  synthesizeBtn: {
+    borderWidth: 1, borderColor: colors.goldBorder, backgroundColor: colors.goldSoft,
+    borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 6, minWidth: 84, alignItems: "center",
+  },
+  synthesizeBtnText: { color: colors.gold, fontWeight: "700", fontSize: 12 },
+  synthesisAgreement: { color: colors.gold, fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, marginTop: spacing.xs },
+  synthesisHeadline: { color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 },
+  synthesisNarrative: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 3 },
 });
