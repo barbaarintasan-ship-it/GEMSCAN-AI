@@ -26,6 +26,10 @@ import {
   fetchTeamTargetRecommendation, acceptRecommendedArea, createManualArea,
   type TeamTargetCandidate, type TeamTargetingResult,
 } from "../../../../lib/enterprise/missions";
+// Same band thresholds every other score readout in the app uses (Phase 3) —
+// needed here because `result.current` (see bug note below) carries only a
+// raw score, never a band, the way `result.targets[]` entries already do.
+import { bandFor } from "../../../../../shared/geo-core/confidence.ts";
 
 type Stage = "locate" | "review" | "confirm";
 
@@ -118,6 +122,39 @@ export default function RecommendAreaScreen() {
     setSelected(t);
     setManualMode(false);
     setAreaName(`AI Target ${shortCell(t.cell)}`);
+    setStage("confirm");
+  }
+
+  /**
+   * BUG FIX: `team-targeting` ranks NEIGHBORING cells only — `result.current`
+   * (the exact queried point's own cell) is deliberately excluded from
+   * `targets` (targetingEngine.ts's `rank()`: `kRing(here, rings).filter(c
+   * => c !== here)`). The server already tells the client which is actually
+   * best via `bestIsHere`, but this screen never read `current`/`bestIsHere`
+   * at all — so entering the exact coordinates of a real, on-record
+   * occurrence (the best possible answer, sitting right at "here") rendered
+   * as "no evidence found", even though the engine had already found it and
+   * scored it highly. `current` only carries a raw score (not a full
+   * candidate), so the rest of the fields are synthesized for display only —
+   * accept() still only ever sends the cell id, never a client-trusted score.
+   */
+  function chooseCurrent() {
+    if (!result) return;
+    const synthetic: TeamTargetCandidate = {
+      cell: result.current.cell,
+      centre: { lat: parsedLat, lng: parsedLng },
+      bearingDeg: 0, compass: "",
+      distanceM: 0,
+      score: result.current.score,
+      reportScore: result.current.score,
+      band: bandFor(result.current.score),
+      reasons: [],
+      commodities: [],
+      scoredForCommodity: null,
+    };
+    setSelected(synthetic);
+    setManualMode(false);
+    setAreaName(so ? `Halkan Qudheeda ${shortCell(result.current.cell)}` : `This Location ${shortCell(result.current.cell)}`);
     setStage("confirm");
   }
 
@@ -224,13 +261,39 @@ export default function RecommendAreaScreen() {
                 <Text style={styles.caveatText}>{caveat}</Text>
               </Card>
             )}
-            <SectionLabel>{so ? "Target-yada la kala saaray" : "Ranked targets"}</SectionLabel>
+
+            {/* The exact point the manager entered — often the actual best
+                answer (e.g. the coordinates ARE a known occurrence), but
+                never listed under "Ranked targets" below since that list is
+                deliberately neighbors-only. */}
+            <SectionLabel>{so ? "Halkan Qudheeda (goobta aad gelisay)" : "This Exact Location"}</SectionLabel>
+            <Pressable onPress={chooseCurrent}>
+              <Card style={[styles.targetCard, result.bestIsHere && styles.bestHereCard]}>
+                <View style={styles.targetHeader}>
+                  <Text style={styles.targetCell}>{shortCell(result.current.cell)}</Text>
+                  <Text style={[
+                    styles.targetScore,
+                    bandFor(result.current.score) === "High" && styles.bandHigh,
+                    bandFor(result.current.score) === "Moderate" && styles.bandModerate,
+                  ]}>
+                    {Math.round(result.current.score * 100)}/100 · {bandFor(result.current.score)}
+                  </Text>
+                </View>
+                {result.bestIsHere && (
+                  <Text style={styles.bestHereLabel}>
+                    {so ? "★ Tanina ka fiican tahay dhammaan target-yada kale" : "★ Better than every ranked target below"}
+                  </Text>
+                )}
+              </Card>
+            </Pressable>
+
+            <SectionLabel>{so ? "Target-yada la kala saaray (deriska)" : "Ranked targets (neighbors)"}</SectionLabel>
             {result.targets.length === 0 ? (
               <>
                 <Text style={styles.mutedText}>
                   {so
-                    ? "Wax caddeyn ah lagama helin aaggan — server-ku weli ma arki karo fault/terrain/lithology (waa xaddidaad hadda jirta, ma aha khalad). Isku day meel kale, ama haddii aad shakhsi ahaan ogtahay in halkan muhiim tahay, aag ka samee gacanta."
-                    : "No evidence found near this point — the server can't yet see structural/terrain/lithology evidence (a known current limitation, not a bug). Try a different location, or if you already know this spot matters, create the area by hand."}
+                    ? "Deriska ku xeeran wax caddeyn dheeraad ah lagama helin — server-ku weli ma arki karo fault/terrain/lithology (waa xaddidaad hadda jirta, ma aha khalad). Isticmaal \"Halkan Qudheeda\" kor ku yaal, ama haddii aad shakhsi ahaan ogtahay meel kale oo muhiim ah, aag ka samee gacanta."
+                    : "No additional evidence found in the surrounding cells — the server can't yet see structural/terrain/lithology evidence (a known current limitation, not a bug). Use \"This Exact Location\" above, or if you know a different spot matters, create the area by hand."}
                 </Text>
                 <Button
                   title={so ? "Halkan Aag ka samee (gacanta)" : "Create Area Here (manual)"}
@@ -331,6 +394,8 @@ const styles = StyleSheet.create({
   caveatCard: { backgroundColor: colors.surfaceAlt, marginBottom: spacing.sm },
   caveatText: { color: colors.textMuted, fontSize: 11, lineHeight: 16 },
   targetCard: { marginBottom: spacing.sm, gap: 4 },
+  bestHereCard: { borderColor: colors.goldBorder, backgroundColor: colors.goldSoft },
+  bestHereLabel: { color: colors.gold, fontSize: 11, fontWeight: "700" },
   targetHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   targetCell: { color: colors.text, fontSize: 14, fontWeight: "700" },
   targetScore: { color: colors.textMuted, fontSize: 13, fontWeight: "700" },
