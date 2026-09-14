@@ -13,7 +13,11 @@ import { colors, spacing, radius, type as t } from "../../../../lib/theme";
 import { STATUS_LABELS, isStalled } from "../../../../lib/samples/sampleStatus";
 import { Card } from "../../../../components/ui/Card";
 import { SectionLabel } from "../../../../components/ui/SectionLabel";
-import { deleteSample, getSample, reanalyzeSample, sampleIsEditable, type SampleDetail, type AssessmentEvidence, type MediaRole } from "../../../../lib/enterpriseSamples";
+import {
+  deleteSample, getSample, reanalyzeSample, sampleIsEditable,
+  fetchSampleStructuredEvidence,
+  type SampleDetail, type AssessmentEvidence, type MediaRole, type StructuredEvidence,
+} from "../../../../lib/enterpriseSamples";
 import { shotNeedsFor } from "../../../../lib/shotNeeds";
 
 export default function SampleDetailScreen() {
@@ -26,6 +30,7 @@ export default function SampleDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [reanalyzing, setReanalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [structuredEvidence, setStructuredEvidence] = useState<StructuredEvidence[]>([]);
 
   const load = useCallback(async (isRefresh = false) => {
     isRefresh ? setRefreshing(true) : setLoading(true);
@@ -40,6 +45,10 @@ export default function SampleDetailScreen() {
         if (data?.signedUrl) map[m.id] = data.signedUrl;
       }
       setThumbs(map);
+      // Structured evidence (Phase 6) can arrive after submission — e.g. an
+      // assay result days later — so it's fetched separately, not part of
+      // the sample row itself.
+      fetchSampleStructuredEvidence(String(id)).then(setStructuredEvidence).catch(() => {});
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load sample.");
     } finally {
@@ -266,6 +275,8 @@ export default function SampleDetailScreen() {
         </>
       )}
 
+      <StructuredEvidenceSection sampleId={sample.id} evidence={structuredEvidence} so={so} />
+
       {loc?.h3_cell && (
         <SatelliteMap h3={loc.h3_cell} geology={(sample.assessment?.assessment_evidence ?? []).filter((e) => e.ev_type === "spatial")} so={so} />
       )}
@@ -302,6 +313,67 @@ function Row({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: strin
       <Ionicons name={icon} size={16} color={colors.textMuted} />
       <Text style={styles.bodyText}>{text}</Text>
     </View>
+  );
+}
+
+const EVIDENCE_TYPE_LABEL: Record<string, { en: string; so: string }> = {
+  assay: { en: "Laboratory / assay", so: "Shaybaar / falanqayn" },
+  geophysics: { en: "Ground geophysics", so: "Juqraafi-dhabta" },
+  mapping: { en: "Detailed mapping", so: "Khariidadaynta faahfaahsan" },
+  remote_sensing: { en: "Remote sensing", so: "Dareen fog" },
+  field_observation: { en: "Expert / field observation", so: "Aragtida khabiirka" },
+};
+const VERIFICATION_META: Record<string, { en: string; so: string; color: string }> = {
+  user_reported: { en: "User-reported", so: "Isticmaale", color: colors.textFaint },
+  expert_verified: { en: "Expert-verified", so: "Khabiir", color: colors.gold },
+  lab_verified: { en: "Lab-verified", so: "Shaybaar", color: colors.success },
+};
+
+// Structured Evidence (Phase 6) — assay/geophysics/mapping/remote-sensing/
+// field-observation entries, addable any time after submission since lab
+// results in particular routinely come back days later. Verification status
+// shown here reflects what the server actually stored (it downgrades
+// lab_verified to expert_verified unless lab_accredited was true) — never
+// what the client requested.
+function StructuredEvidenceSection({ sampleId, evidence, so }: { sampleId: string; evidence: StructuredEvidence[]; so: boolean }) {
+  return (
+    <>
+      <View style={styles.aiHeader}>
+        <SectionLabel>{so ? "Caddeynta Habaysan" : "Structured Evidence"}</SectionLabel>
+        <Pressable
+          style={styles.reBtn}
+          onPress={() => router.push(`/(app)/enterprise/add-evidence/${sampleId}`)}
+          hitSlop={6}
+        >
+          <Ionicons name="add" size={15} color={colors.gold} />
+          <Text style={styles.reBtnText}>{so ? "Ku dar" : "Add"}</Text>
+        </Pressable>
+      </View>
+      {evidence.length === 0 ? (
+        <Card><Text style={styles.pendingText}>{so ? "Weli caddeyn habaysan lama darin." : "No structured evidence added yet."}</Text></Card>
+      ) : (
+        evidence.map((e) => {
+          const typeLabel = EVIDENCE_TYPE_LABEL[e.evidence_type];
+          const vMeta = VERIFICATION_META[e.verification_status];
+          return (
+            <Card key={e.id} style={{ marginBottom: spacing.sm }}>
+              <View style={styles.conclHeader}>
+                <Text style={styles.conclKind}>{typeLabel ? (so ? typeLabel.so : typeLabel.en) : e.evidence_type}</Text>
+                {vMeta && (
+                  <View style={[styles.epiBadge, { borderColor: vMeta.color }]}>
+                    <Text style={[styles.epiTxt, { color: vMeta.color }]}>{so ? vMeta.so : vMeta.en}</Text>
+                  </View>
+                )}
+              </View>
+              {Object.entries(e.payload ?? {}).filter(([, v]) => v !== null && v !== undefined && v !== "").map(([k, v]) => (
+                <Text key={k} style={styles.evItem}>{k}: {String(v)}</Text>
+              ))}
+              {e.notes ? <Text style={[styles.bodyText, { color: colors.textMuted, marginTop: 4 }]}>{e.notes}</Text> : null}
+            </Card>
+          );
+        })
+      )}
+    </>
   );
 }
 

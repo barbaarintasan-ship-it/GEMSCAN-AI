@@ -317,6 +317,66 @@ export async function getSample(id: string): Promise<SampleDetail> {
   return body;
 }
 
+// ── Phase 6 (Solo→Team shared-targeting): structured evidence ───────────────
+// The same five categories Solo's own User Geological Evidence form uses
+// (mobile/lib/field/structuredEvidenceTypes.ts) — attached to an ALREADY
+// SUBMITTED sample, because lab results in particular routinely arrive days
+// after the field visit. Direct RPC calls (not the enterprise-samples Edge
+// Function), same pattern lib/enterprise/missions.ts already uses.
+
+export type StructuredEvidenceType = "assay" | "geophysics" | "mapping" | "remote_sensing" | "field_observation";
+export type EvidenceVerificationStatus = "user_reported" | "expert_verified" | "lab_verified";
+
+export type StructuredEvidence = {
+  id: string;
+  sample_id: string;
+  evidence_type: StructuredEvidenceType;
+  payload: Record<string, unknown>;
+  /**
+   * Server-authoritative — see add_sample_structured_evidence (0129): a
+   * `lab_verified` claim with no explicit lab_accredited=true is downgraded
+   * to `expert_verified` before this row is ever written. What you read back
+   * here is always what actually happened, never what the client asked for.
+   */
+  verification_status: EvidenceVerificationStatus;
+  lab_accredited: boolean;
+  notes: string | null;
+  created_at: string;
+};
+
+export async function fetchSampleStructuredEvidence(sampleId: string): Promise<StructuredEvidence[]> {
+  const { data, error } = await supabase.schema("enterprise")
+    .from("sample_structured_evidence")
+    .select("id,sample_id,evidence_type,payload,verification_status,lab_accredited,notes,created_at")
+    .eq("sample_id", sampleId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as StructuredEvidence[];
+}
+
+/**
+ * `verificationStatus` is what the collector CLAIMS; the server only ever
+ * honors `lab_verified` when `labAccredited` is also explicitly true — never
+ * inferred from a lab name or a result being present.
+ */
+export async function addSampleStructuredEvidence(
+  sampleId: string,
+  evidenceType: StructuredEvidenceType,
+  payload: Record<string, unknown>,
+  opts: { verificationStatus?: EvidenceVerificationStatus; labAccredited?: boolean; notes?: string } = {},
+): Promise<string> {
+  const { data, error } = await supabase.schema("enterprise").rpc("add_sample_structured_evidence", {
+    p_sample: sampleId,
+    p_evidence_type: evidenceType,
+    p_payload: payload,
+    p_verification_status: opts.verificationStatus ?? "user_reported",
+    p_lab_accredited: opts.labAccredited ?? false,
+    p_notes: opts.notes ?? null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error("gps timeout")), ms);

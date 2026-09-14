@@ -147,6 +147,27 @@ Deno.test("POST exploration lane allowed for an enterprise account -> 201", asyn
   const r = await handleSamples(req("POST", { ...GOOD, origin: "exploration" }), base());
   assertEquals(r.status, 201);
 });
+Deno.test("[Phase 6] buildPayload: structured_evidence passes through, unknown types filtered out", () => {
+  const p = buildPayload({
+    ...GOOD,
+    structured_evidence: [
+      { evidence_type: "assay", payload: { element: "Au", result: 3.2 }, verification_status: "lab_verified", lab_accredited: true },
+      { evidence_type: "field_observation", payload: { gossanRust: true } },
+      { evidence_type: "not_a_real_type", payload: {} }, // must be dropped
+      { evidence_type: "assay" }, // no payload object at all -> defaults to {}
+    ],
+  });
+  const evidence = p.structured_evidence as Array<Record<string, unknown>>;
+  assertEquals(evidence.length, 3);
+  assertEquals(evidence[0].evidence_type, "assay");
+  assertEquals(evidence[0].lab_accredited, true);
+  assertEquals(evidence[1].evidence_type, "field_observation");
+  assertEquals(evidence[2].payload, {});
+});
+Deno.test("[Phase 6] buildPayload: no structured_evidence sent -> empty array, not undefined", () => {
+  const p = buildPayload(GOOD);
+  assertEquals(p.structured_evidence, []);
+});
 Deno.test("buildPayload: a scan-sourced sample carries scanId, omits media, skips the photo minimum", () => {
   const p = buildPayload({
     name: "Scanned rock", lat: 2.05, lng: 45.32, collected_at: "2026-07-27T10:00:00Z",

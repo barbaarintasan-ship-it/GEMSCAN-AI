@@ -16,6 +16,9 @@ const MEDIA_ROLES = ["context", "surface_closeup", "texture_structure", "key_fea
 const CLOSEUP_ROLES = ["surface_closeup", "texture_structure", "key_feature"]; // count as a "specimen close-up"
 const GPS_SOURCES = ["gps", "fused", "network", "manual"];
 const LOCATION_ORIGINS = ["observed", "reported"];
+// Phase 6 — mirrors enterprise.structured_evidence_type (0128) and Solo's own
+// StructuredGeologicalEvidence section names (structuredEvidenceTypes.ts).
+const STRUCTURED_EVIDENCE_TYPES = ["assay", "geophysics", "mapping", "remote_sensing", "field_observation"];
 const H3_RES = 9; // ~174 m cells for sample points
 // Mission-assignment resolution (Phase 2B/2C) — the SAME shared H3_RESOLUTION
 // mission_assignment.target_h3 is generated at, deliberately coarser than the
@@ -402,6 +405,24 @@ export function buildPayload(body: Record<string, unknown>): Record<string, unkn
   // add them if known, but they never block a submission.
   const obs = (body.observations ?? {}) as Record<string, unknown>;
 
+  // Phase 6 (Solo→Team shared-targeting) — structured evidence (assay/
+  // geophysics/mapping/remote_sensing/field_observation), the same five
+  // categories Solo's own User Geological Evidence form uses. Shape-checked
+  // here (submit_sample re-validates the enum + payload-is-object itself);
+  // verification_status/lab_accredited are forwarded as-is — submit_sample
+  // is what actually enforces the lab_verified gate, never trust it here.
+  const structuredEvidence = Array.isArray(body.structured_evidence)
+    ? (body.structured_evidence as Array<Record<string, unknown>>)
+        .filter((e) => e && typeof e.evidence_type === "string" && STRUCTURED_EVIDENCE_TYPES.includes(e.evidence_type as string))
+        .map((e) => ({
+          evidence_type: e.evidence_type,
+          payload: e.payload && typeof e.payload === "object" ? e.payload : {},
+          verification_status: typeof e.verification_status === "string" ? e.verification_status : undefined,
+          lab_accredited: e.lab_accredited === true,
+          notes: typeof e.notes === "string" ? e.notes : undefined,
+        }))
+    : [];
+
   return {
     name,
     lat, lng, h3_cell: cellFor(lat, lng, H3_RES),
@@ -428,6 +449,7 @@ export function buildPayload(body: Record<string, unknown>): Record<string, unkn
     // media; every other sample carries its uploaded media and no scanId.
     ...(fromScan ? { scan_id: body.scan_id } : { media }),
     observations: obs,
+    structured_evidence: structuredEvidence,
   };
 }
 
