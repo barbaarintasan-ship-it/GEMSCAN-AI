@@ -100,6 +100,11 @@ verify_jwt = true
 [functions.enterprise-mission-synthesis]
 verify_jwt = true
 
+# Team Phase 9 — follow-up mission from a completed mission's best-scoring
+# cell. User-facing, requires a valid app JWT (+ is_mission_manager in the RPC).
+[functions.create-followup-mission]
+verify_jwt = true
+
 # Field sync: an expedition, its observations and its traverse, uploaded from a
 # device outbox. Authenticated like every other enterprise route.
 [functions.expeditions]

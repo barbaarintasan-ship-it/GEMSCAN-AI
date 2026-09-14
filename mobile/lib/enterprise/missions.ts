@@ -491,3 +491,33 @@ export async function fetchCellSynthesis(missionId: string, targetH3: string): P
   if (!res.ok) throw new Error(body?.detail || body?.error || `Synthesis lookup failed (${res.status})`);
   return body as CellSynthesis;
 }
+
+// Phase 9 (Solo→Team shared-targeting) — a follow-up mission from a source
+// mission's best-scoring cell. Provenance (sourceMissionId/sourceTargetH3/
+// sourceScore) is set server-side by create_followup_mission, never chosen
+// by the client — this wrapper only names the new mission.
+export interface FollowupMission {
+  missionId: string;
+  areaId: string;
+  sourceMissionId: string;
+  sourceTargetH3: string;
+  sourceScore: number;
+  envelopeRings: number;
+  cellCount: number;
+}
+
+export async function createFollowupMission(
+  sourceMissionId: string,
+  name: string,
+  opts: { description?: string; commodity?: string } = {},
+): Promise<FollowupMission> {
+  const res = await fetch(`${FUNCTIONS_URL}/create-followup-mission`, {
+    method: "POST",
+    headers: await authHeader(),
+    body: JSON.stringify({ sourceMissionId, name, description: opts.description, commodity: opts.commodity }),
+  });
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!res.ok) throw new Error(body?.detail || body?.error || `Follow-up mission creation failed (${res.status})`);
+  return body as FollowupMission;
+}

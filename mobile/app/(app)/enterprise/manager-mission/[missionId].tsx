@@ -24,7 +24,7 @@ import {
   addMissionContributor, assignCells, unassignMissionCellContributor,
   generateMissionCells, scoreMissionCells, groupMissionCells,
   recomputeMissionProgress, fetchMissionProgressDetail,
-  generateCellSynthesis, fetchCellSynthesis,
+  generateCellSynthesis, fetchCellSynthesis, createFollowupMission,
   type Assignment, type MissionContributor, type MissionArea,
   type MissionProgress, type MissionProgressDetail, type MissionCellGroup, type CellSynthesis,
 } from "../../../../lib/enterprise/missions";
@@ -63,6 +63,9 @@ export default function ManagerMissionScreen() {
   // regenerated (a real API call) when the manager explicitly asks.
   const [synthesis, setSynthesis] = useState<Record<string, CellSynthesis>>({});
   const [synthesizing, setSynthesizing] = useState<string | null>(null);
+  // Phase 9 — follow-up mission, named after the source's best-scoring cell.
+  const [followupName, setFollowupName] = useState("");
+  const [creatingFollowup, setCreatingFollowup] = useState(false);
   const [generating, setGenerating] = useState<string | null>(null);
   const [scoring, setScoring] = useState(false);
   const [addEmail, setAddEmail] = useState("");
@@ -248,6 +251,31 @@ export default function ManagerMissionScreen() {
     }
   }
 
+  /** Phase 9 — spins off a new mission from this one's best-scoring cell.
+   *  The server picks the cell and its score; this only names the mission. */
+  async function handleCreateFollowup() {
+    if (!missionId || !followupName.trim()) return;
+    setCreatingFollowup(true);
+    try {
+      const f = await createFollowupMission(missionId, followupName.trim());
+      setFollowupName("");
+      Alert.alert(
+        so ? "Mission cusub ayaa la abuuray" : "Follow-up mission created",
+        so
+          ? `Waxaa lagu saleeyay unugga ugu qiimaha sarreeya (${Math.round(f.sourceScore * 100)}/100).`
+          : `Based on the best-scoring cell (${Math.round(f.sourceScore * 100)}/100).`,
+        [
+          { text: so ? "Hagaag" : "OK" },
+          { text: so ? "Fur" : "Open", onPress: () => router.push(`/(app)/enterprise/manager-mission/${f.missionId}`) },
+        ],
+      );
+    } catch (err) {
+      Alert.alert(so ? "Khalad" : "Error", (err as Error).message);
+    } finally {
+      setCreatingFollowup(false);
+    }
+  }
+
   const emailFor = (id: string | null) => contributors.find((c) => c.contributor_id === id)?.email;
   const unassignedCount = cellGroups.filter((g) => g.contributors.length === 0).length;
 
@@ -363,6 +391,33 @@ export default function ManagerMissionScreen() {
             onPress={() => missionId && router.push(`/(app)/enterprise/recommend-area/${missionId}`)}
             style={styles.newAreaButton}
           />
+
+          {cellGroups.some((g) => g.prospectivityScore != null) && (
+            <>
+              <SectionLabel>{so ? "Mission Xigta (Follow-up)" : "Follow-up Mission"}</SectionLabel>
+              <Card>
+                <Text style={styles.mutedText}>
+                  {so
+                    ? "Waxay ku bilaabmaysaa unugga mission-kan ugu qiimaha sarreeya."
+                    : "Starts from this mission's best-scoring cell."}
+                </Text>
+                <View style={[styles.row, styles.addRosterRow]}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder={so ? "Magaca mission-ka cusub" : "New mission name"}
+                    placeholderTextColor={colors.textFaint}
+                    value={followupName}
+                    onChangeText={setFollowupName}
+                  />
+                  <Button
+                    title={so ? "Abuur" : "Create"}
+                    size="sm" loading={creatingFollowup} disabled={!followupName.trim()}
+                    onPress={handleCreateFollowup}
+                  />
+                </View>
+              </Card>
+            </>
+          )}
 
           <SectionLabel>{so ? "Xubnaha" : "Roster"}</SectionLabel>
           <Card style={styles.rosterCard}>
