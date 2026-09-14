@@ -30,6 +30,16 @@ export type Assignment = {
   due_at: string | null;
   area_id: string | null;
   created_at: string;
+  /**
+   * Phase 3 (Solo→Team shared-targeting) — deterministic prospectivity score
+   * (0..1, NOT a probability) for this exact cell, from the SAME shared
+   * TargetingEngine Solo Exploration uses. Null = not yet scored — a real
+   * state, not zero. Independent of contributor_id: a cell can be ranked
+   * with nobody assigned yet (cell INTELLIGENCE vs cell ASSIGNMENT are
+   * different concepts sharing one row).
+   */
+  prospectivity_score: number | null;
+  scored_at: string | null;
 };
 
 export type MissionContributor = {
@@ -77,14 +87,31 @@ export async function fetchMyMissions(): Promise<MyMission[]> {
 }
 
 /** Every assignment (assigned + unassigned pool) for a mission. */
+/**
+ * Ranked best-first: highest prospectivity_score first (nulls — not yet
+ * scored — last), then nearer-to-area-centre... except distance-to-centre
+ * isn't available on this row, so the deterministic tie-breaker is
+ * target_h3 itself (stable, always distinct) — same spirit as Solo's
+ * `rank()` tie-break (nearer wins), just the nearest deterministic
+ * equivalent available at this granularity without inventing a new
+ * geological weighting for ties.
+ */
 export async function fetchMissionAssignments(missionId: string): Promise<Assignment[]> {
   const { data, error } = await supabase.schema("enterprise")
     .from("mission_assignment")
-    .select("id,target_h3,contributor_id,status,due_at,area_id,created_at")
-    .eq("mission_id", missionId)
-    .order("target_h3");
+    .select("id,target_h3,contributor_id,status,due_at,area_id,created_at,prospectivity_score,scored_at")
+    .eq("mission_id", missionId);
   if (error) throw error;
-  return data ?? [];
+  const rows = data ?? [];
+  rows.sort((a, b) => {
+    const sa = a.prospectivity_score, sb = b.prospectivity_score;
+    if (sa == null && sb == null) return a.target_h3.localeCompare(b.target_h3);
+    if (sa == null) return 1;
+    if (sb == null) return -1;
+    if (sb !== sa) return sb - sa;
+    return a.target_h3.localeCompare(b.target_h3);
+  });
+  return rows;
 }
 
 export async function fetchMissionContributors(missionId: string): Promise<MissionContributor[]> {
@@ -238,6 +265,29 @@ export async function generateMissionCells(missionId: string, areaId: string): P
   const body = text ? JSON.parse(text) : {};
   if (!res.ok) throw new Error(body?.detail || body?.error || `Cell generation failed (${res.status})`);
   return { totalCells: body.totalCells, newlyCreated: body.newlyCreated };
+}
+
+/**
+ * Phase 3 (Solo→Team shared-targeting) — scores cells with the SAME shared
+ * TargetingEngine used everywhere else in this pipeline. By default only
+ * cells with no score yet are scored (safe to call after every Generate
+ * Cells tap without redoing work); `force: true` re-scores everything in
+ * scope. Server-authoritative: nothing this function sends is a score, only
+ * which mission/area to score.
+ */
+export async function scoreMissionCells(
+  missionId: string,
+  opts: { areaId?: string; force?: boolean } = {},
+): Promise<{ requested: number; scored: number; persisted: number; cells: Array<{ targetH3: string; score: number }> }> {
+  const res = await fetch(`${FUNCTIONS_URL}/score-mission-cells`, {
+    method: "POST",
+    headers: await authHeader(),
+    body: JSON.stringify({ missionId, areaId: opts.areaId, force: opts.force ?? false }),
+  });
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!res.ok) throw new Error(body?.detail || body?.error || `Scoring failed (${res.status})`);
+  return body;
 }
 
 // ── Phase 2 (Solo→Team shared-targeting): AI Recommended Area ───────────────

@@ -21,11 +21,15 @@ import { SectionLabel } from "../../../../components/ui/SectionLabel";
 import { supabase } from "../../../../lib/supabase";
 import {
   fetchMissionAssignments, fetchMissionContributors, fetchMissionAreas,
-  addMissionContributor, assignCells, generateMissionCells,
+  addMissionContributor, assignCells, generateMissionCells, scoreMissionCells,
   recomputeMissionProgress, fetchMissionProgressDetail,
   type Assignment, type MissionContributor, type MissionArea,
   type MissionProgress, type MissionProgressDetail,
 } from "../../../../lib/enterprise/missions";
+// Phase 3 (Solo→Team shared-targeting): the SAME band thresholds Solo's own
+// confidence readout uses (shared/geo-core/confidence.ts) — reused here for
+// display only, never recomputed. No new interpretation scale invented.
+import { bandFor } from "../../../../../shared/geo-core/confidence.ts";
 
 const TERMINAL = new Set(["completed", "skipped", "expired"]);
 
@@ -46,6 +50,7 @@ export default function ManagerMissionScreen() {
   const [progressDetail, setProgressDetail] = useState<MissionProgressDetail | null>(null);
   const [expandedCell, setExpandedCell] = useState<string | null>(null);
   const [generating, setGenerating] = useState<string | null>(null);
+  const [scoring, setScoring] = useState(false);
   const [addEmail, setAddEmail] = useState("");
   const [addingContributor, setAddingContributor] = useState(false);
   const [assigning, setAssigning] = useState<string | null>(null);
@@ -86,17 +91,52 @@ export default function ManagerMissionScreen() {
     setGenerating(areaId);
     try {
       const r = await generateMissionCells(missionId, areaId);
+      // STEP A (geometry) done — STEP B (score) follows immediately, scoped
+      // to this area, so the manager sees priority the moment cells exist.
+      // A scoring failure here is reported but does not undo cell creation:
+      // the cells are real either way, "not yet scored" is itself an honest
+      // state (see missions.ts's own Assignment.prospectivity_score comment).
+      let scoreNote = "";
+      try {
+        const s = await scoreMissionCells(missionId, { areaId });
+        scoreNote = so
+          ? ` ${s.scored}/${s.requested} ayaa la qiimeeyay.`
+          : ` ${s.scored}/${s.requested} scored.`;
+      } catch (scoreErr) {
+        scoreNote = so
+          ? ` (Qiimeyntu way fashilantay: ${(scoreErr as Error).message})`
+          : ` (Scoring failed: ${(scoreErr as Error).message})`;
+      }
       Alert.alert(
         so ? "Waa la sameeyay" : "Done",
-        so
+        (so
           ? `${r.totalCells} unug ayaa la helay, ${r.newlyCreated} oo cusub ayaa la abuuray.`
-          : `${r.totalCells} cells found, ${r.newlyCreated} newly created.`,
+          : `${r.totalCells} cells found, ${r.newlyCreated} newly created.`) + scoreNote,
       );
       await load();
     } catch (err) {
       Alert.alert(so ? "Khalad" : "Error", (err as Error).message);
     } finally {
       setGenerating(null);
+    }
+  }
+
+  /** Manual re-entry point for cells that predate scoring, or a fresh pass
+   *  over the whole mission — the per-area call above covers the common case. */
+  async function handleScoreAll() {
+    if (!missionId) return;
+    setScoring(true);
+    try {
+      const s = await scoreMissionCells(missionId);
+      Alert.alert(
+        so ? "Waa la qiimeeyay" : "Scored",
+        so ? `${s.scored}/${s.requested} unug ayaa la qiimeeyay.` : `${s.scored}/${s.requested} cells scored.`,
+      );
+      await load();
+    } catch (err) {
+      Alert.alert(so ? "Khalad" : "Error", (err as Error).message);
+    } finally {
+      setScoring(false);
     }
   }
 
@@ -281,20 +321,40 @@ export default function ManagerMissionScreen() {
             </View>
           </Card>
 
-          <SectionLabel>{so ? "Unugyada H3" : "H3 Cells"}</SectionLabel>
+          <View style={styles.h3SectionHeader}>
+            <SectionLabel>{so ? "Unugyada H3 (la kala saaray)" : "H3 Cells (ranked)"}</SectionLabel>
+            {cells.length > 0 && (
+              <Button
+                title={so ? "Qiimee Unugyada" : "Score Cells"}
+                size="sm" variant="outline" loading={scoring}
+                onPress={handleScoreAll}
+              />
+            )}
+          </View>
           {cells.length === 0 ? (
             <Text style={styles.mutedText}>
               {so ? "Weli lama samayn unugyo. Kor ka dooro aag oo taabo \"Samee Unugyo\"." : "No cells generated yet. Pick an area above and tap \"Generate Cells\"."}
             </Text>
           ) : (
-            cells.map((c) => {
+            cells.map((c, index) => {
               const isOpen = expandedCell === c.target_h3;
+              const scored = c.prospectivity_score != null;
+              const band = scored ? bandFor(c.prospectivity_score!) : null;
               return (
                 <Card key={c.id} style={styles.cellCard}>
                   <Pressable onPress={() => setExpandedCell(isOpen ? null : c.target_h3)} style={styles.cellRow}>
-                    <Text style={styles.cellId} numberOfLines={1}>{c.target_h3}</Text>
-                    <Text style={styles.cellAssignee} numberOfLines={1}>
-                      {emailFor(c.contributor_id) ?? (so ? "bilaash" : "unassigned")}
+                    <Text style={styles.cellRank}>#{index + 1}</Text>
+                    <View style={styles.cellIdBlock}>
+                      <Text style={styles.cellId} numberOfLines={1}>{c.target_h3}</Text>
+                      <Text style={styles.cellAssignee} numberOfLines={1}>
+                        {emailFor(c.contributor_id) ?? (so ? "bilaash" : "unassigned")}
+                      </Text>
+                    </View>
+                    <Text style={[
+                      styles.cellScore,
+                      band === "High" && styles.bandHigh, band === "Moderate" && styles.bandModerate,
+                    ]}>
+                      {scored ? `${Math.round(c.prospectivity_score! * 100)}/100 · ${band}` : (so ? "lama qiimeynin" : "not scored")}
                     </Text>
                     <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={16} color={colors.textFaint} />
                   </Pressable>
@@ -367,10 +427,16 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
     paddingHorizontal: spacing.md, paddingVertical: 10, color: colors.text, fontSize: 14, flex: 1,
   },
+  h3SectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   cellCard: { marginBottom: spacing.sm, gap: spacing.sm },
   cellRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  cellId: { color: colors.text, fontSize: 13, fontWeight: "700", flex: 1 },
+  cellRank: { color: colors.textFaint, fontSize: 12, fontWeight: "700", width: 28 },
+  cellIdBlock: { flex: 1, gap: 2 },
+  cellId: { color: colors.text, fontSize: 13, fontWeight: "700" },
   cellAssignee: { color: colors.textMuted, fontSize: 12, maxWidth: 140 },
+  cellScore: { color: colors.textFaint, fontSize: 12, fontWeight: "700" },
+  bandModerate: { color: colors.gold },
+  bandHigh: { color: colors.gold },
   assignChips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, paddingTop: spacing.xs },
   chip: {
     borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill,
