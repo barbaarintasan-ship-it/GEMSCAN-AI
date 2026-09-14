@@ -23,7 +23,7 @@ import { Button } from "../../../../components/ui/Button";
 import { SectionLabel } from "../../../../components/ui/SectionLabel";
 import { captureSampleLocation } from "../../../../lib/enterpriseSamples";
 import {
-  fetchTeamTargetRecommendation, acceptRecommendedArea,
+  fetchTeamTargetRecommendation, acceptRecommendedArea, createManualArea,
   type TeamTargetCandidate, type TeamTargetingResult,
 } from "../../../../lib/enterprise/missions";
 
@@ -63,6 +63,10 @@ export default function RecommendAreaScreen() {
   const [selected, setSelected] = useState<TeamTargetCandidate | null>(null);
   const [areaName, setAreaName] = useState("");
   const [accepting, setAccepting] = useState(false);
+  // True when the manager chose to create the area by hand, with no AI
+  // score involved — e.g. after "no evidence found" for a spot they already
+  // know matters (a mapped fault, etc; see EVIDENCE_CAVEAT).
+  const [manualMode, setManualMode] = useState(false);
 
   const parsedLat = Number(lat);
   const parsedLng = Number(lng);
@@ -112,21 +116,42 @@ export default function RecommendAreaScreen() {
 
   function chooseTarget(t: TeamTargetCandidate) {
     setSelected(t);
+    setManualMode(false);
     setAreaName(`AI Target ${shortCell(t.cell)}`);
     setStage("confirm");
   }
 
+  /** No AI score, no evidence requirement — the manager already knows this
+   *  location matters. Uses the lat/lng already entered on the locate step. */
+  function chooseManual() {
+    setSelected(null);
+    setManualMode(true);
+    setAreaName(so ? "Aag gacanta lagu abuuray" : "Manually created area");
+    setStage("confirm");
+  }
+
   async function accept() {
-    if (!missionId || !selected || !areaName.trim()) return;
+    if (!missionId || !areaName.trim()) return;
     setAccepting(true);
     try {
-      const area = await acceptRecommendedArea(missionId, selected.cell, areaName.trim(), selected.scoredForCommodity);
-      Alert.alert(
-        so ? "Aag ayaa la abuuray" : "Area created",
-        so
-          ? `"${area.name}" waxa lagu abuuray ${area.cellCount} unug oo H3 ah oo ku wareegsan target-ka.`
-          : `"${area.name}" was created, spanning ${area.cellCount} H3 cells around the recommended target.`,
-      );
+      if (manualMode) {
+        const area = await createManualArea(missionId, areaName.trim(), parsedLat, parsedLng);
+        Alert.alert(
+          so ? "Aag ayaa la abuuray" : "Area created",
+          so
+            ? `"${area.name}" waxa lagu abuuray ${area.cellCount} unug oo H3 ah — ma jirin qiimayn AI ah.`
+            : `"${area.name}" was created, spanning ${area.cellCount} H3 cells — no AI scoring involved.`,
+        );
+      } else {
+        if (!selected) return;
+        const area = await acceptRecommendedArea(missionId, selected.cell, areaName.trim(), selected.scoredForCommodity);
+        Alert.alert(
+          so ? "Aag ayaa la abuuray" : "Area created",
+          so
+            ? `"${area.name}" waxa lagu abuuray ${area.cellCount} unug oo H3 ah oo ku wareegsan target-ka.`
+            : `"${area.name}" was created, spanning ${area.cellCount} H3 cells around the recommended target.`,
+        );
+      }
       router.back();
     } catch (err) {
       Alert.alert(so ? "Khalad" : "Error", (err as Error).message);
@@ -201,11 +226,19 @@ export default function RecommendAreaScreen() {
             )}
             <SectionLabel>{so ? "Target-yada la kala saaray" : "Ranked targets"}</SectionLabel>
             {result.targets.length === 0 ? (
-              <Text style={styles.mutedText}>
-                {so
-                  ? "Wax caddeyn ah lagama helin aaggan — isku day meel kale ama kordhi radiuska."
-                  : "No evidence found near this point — try a different location."}
-              </Text>
+              <>
+                <Text style={styles.mutedText}>
+                  {so
+                    ? "Wax caddeyn ah lagama helin aaggan — server-ku weli ma arki karo fault/terrain/lithology (waa xaddidaad hadda jirta, ma aha khalad). Isku day meel kale, ama haddii aad shakhsi ahaan ogtahay in halkan muhiim tahay, aag ka samee gacanta."
+                    : "No evidence found near this point — the server can't yet see structural/terrain/lithology evidence (a known current limitation, not a bug). Try a different location, or if you already know this spot matters, create the area by hand."}
+                </Text>
+                <Button
+                  title={so ? "Halkan Aag ka samee (gacanta)" : "Create Area Here (manual)"}
+                  variant="outline"
+                  onPress={chooseManual}
+                  style={styles.primaryButton}
+                />
+              </>
             ) : (
               result.targets.map((t) => (
                 <Pressable key={t.cell} onPress={() => chooseTarget(t)}>
@@ -229,18 +262,28 @@ export default function RecommendAreaScreen() {
           </>
         )}
 
-        {stage === "confirm" && selected && (
+        {stage === "confirm" && (manualMode || selected) && (
           <>
             <SectionLabel>{so ? "Xaqiiji Aagga" : "Confirm area"}</SectionLabel>
             <Card style={styles.card}>
-              <Text style={styles.confirmScore}>
-                {Math.round(selected.score * 100)}/100 · {selected.band} — {shortCell(selected.cell)}
-              </Text>
-              <Text style={styles.mutedText}>
-                {so
-                  ? "Marka aad xaqiijiso, server-ku dib buu u xisaabin doonaa isku dhafka (score) haddana wax lama isticmaali doono wixii aad ka aragtay bogga hore — waana natiijada ugu dambeysa."
-                  : "On accept, the server recomputes this score fresh — nothing you saw on the previous screen is trusted as final."}
-              </Text>
+              {manualMode ? (
+                <Text style={styles.mutedText}>
+                  {so
+                    ? "Aagan gacanta ayaa loo abuurayaa — ma jiro qiimayn AI ah, adiga ayaa go'aansaday in halkan muhiim tahay."
+                    : "This area is being created by hand — no AI score, you decided this location matters."}
+                </Text>
+              ) : (
+                <>
+                  <Text style={styles.confirmScore}>
+                    {Math.round(selected!.score * 100)}/100 · {selected!.band} — {shortCell(selected!.cell)}
+                  </Text>
+                  <Text style={styles.mutedText}>
+                    {so
+                      ? "Marka aad xaqiijiso, server-ku dib buu u xisaabin doonaa isku dhafka (score) haddana wax lama isticmaali doono wixii aad ka aragtay bogga hore — waana natiijada ugu dambeysa."
+                      : "On accept, the server recomputes this score fresh — nothing you saw on the previous screen is trusted as final."}
+                  </Text>
+                </>
+              )}
               <SectionLabel>{so ? "Magaca Aagga" : "Area name"}</SectionLabel>
               <TextInput
                 style={styles.input}
@@ -250,7 +293,7 @@ export default function RecommendAreaScreen() {
                 onChangeText={setAreaName}
               />
             </Card>
-            {caveat && (
+            {caveat && !manualMode && (
               <Card style={styles.caveatCard}>
                 <Text style={styles.caveatText}>{caveat}</Text>
               </Card>

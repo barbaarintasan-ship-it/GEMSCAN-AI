@@ -532,3 +532,35 @@ export async function deleteMission(missionId: string): Promise<void> {
   const { error } = await supabase.schema("enterprise").rpc("delete_mission", { p_mission: missionId });
   if (error) throw error;
 }
+
+// Manually creates a mission area — no AI recommendation/scoring involved.
+// Fills the gap left when "+ AI Recommended Area" finds no evidence near a
+// location the manager already knows matters (the server is currently blind
+// to structural/terrain/lithology-prior evidence — see
+// score-mission-cells's own EVIDENCE_CAVEAT).
+export interface ManualArea {
+  areaId: string;
+  missionId: string;
+  name: string;
+  center: { lat: number; lng: number };
+  envelopeRings: number;
+  cellCount: number;
+}
+
+export async function createManualArea(
+  missionId: string,
+  name: string,
+  lat: number,
+  lng: number,
+  rings?: number,
+): Promise<ManualArea> {
+  const res = await fetch(`${FUNCTIONS_URL}/create-manual-area`, {
+    method: "POST",
+    headers: await authHeader(),
+    body: JSON.stringify({ missionId, name, lat, lng, rings }),
+  });
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!res.ok) throw new Error(body?.detail || body?.error || `Manual area creation failed (${res.status})`);
+  return body as ManualArea;
+}

@@ -105,6 +105,13 @@ verify_jwt = true
 [functions.create-followup-mission]
 verify_jwt = true
 
+# Manually create a mission area with no AI recommendation/scoring involved —
+# fills the gap left when the server has no evidence for a location the
+# manager already knows matters. User-facing, requires a valid app JWT
+# (+ is_mission_manager in the RPC).
+[functions.create-manual-area]
+verify_jwt = true
+
 # Field sync: an expedition, its observations and its traverse, uploaded from a
 # device outbox. Authenticated like every other enterprise route.
 [functions.expeditions]
