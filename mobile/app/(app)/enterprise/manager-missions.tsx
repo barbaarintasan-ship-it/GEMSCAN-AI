@@ -14,7 +14,7 @@ import { Card } from "../../../components/ui/Card";
 import { Button } from "../../../components/ui/Button";
 import { SectionLabel } from "../../../components/ui/SectionLabel";
 import {
-  fetchMyMissions, fetchMyProjects, createProject, createMission,
+  fetchMyMissions, fetchMyProjects, createProject, createMission, deleteMission,
   type MyMission, type MyProject,
 } from "../../../lib/enterprise/missions";
 import { fetchMyOrganizations } from "../../../lib/enterprise/team";
@@ -35,6 +35,7 @@ export default function ManagerMissionsScreen() {
   const [missionName, setMissionName] = useState("");
   const [missionDesc, setMissionDesc] = useState("");
   const [busy, setBusy] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,6 +93,39 @@ export default function ManagerMissionsScreen() {
     }
   }
 
+  function handleDelete(m: MyMission) {
+    Alert.alert(
+      so ? "Mission-ka tirtir?" : "Delete mission?",
+      so
+        ? `"${m.mission.name}" waa la tirtiri doonaa. Caddaymaha (samples) ee la soo gudbiyay way sii jiri doonaan, laakiin mission-kan lama xidhi doonaan mar dambe. Tallaabadan lama celin karo.`
+        : `"${m.mission.name}" will be deleted. Any samples already submitted stay exactly as they are, just no longer linked to this mission. This cannot be undone.`,
+      [
+        { text: so ? "Jooji" : "Cancel", style: "cancel" },
+        {
+          text: so ? "Tirtir" : "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setDeletingId(m.mission_id);
+            try {
+              await deleteMission(m.mission_id);
+              setMissions((prev) => prev.filter((x) => x.mission_id !== m.mission_id));
+            } catch (err) {
+              const msg = (err as Error).message ?? "";
+              Alert.alert(
+                so ? "Khalad" : "Error",
+                /forbidden/i.test(msg)
+                  ? (so ? "Kaliya milkiilaha mission-ka ama admin-ka shirkadda ayaa tirtiri kara." : "Only the mission owner or an org admin can delete this mission.")
+                  : msg,
+              );
+            } finally {
+              setDeletingId(null);
+            }
+          },
+        },
+      ],
+    );
+  }
+
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -111,17 +145,28 @@ export default function ManagerMissionsScreen() {
             </Text>
           ) : null}
           {missions.map((m) => (
-            <Pressable
-              key={m.mission_id}
-              style={styles.missionRow}
-              onPress={() => router.push(`/(app)/enterprise/manager-mission/${m.mission_id}`)}
-            >
-              <View style={styles.missionRowText}>
-                <Text style={styles.missionName}>{m.mission.name}</Text>
-                <Text style={styles.missionStatus}>{m.mission.status}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
-            </Pressable>
+            <View key={m.mission_id} style={styles.missionRow}>
+              <Pressable
+                style={styles.missionRowMain}
+                onPress={() => router.push(`/(app)/enterprise/manager-mission/${m.mission_id}`)}
+              >
+                <View style={styles.missionRowText}>
+                  <Text style={styles.missionName}>{m.mission.name}</Text>
+                  <Text style={styles.missionStatus}>{m.mission.status}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+              </Pressable>
+              <Pressable
+                style={styles.deleteMissionBtn}
+                disabled={deletingId === m.mission_id}
+                onPress={() => handleDelete(m)}
+                hitSlop={8}
+              >
+                {deletingId === m.mission_id
+                  ? <ActivityIndicator size="small" color={colors.danger} />
+                  : <Ionicons name="trash-outline" size={18} color={colors.danger} />}
+              </Pressable>
+            </View>
           ))}
 
           {!showForm ? (
@@ -205,9 +250,11 @@ const styles = StyleSheet.create({
   emptyText: { color: colors.textMuted, fontSize: 13, textAlign: "center", marginBottom: spacing.md },
   body: { padding: spacing.md, gap: spacing.sm, paddingBottom: 40 },
   missionRow: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    flexDirection: "row", alignItems: "center", gap: spacing.sm,
     backgroundColor: colors.surfaceAlt, borderRadius: radius.lg, padding: spacing.md,
   },
+  missionRowMain: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  deleteMissionBtn: { padding: spacing.xs },
   missionRowText: { gap: 2 },
   missionName: { color: colors.text, fontSize: 15, fontWeight: "700" },
   missionStatus: { color: colors.textFaint, fontSize: 12, textTransform: "capitalize" },

@@ -521,3 +521,14 @@ export async function createFollowupMission(
   if (!res.ok) throw new Error(body?.detail || body?.error || `Follow-up mission creation failed (${res.status})`);
   return body as FollowupMission;
 }
+
+/**
+ * Deletes a mission outright — a HARD delete (enterprise.delete_mission's
+ * own comment explains why this is safe: real field evidence is detached,
+ * never destroyed, via the existing FK graph). The RPC re-checks
+ * is_mission_manager itself; this wrapper does not pre-filter.
+ */
+export async function deleteMission(missionId: string): Promise<void> {
+  const { error } = await supabase.schema("enterprise").rpc("delete_mission", { p_mission: missionId });
+  if (error) throw error;
+}
