@@ -9,7 +9,7 @@
 // per-runtime transport" split (see shared/geo-core/geo/h3.ts's own header
 // note), not a second algorithm: both bindings call the identical library.
 import {
-  latLngToCell, cellToLatLng, gridDisk, cellToChildren, getResolution,
+  latLngToCell, cellToLatLng, gridDisk, cellToChildren, getResolution, cellToBoundary,
 } from "https://esm.sh/h3-js@4.1.0";
 
 // The resolution is shared with the mobile runtime — one constant, two bindings.
@@ -45,4 +45,13 @@ export function childrenOf(cell: string, finerBy = 2): string[] {
   const res = resolutionOf(cell);
   if (res == null) return [];
   return cellToChildren(cell, Math.min(15, res + finerBy));
+}
+
+/**
+ * A cell's hexagon boundary as a closed GeoJSON ring ([lng, lat] pairs, first
+ * point repeated last) — added for Phase 2 (AI Recommended Area), which
+ * builds an exploration_area polygon from a target cell's own k-ring.
+ */
+export function cellBoundaryRing(cell: string): [number, number][] {
+  return cellToBoundary(cell, true) as [number, number][];
 }

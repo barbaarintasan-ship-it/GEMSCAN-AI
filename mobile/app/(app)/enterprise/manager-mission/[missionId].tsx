@@ -249,6 +249,12 @@ export default function ManagerMissionScreen() {
               </View>
             ))
           )}
+          <Button
+            title={so ? "+ Aag AI ah oo la Talinayo" : "+ AI Recommended Area"}
+            variant="outline"
+            onPress={() => missionId && router.push(`/(app)/enterprise/recommend-area/${missionId}`)}
+            style={styles.newAreaButton}
+          />
 
           <SectionLabel>{so ? "Xubnaha" : "Roster"}</SectionLabel>
           <Card style={styles.rosterCard}>
@@ -349,6 +355,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.sm,
   },
   areaName: { color: colors.text, fontSize: 14, fontWeight: "600", flexShrink: 1 },
+  newAreaButton: { marginBottom: spacing.sm },
   rosterCard: { gap: 0, marginBottom: spacing.sm },
   rosterRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10 },
   rosterEmail: { color: colors.text, fontSize: 14, flexShrink: 1 },

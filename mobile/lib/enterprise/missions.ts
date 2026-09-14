@@ -239,3 +239,106 @@ export async function generateMissionCells(missionId: string, areaId: string): P
   if (!res.ok) throw new Error(body?.detail || body?.error || `Cell generation failed (${res.status})`);
   return { totalCells: body.totalCells, newlyCreated: body.newlyCreated };
 }
+
+// ── Phase 2 (Solo→Team shared-targeting): AI Recommended Area ───────────────
+// Both calls below hit Edge Functions that run the SAME shared deterministic
+// TargetingEngine Solo Exploration uses (shared/geo-core/gie/) — the mobile
+// app never scores anything itself here. See team-targeting/handler.ts and
+// accept-recommended-area/handler.ts for the server-side implementation.
+
+export type TeamTargetReason = Record<string, unknown>;
+
+export interface TeamTargetCandidate {
+  cell: string;
+  centre: { lat: number; lng: number };
+  bearingDeg: number;
+  compass: string;
+  distanceM: number;
+  /** 0..1, deterministic — never a probability. */
+  score: number;
+  reportScore: number;
+  band: string;
+  reasons: TeamTargetReason[];
+  commodities: string[];
+  scoredForCommodity: string | null;
+}
+
+export interface TeamTargetHotspot {
+  lat: number; lng: number; cell: string; score: number; liftOverCentre: number;
+}
+
+export interface TeamTargetingResult {
+  current: { cell: string; score: number };
+  targets: TeamTargetCandidate[];
+  bestIsHere: boolean;
+  hotspot: TeamTargetHotspot | null;
+  /** Always shown to the manager verbatim — see the function's own note on
+   *  why structural/lithology/terrain evidence isn't in `targets[].score` yet. */
+  evidenceCaveat: string;
+}
+
+/**
+ * PREVIEW only — calls `team-targeting`, which makes no database writes.
+ * Nothing is created until the manager explicitly accepts one candidate via
+ * `acceptRecommendedArea()` below.
+ */
+export async function fetchTeamTargetRecommendation(
+  lat: number,
+  lng: number,
+  opts: { commodity?: string | null; radiusM?: number; rings?: number; limit?: number; hotspot?: boolean } = {},
+): Promise<TeamTargetingResult> {
+  const res = await fetch(`${FUNCTIONS_URL}/team-targeting`, {
+    method: "POST",
+    headers: await authHeader(),
+    body: JSON.stringify({
+      lat, lng,
+      commodity: opts.commodity ?? undefined,
+      radiusM: opts.radiusM, rings: opts.rings, limit: opts.limit,
+      hotspot: opts.hotspot ?? false,
+    }),
+  });
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!res.ok) throw new Error(body?.detail || body?.error || `Recommendation failed (${res.status})`);
+  return body as TeamTargetingResult;
+}
+
+export interface AcceptedRecommendedArea {
+  areaId: string;
+  missionId: string;
+  name: string;
+  center: { lat: number; lng: number };
+  envelopeRings: number;
+  cellCount: number;
+  sourceTargetH3: string;
+  sourceTargetScore: number;
+  reportScore: number;
+  band: string;
+  reasons: TeamTargetReason[];
+  commodities: string[];
+  scoredForCommodity: string | null;
+  evidenceCaveat: string;
+}
+
+/**
+ * The explicit ACCEPT step — the manager's only action that actually creates
+ * an `exploration_area`. The server re-scores `targetH3` fresh and ignores
+ * any score the client might send; only `missionId`/`targetH3`/`name`/
+ * `commodity` are meaningful inputs (see accept-recommended-area/handler.ts).
+ */
+export async function acceptRecommendedArea(
+  missionId: string,
+  targetH3: string,
+  name: string,
+  commodity?: string | null,
+): Promise<AcceptedRecommendedArea> {
+  const res = await fetch(`${FUNCTIONS_URL}/accept-recommended-area`, {
+    method: "POST",
+    headers: await authHeader(),
+    body: JSON.stringify({ missionId, targetH3, name, commodity: commodity ?? undefined }),
+  });
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!res.ok) throw new Error(body?.detail || body?.error || `Area creation failed (${res.status})`);
+  return body as AcceptedRecommendedArea;
+}
