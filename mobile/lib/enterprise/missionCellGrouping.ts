@@ -32,7 +32,8 @@ export function groupMissionCells(rows: Assignment[]): MissionCellGroup[] {
     if (!group) {
       group = {
         targetH3: row.target_h3, cellId: "", areaId: null,
-        prospectivityScore: null, scoredAt: null, contributors: [],
+        prospectivityScore: null, scoredAt: null,
+        integratedScore: null, evidenceSampleCount: 0, contributors: [],
       };
       byCell.set(row.target_h3, group);
     }
@@ -41,6 +42,8 @@ export function groupMissionCells(rows: Assignment[]): MissionCellGroup[] {
       group.areaId = row.area_id;
       group.prospectivityScore = row.prospectivity_score;
       group.scoredAt = row.scored_at;
+      group.integratedScore = row.integrated_score;
+      group.evidenceSampleCount = row.evidence_sample_count ?? 0;
     } else {
       group.contributors.push(row);
     }

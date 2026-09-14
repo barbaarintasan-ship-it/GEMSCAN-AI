@@ -40,6 +40,17 @@ export type Assignment = {
    */
   prospectivity_score: number | null;
   scored_at: string | null;
+  /**
+   * Phase 8 — prospectivity_score combined with any structured evidence
+   * (assay/geophysics/mapping/field observation) contributors have collected
+   * in this cell, via the SAME noisy-OR arithmetic Solo's own Integrated
+   * Prospectivity Score uses. Null until evidence exists — a real state
+   * ("nothing collected yet"), not zero and not equal to prospectivity_score.
+   * prospectivity_score itself is never touched by evidence — see
+   * teamIntegratedEvidence.ts's own header note.
+   */
+  integrated_score: number | null;
+  evidence_sample_count: number | null;
 };
 
 export type MissionContributor = {
@@ -99,7 +110,7 @@ export async function fetchMyMissions(): Promise<MyMission[]> {
 export async function fetchMissionAssignments(missionId: string): Promise<Assignment[]> {
   const { data, error } = await supabase.schema("enterprise")
     .from("mission_assignment")
-    .select("id,target_h3,contributor_id,status,due_at,area_id,created_at,prospectivity_score,scored_at")
+    .select("id,target_h3,contributor_id,status,due_at,area_id,created_at,prospectivity_score,scored_at,integrated_score,evidence_sample_count")
     .eq("mission_id", missionId)
     .order("target_h3");
   if (error) throw error;
@@ -114,6 +125,9 @@ export type MissionCellGroup = {
   /** From the canonical row only. Null = not yet scored (a real state, not zero). */
   prospectivityScore: number | null;
   scoredAt: string | null;
+  /** Phase 8 — see Assignment.integrated_score's own doc. */
+  integratedScore: number | null;
+  evidenceSampleCount: number;
   /** Every contributor currently holding this cell, empty when unassigned — the cell itself still exists either way. */
   contributors: Assignment[];
 };

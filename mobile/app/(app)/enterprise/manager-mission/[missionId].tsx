@@ -437,6 +437,18 @@ export default function ManagerMissionScreen() {
                   </Pressable>
                   {isOpen && (
                     <View style={styles.assignSection}>
+                      {group.integratedScore != null && (
+                        <View style={styles.integratedRow}>
+                          <Text style={styles.integratedLabel}>
+                            {so ? "Isku-dhafan (caddeyn la geliyay)" : "Integrated (with evidence)"}
+                          </Text>
+                          <Text style={styles.integratedValue}>
+                            {Math.round(group.integratedScore * 100)}/100
+                            {" · "}
+                            {so ? `${group.evidenceSampleCount} muunad` : `${group.evidenceSampleCount} sample(s)`}
+                          </Text>
+                        </View>
+                      )}
                       <Text style={styles.assignSectionLabel}>
                         {so ? "Loo qoondeeyay:" : "Assigned:"}
                       </Text>
@@ -576,6 +588,13 @@ const styles = StyleSheet.create({
   bandModerate: { color: colors.gold },
   bandHigh: { color: colors.gold },
   assignSection: { gap: 4, paddingTop: spacing.xs },
+  integratedRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    backgroundColor: colors.goldSoft, borderRadius: radius.md, borderWidth: 1, borderColor: colors.goldBorder,
+    paddingHorizontal: spacing.sm, paddingVertical: 6, marginBottom: spacing.sm,
+  },
+  integratedLabel: { color: colors.gold, fontSize: 11, fontWeight: "700" },
+  integratedValue: { color: colors.gold, fontSize: 11, fontWeight: "800" },
   assignSectionLabel: { color: colors.textFaint, fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
   assignAlsoLabel: { marginTop: spacing.sm },
   assignChips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, paddingTop: spacing.xs },

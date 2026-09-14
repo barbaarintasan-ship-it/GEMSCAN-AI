@@ -33,6 +33,7 @@ import { serviceClient, userClient, type DbClient } from "../_shared/enterprise/
 import { makeServerGeoContext, TEAM_TARGETING_ENGINE_VERSION } from "../_shared/geocontext/serverGeoContext.ts";
 import { cellFor, cellCentre, kRing } from "../_shared/geocontext/h3.ts";
 import { TargetingEngine, type H3Ops } from "../../../shared/geo-core/gie/targetingEngine.ts";
+import { teamIntegratedScore, type TeamStructuredEvidenceRow } from "../_shared/gie/teamIntegratedEvidence.ts";
 
 const H3_OPS: H3Ops = { cellFor, cellCentre, kRing };
 
@@ -53,6 +54,12 @@ export const MAX_CELLS_PER_SCORING_CALL = 200;
 export interface ScoredCell {
   targetH3: string;
   score: number;
+  /** Phase 8 — baseline + structured evidence, via the same noisy-OR arithmetic
+   *  Solo's own Integrated Prospectivity Score uses. Null when the cell has no
+   *  structured evidence yet — never a value indistinguishable from "checked,
+   *  found nothing new". */
+  integratedScore: number | null;
+  evidenceSampleCount: number;
 }
 
 export interface ScoreMissionCellsResponse {
@@ -76,7 +83,7 @@ export interface ScoreMissionCellsDeps {
   /** Which cells need scoring — a plain read, RLS-visible to any project member (same as area_boundary_geojson, 0116's own comment: reads are harmless, the mutation is what's gated). */
   cellsToScore: (req: Request, missionId: string, areaId: string | null, force: boolean) => Promise<CellToScore[]>;
   /** Re-scores a batch of cells fresh — server-authoritative, never client-trusted. */
-  scoreCells: (cells: CellToScore[], commodity: string | null) => Promise<ScoredCell[]>;
+  scoreCells: (missionId: string, cells: CellToScore[], commodity: string | null) => Promise<ScoredCell[]>;
 }
 
 const EVIDENCE_CAVEAT =
@@ -112,16 +119,63 @@ async function defaultCellsToScore(
   });
 }
 
-async function defaultScoreCells(cells: CellToScore[], commodity: string | null): Promise<ScoredCell[]> {
+/**
+ * Every structured-evidence row for the mission, grouped by which cell
+ * (assignment_h3, 0127) its sample landed in. Prefetched ONCE per scoring
+ * call — never per-cell — same batching principle as the shared
+ * GeoContextBatchSource this function already reuses across cells.
+ */
+async function evidenceByCell(missionId: string): Promise<Map<string, TeamStructuredEvidenceRow[]>> {
+  const svc = serviceClient();
+  const { data, error } = await svc
+    .from("sample")
+    .select("id,assignment_h3,sample_structured_evidence(evidence_type,payload,verification_status)")
+    .eq("mission_id", missionId)
+    .not("assignment_h3", "is", null)
+    .is("deleted_at", null);
+  if (error) throw new Error(`evidenceByCell: ${error.message}`);
+
+  const byCell = new Map<string, TeamStructuredEvidenceRow[]>();
+  for (const sample of (data ?? []) as Array<{
+    id: string; assignment_h3: string;
+    sample_structured_evidence: Array<{ evidence_type: string; payload: Record<string, unknown>; verification_status: string }>;
+  }>) {
+    const rows = (sample.sample_structured_evidence ?? []).map((e) => ({
+      sampleId: sample.id,
+      evidenceType: e.evidence_type as TeamStructuredEvidenceRow["evidenceType"],
+      payload: e.payload ?? {},
+      verificationStatus: e.verification_status as TeamStructuredEvidenceRow["verificationStatus"],
+    }));
+    if (rows.length === 0) continue;
+    const existing = byCell.get(sample.assignment_h3) ?? [];
+    existing.push(...rows);
+    byCell.set(sample.assignment_h3, existing);
+  }
+  return byCell;
+}
+
+async function defaultScoreCells(missionId: string, cells: CellToScore[], commodity: string | null): Promise<ScoredCell[]> {
   const geo = makeServerGeoContext(serviceClient());
   const engine = new TargetingEngine(geo, H3_OPS);
+  const evidence = await evidenceByCell(missionId);
   const out: ScoredCell[] = [];
   for (const cell of cells) {
     const centre = { lat: cell.lat, lng: cell.lng };
     const target = await engine.targetAt(centre, centre, { commodity });
     // Invariant 2: a cell with nothing to say about itself is not scored —
     // it stays null (not zero, which would read as "known to be barren").
-    if (target) out.push({ targetH3: cell.targetH3, score: target.score });
+    if (!target) continue;
+    const cellEvidence = evidence.get(cell.targetH3) ?? [];
+    out.push({
+      targetH3: cell.targetH3,
+      score: target.score,
+      // Phase 8: baseline evidence the engine ALREADY computed (target.evidence),
+      // never recomputed — combined with structured evidence for a SEPARATE
+      // informational number. See teamIntegratedEvidence.ts's own header note
+      // for why this never feeds back into `target.score` itself.
+      integratedScore: teamIntegratedScore(target.evidence, cellEvidence),
+      evidenceSampleCount: new Set(cellEvidence.map((r) => r.sampleId)).size,
+    });
   }
   return out;
 }
@@ -167,14 +221,17 @@ export async function handleScoreMissionCells(
       );
     }
 
-    const scored = await deps.scoreCells(cells, commodity);
+    const scored = await deps.scoreCells(missionId, cells, commodity);
 
     let persisted = 0;
     if (scored.length > 0) {
       const client = deps.userClient(req);
       const { data, error } = await client.schema("enterprise").rpc("score_mission_cells", {
         p_mission: missionId,
-        p_scores: scored.map((s) => ({ target_h3: s.targetH3, score: s.score, engine_version: TEAM_TARGETING_ENGINE_VERSION })),
+        p_scores: scored.map((s) => ({
+          target_h3: s.targetH3, score: s.score, engine_version: TEAM_TARGETING_ENGINE_VERSION,
+          integrated_score: s.integratedScore, evidence_sample_count: s.evidenceSampleCount,
+        })),
       });
       if (error) throw new BadRequestError(error.message);
       persisted = (data as number) ?? 0;

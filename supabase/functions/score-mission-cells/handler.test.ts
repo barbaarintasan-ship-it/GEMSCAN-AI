@@ -38,7 +38,7 @@ function baseDeps(overrides: Partial<ScoreMissionCellsDeps> = {}): ScoreMissionC
     resolveActor: async () => OWNER,
     userClient: fakeUserClient(() => {}),
     cellsToScore: async () => THREE_CELLS,
-    scoreCells: async (cells) => cells.map((c) => ({ targetH3: c.targetH3, score: 0.5 })),
+    scoreCells: async (_missionId, cells) => cells.map((c) => ({ targetH3: c.targetH3, score: 0.5, integratedScore: null, evidenceSampleCount: 0 })),
     ...overrides,
   };
 }
@@ -67,14 +67,14 @@ Deno.test("[G] no cells to score → 200 with zero counts, no RPC call", async (
 
 Deno.test("[B,C] scores come from the injected shared-engine scorer, not invented here", async () => {
   const deps = baseDeps({
-    scoreCells: async (cells) => cells.map((c, i) => ({ targetH3: c.targetH3, score: 0.1 * (i + 1) })),
+    scoreCells: async (_missionId, cells) => cells.map((c, i) => ({ targetH3: c.targetH3, score: 0.1 * (i + 1), integratedScore: null, evidenceSampleCount: 0 })),
   });
   const r = await handleScoreMissionCells(req({ missionId: "m1" }), deps);
   const b = await r.json();
   assertEquals(b.cells, [
-    { targetH3: "8752de409ffffff", score: 0.1 },
-    { targetH3: "8752de41bffffff", score: 0.2 },
-    { targetH3: "8752de403ffffff", score: 0.30000000000000004 },
+    { targetH3: "8752de409ffffff", score: 0.1, integratedScore: null, evidenceSampleCount: 0 },
+    { targetH3: "8752de41bffffff", score: 0.2, integratedScore: null, evidenceSampleCount: 0 },
+    { targetH3: "8752de403ffffff", score: 0.30000000000000004, integratedScore: null, evidenceSampleCount: 0 },
   ]);
 });
 
@@ -85,7 +85,7 @@ Deno.test("[D] no AI provider is ever invoked — the scorer dependency is the o
   // the same deterministic function Phase 1/2 use. Exercised here by confirming
   // the handler never asks its dependencies for anything beyond cells/scores.
   let calls = 0;
-  const deps = baseDeps({ scoreCells: async (cells) => { calls++; return cells.map((c) => ({ targetH3: c.targetH3, score: 0.4 })); } });
+  const deps = baseDeps({ scoreCells: async (_missionId, cells) => { calls++; return cells.map((c) => ({ targetH3: c.targetH3, score: 0.4, integratedScore: null, evidenceSampleCount: 0 })); } });
   await handleScoreMissionCells(req({ missionId: "m1" }), deps);
   assertEquals(calls, 1); // exactly one deterministic batch call, no separate "AI pass"
 });
@@ -94,7 +94,7 @@ Deno.test("[F] a client-supplied score in the request body is never read or pers
   let sentToRpc: Record<string, unknown> | null = null;
   const deps = baseDeps({
     userClient: fakeUserClient((_fn, args) => { sentToRpc = args; }),
-    scoreCells: async (cells) => cells.map((c) => ({ targetH3: c.targetH3, score: 0.33 })),
+    scoreCells: async (_missionId, cells) => cells.map((c) => ({ targetH3: c.targetH3, score: 0.33, integratedScore: null, evidenceSampleCount: 0 })),
   });
   // A hostile client tries to smuggle scores in via the request body.
   const r = await handleScoreMissionCells(
@@ -122,7 +122,7 @@ Deno.test("more cells than the per-call cap → 400, no scoring attempted", asyn
   ));
   const deps = baseDeps({
     cellsToScore: async () => many,
-    scoreCells: async (cells) => { scoreCellsCalled = true; return cells.map((c) => ({ targetH3: c.targetH3, score: 0.1 })); },
+    scoreCells: async (_missionId, cells) => { scoreCellsCalled = true; return cells.map((c) => ({ targetH3: c.targetH3, score: 0.1, integratedScore: null, evidenceSampleCount: 0 })); },
   });
   const r = await handleScoreMissionCells(req({ missionId: "m1" }), deps);
   assertEquals(r.status, 400);
@@ -161,5 +161,46 @@ Deno.test("a non-manager is refused by the RPC's own authorization check, surfac
 
 // Sanity type-use so ScoredCell import isn't flagged unused if a future edit
 // trims the assertions above.
-const _typeCheck: ScoredCell = { targetH3: "x", score: 0 };
+const _typeCheck: ScoredCell = { targetH3: "x", score: 0, integratedScore: null, evidenceSampleCount: 0 };
 void _typeCheck;
+
+// ── Phase 8 — integrated score passthrough ──────────────────────────────────
+
+Deno.test("[Phase 8] integratedScore/evidenceSampleCount pass through to the RPC as snake_case", async () => {
+  let sentToRpc: Record<string, unknown> | null = null;
+  const deps = baseDeps({
+    userClient: fakeUserClient((_fn, args) => { sentToRpc = args; }),
+    scoreCells: async (_missionId, cells) => cells.map((c) => ({
+      targetH3: c.targetH3, score: 0.5, integratedScore: 0.72, evidenceSampleCount: 3,
+    })),
+  });
+  await handleScoreMissionCells(req({ missionId: "m1" }), deps);
+  const args = sentToRpc as any;
+  for (const s of args.p_scores) {
+    assertEquals(s.integrated_score, 0.72);
+    assertEquals(s.evidence_sample_count, 3);
+  }
+});
+
+Deno.test("[Phase 8] a cell with no evidence sends integrated_score: null, never a fabricated number", async () => {
+  let sentToRpc: Record<string, unknown> | null = null;
+  const deps = baseDeps({ userClient: fakeUserClient((_fn, args) => { sentToRpc = args; }) });
+  await handleScoreMissionCells(req({ missionId: "m1" }), deps);
+  const args = sentToRpc as any;
+  for (const s of args.p_scores) {
+    assertEquals(s.integrated_score, null);
+    assertEquals(s.evidence_sample_count, 0);
+  }
+});
+
+Deno.test("[Phase 8] scoreCells receives the missionId, not just the cell list", async () => {
+  let receivedMissionId: string | null = null;
+  const deps = baseDeps({
+    scoreCells: async (missionId, cells) => {
+      receivedMissionId = missionId;
+      return cells.map((c) => ({ targetH3: c.targetH3, score: 0.5, integratedScore: null, evidenceSampleCount: 0 }));
+    },
+  });
+  await handleScoreMissionCells(req({ missionId: "mission-xyz" }), deps);
+  assertEquals(receivedMissionId, "mission-xyz");
+});

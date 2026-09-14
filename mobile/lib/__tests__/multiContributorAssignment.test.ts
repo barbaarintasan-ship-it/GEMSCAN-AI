@@ -30,6 +30,8 @@ function row(overrides: Partial<Assignment>): Assignment {
     created_at: "2026-01-01T00:00:00.000Z",
     prospectivity_score: null,
     scored_at: null,
+    integrated_score: null,
+    evidence_sample_count: null,
     ...overrides,
   };
 }
