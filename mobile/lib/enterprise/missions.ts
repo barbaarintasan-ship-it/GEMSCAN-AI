@@ -86,33 +86,42 @@ export async function fetchMyMissions(): Promise<MyMission[]> {
     .map((r: any) => ({ mission_id: r.mission_id, role: r.role, mission: r.exploration_mission as Mission }));
 }
 
-/** Every assignment (assigned + unassigned pool) for a mission. */
 /**
- * Ranked best-first: highest prospectivity_score first (nulls — not yet
- * scored — last), then nearer-to-area-centre... except distance-to-centre
- * isn't available on this row, so the deterministic tie-breaker is
- * target_h3 itself (stable, always distinct) — same spirit as Solo's
- * `rank()` tie-break (nearer wins), just the nearest deterministic
- * equivalent available at this granularity without inventing a new
- * geological weighting for ties.
+ * Every mission_assignment ROW for a mission — as of Phase 4 this is NOT
+ * one row per cell any more. Each cell has exactly one CANONICAL row
+ * (`contributor_id === null`, carrying `prospectivity_score`/`scored_at`/
+ * `area_id`) plus zero or more CONTRIBUTOR rows (`contributor_id` set, one
+ * per assigned person). Use `groupMissionCells()` below to turn this flat
+ * list back into "one card per cell" for display — do not render this array
+ * directly as a cell list, or the same H3 cell will appear once per
+ * contributor.
  */
 export async function fetchMissionAssignments(missionId: string): Promise<Assignment[]> {
   const { data, error } = await supabase.schema("enterprise")
     .from("mission_assignment")
     .select("id,target_h3,contributor_id,status,due_at,area_id,created_at,prospectivity_score,scored_at")
-    .eq("mission_id", missionId);
+    .eq("mission_id", missionId)
+    .order("target_h3");
   if (error) throw error;
-  const rows = data ?? [];
-  rows.sort((a, b) => {
-    const sa = a.prospectivity_score, sb = b.prospectivity_score;
-    if (sa == null && sb == null) return a.target_h3.localeCompare(b.target_h3);
-    if (sa == null) return 1;
-    if (sb == null) return -1;
-    if (sb !== sa) return sb - sa;
-    return a.target_h3.localeCompare(b.target_h3);
-  });
-  return rows;
+  return data ?? [];
 }
+
+export type MissionCellGroup = {
+  targetH3: string;
+  /** The canonical row's own id — pass to nothing; it is never assigned or unassigned directly. */
+  cellId: string;
+  areaId: string | null;
+  /** From the canonical row only. Null = not yet scored (a real state, not zero). */
+  prospectivityScore: number | null;
+  scoredAt: string | null;
+  /** Every contributor currently holding this cell, empty when unassigned — the cell itself still exists either way. */
+  contributors: Assignment[];
+};
+
+// Re-exported from its own dependency-free module (missionCellGrouping.ts)
+// so the pure grouping/ranking logic is directly unit-testable without
+// pulling in ../supabase's env-var guard — see that file's own header note.
+export { groupMissionCells } from "./missionCellGrouping";
 
 export async function fetchMissionContributors(missionId: string): Promise<MissionContributor[]> {
   const { data, error } = await supabase.schema("enterprise")
@@ -180,6 +189,15 @@ export async function addMissionContributor(
   if (error) throw error;
 }
 
+/**
+ * Phase 4 (Solo→Team shared-targeting) — ADDITIVE, never destructive.
+ * Assigning contributor B to a cell A already holds does not remove A; both
+ * end up assigned. Calling this again for the SAME (cell, contributor) pair
+ * is idempotent (updates due_at/status only, never creates a duplicate row).
+ * `reassign` is kept for signature compatibility with any older caller but
+ * is now vestigial server-side — there is nothing left to destructively
+ * replace. Use `unassignMissionCellContributor()` for actual removal.
+ */
 export async function assignCells(
   missionId: string,
   cells: string[],
@@ -195,6 +213,26 @@ export async function assignCells(
   });
   if (error) throw error;
   return data as number;
+}
+
+/**
+ * Removes ONLY this contributor's own assignment on this cell. Never
+ * touches the canonical cell row (score/area_id survive), never touches any
+ * other contributor's assignment, and never deletes evidence already
+ * submitted — see enterprise.unassign_mission_cell_contributor's own
+ * comment (0126).
+ */
+export async function unassignMissionCellContributor(
+  missionId: string,
+  targetH3: string,
+  contributorId: string,
+): Promise<void> {
+  const { error } = await supabase.schema("enterprise").rpc("unassign_mission_cell_contributor", {
+    p_mission: missionId,
+    p_target_h3: targetH3,
+    p_contributor_id: contributorId,
+  });
+  if (error) throw error;
 }
 
 /**

@@ -8,7 +8,7 @@
 // work; a list answers the manager's actual questions today — who is
 // responsible, what has been done, what remains — using every RPC already
 // built and tested (Phase 2A/2B), with zero new rendering engine.
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Alert } from "react-native";
 import { router, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,17 +21,16 @@ import { SectionLabel } from "../../../../components/ui/SectionLabel";
 import { supabase } from "../../../../lib/supabase";
 import {
   fetchMissionAssignments, fetchMissionContributors, fetchMissionAreas,
-  addMissionContributor, assignCells, generateMissionCells, scoreMissionCells,
+  addMissionContributor, assignCells, unassignMissionCellContributor,
+  generateMissionCells, scoreMissionCells, groupMissionCells,
   recomputeMissionProgress, fetchMissionProgressDetail,
   type Assignment, type MissionContributor, type MissionArea,
-  type MissionProgress, type MissionProgressDetail,
+  type MissionProgress, type MissionProgressDetail, type MissionCellGroup,
 } from "../../../../lib/enterprise/missions";
 // Phase 3 (Solo→Team shared-targeting): the SAME band thresholds Solo's own
 // confidence readout uses (shared/geo-core/confidence.ts) — reused here for
 // display only, never recomputed. No new interpretation scale invented.
 import { bandFor } from "../../../../../shared/geo-core/confidence.ts";
-
-const TERMINAL = new Set(["completed", "skipped", "expired"]);
 
 export default function ManagerMissionScreen() {
   const { missionId } = useLocalSearchParams<{ missionId: string }>();
@@ -54,6 +53,10 @@ export default function ManagerMissionScreen() {
   const [addEmail, setAddEmail] = useState("");
   const [addingContributor, setAddingContributor] = useState(false);
   const [assigning, setAssigning] = useState<string | null>(null);
+
+  // Phase 4: one card per H3 CELL, not per assignment row — a cell with
+  // three contributors is still ONE geological ranking, never three.
+  const cellGroups = useMemo(() => groupMissionCells(cells), [cells]);
 
   const load = useCallback(async () => {
     if (!missionId) return;
@@ -158,34 +161,54 @@ export default function ManagerMissionScreen() {
     }
   }
 
-  function assignTo(cell: Assignment, contributor: MissionContributor) {
+  /** Phase 4: additive, never destructive — assigning a contributor to a
+   *  cell others already hold never removes them. No confirmation needed:
+   *  the only action that removes anyone is the explicit Unassign below. */
+  async function handleAssignAlso(group: MissionCellGroup, contributor: MissionContributor) {
     if (!missionId) return;
-    const isReassign = !!cell.contributor_id && cell.contributor_id !== contributor.contributor_id && !TERMINAL.has(cell.status);
-    const run = async () => {
-      setAssigning(cell.target_h3);
-      try {
-        await assignCells(missionId, [cell.target_h3], contributor.contributor_id, isReassign);
-        setExpandedCell(null);
-        await load();
-      } catch (err) {
-        Alert.alert(so ? "Khalad" : "Error", (err as Error).message);
-      } finally {
-        setAssigning(null);
-      }
-    };
-    if (isReassign) {
-      Alert.alert(
-        so ? "Dib u qoondee?" : "Reassign?",
-        so ? `Unugan waxaa horeba loo qoondeeyay qof kale. Dib ugu qoondee ${contributor.email}?` : `This cell is already assigned to someone else. Reassign to ${contributor.email}?`,
-        [{ text: so ? "Jooji" : "Cancel", style: "cancel" }, { text: so ? "Dib u qoondee" : "Reassign", onPress: run }],
-      );
-    } else {
-      run();
+    setAssigning(group.targetH3);
+    try {
+      await assignCells(missionId, [group.targetH3], contributor.contributor_id);
+      await load();
+    } catch (err) {
+      Alert.alert(so ? "Khalad" : "Error", (err as Error).message);
+    } finally {
+      setAssigning(null);
     }
   }
 
+  /** The one action that actually removes someone — confirmed, since unlike
+   *  assigning, this is the destructive direction. */
+  function handleUnassign(group: MissionCellGroup, contributor: Assignment) {
+    if (!missionId) return;
+    const email = emailFor(contributor.contributor_id) ?? contributor.contributor_id;
+    Alert.alert(
+      so ? "Ka saar?" : "Unassign?",
+      so
+        ? `${email} ka saar unugan? Unugga, isku-dhafkiisa (score) iyo caddaymaha la soo gudbiyay waa sii jiri doonaan.`
+        : `Remove ${email} from this cell? The cell, its score, and any evidence already submitted stay exactly as they are.`,
+      [
+        { text: so ? "Jooji" : "Cancel", style: "cancel" },
+        {
+          text: so ? "Ka saar" : "Unassign", style: "destructive",
+          onPress: async () => {
+            setAssigning(group.targetH3);
+            try {
+              await unassignMissionCellContributor(missionId, group.targetH3, contributor.contributor_id!);
+              await load();
+            } catch (err) {
+              Alert.alert(so ? "Khalad" : "Error", (err as Error).message);
+            } finally {
+              setAssigning(null);
+            }
+          },
+        },
+      ],
+    );
+  }
+
   const emailFor = (id: string | null) => contributors.find((c) => c.contributor_id === id)?.email;
-  const unassignedCount = cells.filter((c) => !c.contributor_id).length;
+  const unassignedCount = cellGroups.filter((g) => g.contributors.length === 0).length;
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -203,16 +226,16 @@ export default function ManagerMissionScreen() {
           <Card style={styles.summaryCard}>
             <Text style={styles.summaryText}>
               {so
-                ? `${cells.length} unug · ${cells.length - unassignedCount} la qoondeeyay · ${unassignedCount} bilaash`
-                : `${cells.length} cells · ${cells.length - unassignedCount} assigned · ${unassignedCount} unassigned`}
+                ? `${cellGroups.length} unug · ${cellGroups.length - unassignedCount} la qoondeeyay · ${unassignedCount} bilaash`
+                : `${cellGroups.length} cells · ${cellGroups.length - unassignedCount} assigned · ${unassignedCount} unassigned`}
             </Text>
           </Card>
 
           <SectionLabel>{so ? "Horumarka (Progress)" : "Progress"}</SectionLabel>
           <Card style={styles.progressCard}>
             <View style={styles.progressRow}>
-              <Text style={styles.progressLabel}>{so ? "Unugyo la qoondeeyay" : "Assigned cells"}</Text>
-              <Text style={styles.progressValue}>{cells.length}</Text>
+              <Text style={styles.progressLabel}>{so ? "Unugyo la sameeyay" : "Generated cells"}</Text>
+              <Text style={styles.progressValue}>{cellGroups.length}</Text>
             </View>
             <View style={styles.progressRow}>
               <Text style={styles.progressLabel}>{so ? "Caddaymo la ururiyay" : "Samples collected"}</Text>
@@ -323,7 +346,7 @@ export default function ManagerMissionScreen() {
 
           <View style={styles.h3SectionHeader}>
             <SectionLabel>{so ? "Unugyada H3 (la kala saaray)" : "H3 Cells (ranked)"}</SectionLabel>
-            {cells.length > 0 && (
+            {cellGroups.length > 0 && (
               <Button
                 title={so ? "Qiimee Unugyada" : "Score Cells"}
                 size="sm" variant="outline" loading={scoring}
@@ -331,50 +354,87 @@ export default function ManagerMissionScreen() {
               />
             )}
           </View>
-          {cells.length === 0 ? (
+          {cellGroups.length === 0 ? (
             <Text style={styles.mutedText}>
               {so ? "Weli lama samayn unugyo. Kor ka dooro aag oo taabo \"Samee Unugyo\"." : "No cells generated yet. Pick an area above and tap \"Generate Cells\"."}
             </Text>
           ) : (
-            cells.map((c, index) => {
-              const isOpen = expandedCell === c.target_h3;
-              const scored = c.prospectivity_score != null;
-              const band = scored ? bandFor(c.prospectivity_score!) : null;
+            cellGroups.map((group, index) => {
+              const isOpen = expandedCell === group.targetH3;
+              const scored = group.prospectivityScore != null;
+              const band = scored ? bandFor(group.prospectivityScore!) : null;
+              // Roster members not currently holding this cell — tapping
+              // one of these is additive ("assign also"), never a replace.
+              const assignableContributors = contributors.filter(
+                (ct) => !group.contributors.some((a) => a.contributor_id === ct.contributor_id),
+              );
               return (
-                <Card key={c.id} style={styles.cellCard}>
-                  <Pressable onPress={() => setExpandedCell(isOpen ? null : c.target_h3)} style={styles.cellRow}>
+                <Card key={group.targetH3} style={styles.cellCard}>
+                  <Pressable onPress={() => setExpandedCell(isOpen ? null : group.targetH3)} style={styles.cellRow}>
                     <Text style={styles.cellRank}>#{index + 1}</Text>
                     <View style={styles.cellIdBlock}>
-                      <Text style={styles.cellId} numberOfLines={1}>{c.target_h3}</Text>
+                      <Text style={styles.cellId} numberOfLines={1}>{group.targetH3}</Text>
                       <Text style={styles.cellAssignee} numberOfLines={1}>
-                        {emailFor(c.contributor_id) ?? (so ? "bilaash" : "unassigned")}
+                        {group.contributors.length === 0
+                          ? (so ? "bilaash" : "unassigned")
+                          : group.contributors.length === 1
+                            ? (emailFor(group.contributors[0].contributor_id) ?? group.contributors[0].contributor_id)
+                            : (so ? `${group.contributors.length} qof` : `${group.contributors.length} people`)}
                       </Text>
                     </View>
                     <Text style={[
                       styles.cellScore,
                       band === "High" && styles.bandHigh, band === "Moderate" && styles.bandModerate,
                     ]}>
-                      {scored ? `${Math.round(c.prospectivity_score! * 100)}/100 · ${band}` : (so ? "lama qiimeynin" : "not scored")}
+                      {scored ? `${Math.round(group.prospectivityScore! * 100)}/100 · ${band}` : (so ? "lama qiimeynin" : "not scored")}
                     </Text>
                     <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={16} color={colors.textFaint} />
                   </Pressable>
                   {isOpen && (
-                    <View style={styles.assignChips}>
-                      {contributors.length === 0 ? (
-                        <Text style={styles.mutedText}>{so ? "Marka hore koox ku dar." : "Add someone to the roster first."}</Text>
+                    <View style={styles.assignSection}>
+                      <Text style={styles.assignSectionLabel}>
+                        {so ? "Loo qoondeeyay:" : "Assigned:"}
+                      </Text>
+                      {group.contributors.length === 0 ? (
+                        <Text style={styles.mutedText}>{so ? "Cid weli looma qoondeynin." : "Nobody assigned yet."}</Text>
                       ) : (
-                        contributors.map((ct) => (
-                          <Pressable
-                            key={ct.contributor_id}
-                            style={[styles.chip, c.contributor_id === ct.contributor_id && styles.chipActive]}
-                            disabled={assigning === c.target_h3}
-                            onPress={() => assignTo(c, ct)}
-                          >
-                            <Text style={[styles.chipText, c.contributor_id === ct.contributor_id && styles.chipTextActive]}>
-                              {ct.email}
-                            </Text>
-                          </Pressable>
-                        ))
+                        <View style={styles.assignChips}>
+                          {group.contributors.map((a) => (
+                            <Pressable
+                              key={a.contributor_id}
+                              style={[styles.chip, styles.chipActive]}
+                              disabled={assigning === group.targetH3}
+                              onPress={() => handleUnassign(group, a)}
+                            >
+                              <Text style={styles.chipTextActive}>
+                                {emailFor(a.contributor_id) ?? a.contributor_id} ✕
+                              </Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      )}
+                      <Text style={[styles.assignSectionLabel, styles.assignAlsoLabel]}>
+                        {so ? "Ku dar (u shaqee sidoo kale):" : "Assign also:"}
+                      </Text>
+                      {assignableContributors.length === 0 ? (
+                        <Text style={styles.mutedText}>
+                          {contributors.length === 0
+                            ? (so ? "Marka hore koox ku dar." : "Add someone to the roster first.")
+                            : (so ? "Dhammaan xubnaha koox-ka waa loo qoondeeyay." : "Every roster member is already assigned to this cell.")}
+                        </Text>
+                      ) : (
+                        <View style={styles.assignChips}>
+                          {assignableContributors.map((ct) => (
+                            <Pressable
+                              key={ct.contributor_id}
+                              style={styles.chip}
+                              disabled={assigning === group.targetH3}
+                              onPress={() => handleAssignAlso(group, ct)}
+                            >
+                              <Text style={styles.chipText}>{ct.email}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
                       )}
                     </View>
                   )}
@@ -437,6 +497,9 @@ const styles = StyleSheet.create({
   cellScore: { color: colors.textFaint, fontSize: 12, fontWeight: "700" },
   bandModerate: { color: colors.gold },
   bandHigh: { color: colors.gold },
+  assignSection: { gap: 4, paddingTop: spacing.xs },
+  assignSectionLabel: { color: colors.textFaint, fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
+  assignAlsoLabel: { marginTop: spacing.sm },
   assignChips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, paddingTop: spacing.xs },
   chip: {
     borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill,

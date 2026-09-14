@@ -88,11 +88,19 @@ const EVIDENCE_CAVEAT =
 async function defaultCellsToScore(
   req: Request, missionId: string, areaId: string | null, force: boolean,
 ): Promise<CellToScore[]> {
+  // Phase 4: a cell may now have MULTIPLE rows (one canonical, contributor_id
+  // IS NULL, plus one per assigned contributor — see 0125/0126). Scoring only
+  // ever reads/writes the canonical row: contributor rows carry no score of
+  // their own (score_mission_cells's RPC only ever updates
+  // contributor_id IS NULL rows too), so this filter must be here or a
+  // multi-contributor cell would be enumerated once per contributor and
+  // re-scored redundantly.
   const client = userClient(req).schema("enterprise");
   let query = client
     .from("mission_assignment")
     .select("target_h3, prospectivity_score")
-    .eq("mission_id", missionId);
+    .eq("mission_id", missionId)
+    .is("contributor_id", null);
   if (areaId) query = query.eq("area_id", areaId);
   if (!force) query = query.is("prospectivity_score", null);
 

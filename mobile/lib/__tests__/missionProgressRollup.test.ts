@@ -79,7 +79,12 @@ describe("Manager Mission Detail surfaces progress without fabricating coverage"
   });
 
   test("renders the required labels", () => {
-    expect(src).toMatch(/Assigned cells/);
+    // Phase 4: relabelled from "Assigned cells" to "Generated cells" — the
+    // figure has always been the total generated-cell count (cellGroups.length),
+    // never a count of cells that actually have a contributor, and calling it
+    // "Assigned" became actively misleading once a cell can be ranked with
+    // zero, one, or many contributors (see groupMissionCells in missions.ts).
+    expect(src).toMatch(/Generated cells/);
     expect(src).toMatch(/Samples collected/);
     expect(src).toMatch(/Outside-assignment samples/);
     expect(src).toMatch(/Last activity/);
