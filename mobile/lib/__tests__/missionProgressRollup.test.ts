@@ -90,16 +90,12 @@ describe("Manager Mission Detail surfaces progress without fabricating coverage"
     expect(src).toMatch(/Last activity/);
   });
 
-  test("never labels anything a raw coverage percentage from coverage_pct", () => {
-    // coverage_pct is always 0 this phase (H3 resolution mismatch, see
-    // 0119's header) — rendering "Coverage: 0%" would read as a real,
-    // measured-and-empty result rather than "not implemented yet".
-    expect(src).not.toMatch(/\{progress[^}]*coverage_pct[^}]*\}%/);
-    expect(src).not.toContain("Cells completed");
+  test("[Phase 5] now DOES render the real coverage_pct — the H3 resolution mismatch that made it fake is fixed (0127, sample.assignment_h3)", () => {
+    expect(src).toMatch(/\{progress[^}]*coverage_pct[^}]*\}%/);
   });
 
-  test("documents that cell-level coverage is deferred", () => {
+  test("[Phase 5] documents WHAT coverage means (not that it's deferred any more)", () => {
     expect(src.toLowerCase()).toContain("coverage");
-    expect(src.toLowerCase()).toMatch(/isn't calculated yet|lama xisaabin/);
+    expect(src.toLowerCase()).toMatch(/at least one sample|ugu yaraan hal caddeyn/);
   });
 });

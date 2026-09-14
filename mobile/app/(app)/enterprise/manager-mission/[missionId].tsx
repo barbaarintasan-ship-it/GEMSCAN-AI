@@ -284,10 +284,14 @@ export default function ManagerMissionScreen() {
                 <Text style={styles.progressValue}>{targetCoveragePct}%</Text>
               </View>
             )}
+            <View style={styles.progressRow}>
+              <Text style={styles.progressLabel}>{so ? "Daboolka unugyada (dhab ah)" : "Cell coverage (actual)"}</Text>
+              <Text style={styles.progressValue}>{progress?.coverage_pct ?? 0}%</Text>
+            </View>
             <Text style={styles.mutedText}>
               {so
-                ? "Daboolka unugyada (cell coverage) weli lama xisaabin — waxay u baahan tahay in la kaydiyo unugga H3 ee saxda ah ee caddaymo kasta, oo weli aan la dhisin."
-                : "Cell-level coverage isn't calculated yet — it needs the exact H3 assignment cell each sample landed in to be persisted, which hasn't been built."}
+                ? "Boqolkiiba unugyada la sameeyay oo ay ku jiraan ugu yaraan hal caddeyn — la xisaabiyay iyadoo la isticmaalayo unugga H3 ee saxda ah ee caddeyn kasta ay ku dhacday (Phase 5)."
+                : "Percentage of generated cells that have at least one sample landing in them — computed from the exact H3 assignment cell each sample fell in (Phase 5)."}
             </Text>
             {progress?.updated_at && (
               <Text style={styles.progressUpdatedAt}>
