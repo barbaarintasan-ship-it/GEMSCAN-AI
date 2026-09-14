@@ -9,13 +9,14 @@
 // contribute nothing, which is the honest answer and the current state for
 // terrain (no DEM is ingested yet — §7.7 "Data status").
 import { terrainIndexFor } from "./terrainIndex";
-import { featureIndexFor, queryFeatureIndex } from "./featureIndex";
+// featuresNear/intersectionsOf/NearbyFeature moved to the shared geological
+// core (shared/geo-core/geo/mapFeatures.ts) — Solo→Team shared-targeting Phase
+// 1 — so Team's server-side scoring can call the identical structural-evidence
+// functions. Re-exported below so every existing import of these three names
+// from "./terrainProviders" (targeting.ts, evidenceCoverage.ts) is unchanged.
+import { featuresNear, intersectionsOf, type NearbyFeature } from "./mapFeatures.ts";
 import {
-  bboxContains,
-  bboxPadding,
   haversineM,
-  pointToPolylineM,
-  type Position,
 } from "../../../shared/geo-core/geo/spatial.ts";
 import type {
   EvidenceItem,
@@ -26,9 +27,10 @@ import type {
 import type {
   MapFeatureKind,
   PackData,
-  PackMapFeature,
   PackTerrainCell,
 } from "../../../shared/geo-core/pack/types.ts";
+
+export { featuresNear, intersectionsOf, type NearbyFeature };
 
 // ── Map layers ──────────────────────────────────────────────────────────────
 /**
@@ -55,77 +57,11 @@ const KIND_LABEL: Record<MapFeatureKind, string> = {
   other: "Mapped feature",
 };
 
-export interface NearbyFeature {
-  id: string;
-  kind: MapFeatureKind;
-  name: string | null;
-  distanceM: number;
-  source: string | null;
-}
-
-/**
- * Distance from a position to every map feature within the radius, nearest first.
- *
- * Backed by a lazily-built spatial index (featureIndex.ts) so this is O(features
- * near the point) instead of O(all features). The RESULT is byte-identical to the
- * old full scan: the index returns a superset of the bbox-overlapping features in
- * ascending array order, and the exact same padded-bbox / polyline / radius filter
- * and stable distance sort run below — see featureIndex.ts for the equivalence.
- */
-export function featuresNear(
-  features: PackMapFeature[],
-  lat: number,
-  lng: number,
-  radiusM: number,
-): NearbyFeature[] {
-  const { dLat, dLng } = bboxPadding(lat, radiusM);
-  const index = featureIndexFor(features);
-  const candidates = queryFeatureIndex(index, lng - dLng, lat - dLat, lng + dLng, lat + dLat);
-  const out: NearbyFeature[] = [];
-  for (let c = 0; c < candidates.length; c++) {
-    const f = features[candidates[c]];
-    // Cheap bbox rejection first; the polyline test still decides. Identical to the
-    // old scan — the index only narrowed WHICH features are tested, not HOW.
-    const padded: [number, number, number, number] = [
-      f.bbox[0] - dLng, f.bbox[1] - dLat, f.bbox[2] + dLng, f.bbox[3] + dLat,
-    ];
-    if (!bboxContains(padded, lng, lat)) continue;
-
-    let best = Infinity;
-    for (const line of f.lines) {
-      const d = pointToPolylineM({ lat, lng }, line as Position[]);
-      if (d < best) best = d;
-    }
-    if (best <= radiusM) {
-      out.push({ id: f.id, kind: f.kind, name: f.name, distanceM: best, source: f.source });
-    }
-  }
-  out.sort((a, b) => a.distanceM - b.distanceM);
-  return out;
-}
-
 /** Proximity falloff: right on a structure is the signal; 5 km away is not. */
 function structureWeight(kind: MapFeatureKind, distanceM: number, radiusM: number): number {
   const base = KIND_WEIGHT[kind] ?? 0.15;
   const proximity = Math.max(0, 1 - distanceM / Math.max(radiusM, 1));
   return base * proximity;
-}
-
-/**
- * Structural intersections are COMPUTED, not asserted (§7.7).
- *
- * Where a fault and a contact both pass close to the same point, that
- * intersection is a stronger target than either alone — a classic structural
- * trap. Emitting it as its own evidence item is what lets a recommendation say
- * "fault–contact intersection" instead of only "near a fault".
- */
-const INTERSECTION_RADIUS_M = 500;
-
-export function intersectionsOf(near: NearbyFeature[]): { kinds: MapFeatureKind[]; distanceM: number } | null {
-  const close = near.filter((f) => f.distanceM <= INTERSECTION_RADIUS_M);
-  const kinds = [...new Set(close.filter((f) => f.kind === "fault" || f.kind === "contact").map((f) => f.kind))];
-  if (kinds.length < 2) return null;
-  return { kinds, distanceM: Math.max(...close.filter((f) => kinds.includes(f.kind)).map((f) => f.distanceM)) };
 }
 
 export function makeMapLayerProvider(data: () => PackData): GeoContextProvider {

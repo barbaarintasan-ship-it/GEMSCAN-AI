@@ -1,0 +1,148 @@
+// team-targeting Edge Function — Solo→Team shared-targeting Phase 1.
+//
+// The smallest server-callable entry point into the SAME deterministic
+// TargetingEngine Solo Exploration already uses (shared/geo-core/gie/). Given
+// a location, returns ranked target cells with their prospectivity score,
+// evidence and (optionally) a hotspot — exactly what TargetingEngine.rank()
+// already considers authoritative on-device.
+//
+// NOT an AI call. Deterministic geological intelligence only, same as
+// `geocontext`. Team Mission Mode does not yet CONSUME this (that begins
+// Phase 2 — "AI Recommended Area"); this function exists so the seam can be
+// tested and deployed independently, per the phased implementation plan.
+//
+// Flow: resolveActor (JWT) → requireEnterprise (private-beta gate) → build the
+// shared TargetingEngine over the production Supabase gateway → rank() /
+// targetAt() → JSON. Dependencies are injected so the handler is
+// unit-testable without a live stack — same shape as geocontext/handler.ts.
+import { corsHeaders } from "../_shared/cors.ts";
+import { BadRequestError, errorResponse, json } from "../_shared/enterprise/errors.ts";
+import { resolveActor as realResolveActor, type Actor } from "../_shared/enterprise/auth.ts";
+import { serviceClient } from "../_shared/enterprise/clients.ts";
+import { requireEnterprise as realRequireEnterprise } from "../_shared/enterprise/authz.ts";
+import { makeServerGeoContext } from "../_shared/geocontext/serverGeoContext.ts";
+import { cellFor, cellCentre, kRing, childrenOf } from "../_shared/geocontext/h3.ts";
+import {
+  TargetingEngine, type TargetingResult, type H3Ops,
+} from "../../../shared/geo-core/gie/targetingEngine.ts";
+import {
+  hotspotIn, type MissionHotspot, type HotspotH3Ops,
+} from "../../../shared/geo-core/gie/hotspot.ts";
+
+const DEFAULT_RADIUS_M = 25_000;
+const H3_OPS: H3Ops = { cellFor, cellCentre, kRing };
+const HOTSPOT_H3_OPS: HotspotH3Ops = { cellCentre, childrenOf };
+
+export interface TeamTargetingResponse {
+  current: { cell: string; score: number };
+  targets: Array<{
+    cell: string;
+    centre: { lat: number; lng: number };
+    bearingDeg: number;
+    compass: string;
+    distanceM: number;
+    score: number;
+    reportScore: number;
+    band: string;
+    reasons: unknown[];
+    commodities: string[];
+    scoredForCommodity: string | null;
+  }>;
+  bestIsHere: boolean;
+  hotspot: MissionHotspot | null;
+  /**
+   * Honest about the gap (see prospectivityEvidence.ts / serverGeoContext.ts
+   * header notes): structural/terrain/lithology-prior evidence needs a
+   * server-side pack equivalent that does not exist yet. Occurrence,
+   * association, community and geology-unit evidence ARE included.
+   */
+  evidenceCaveat: string;
+}
+
+export interface TeamTargetingDeps {
+  resolveActor: (req: Request) => Promise<Actor>;
+  requireEnterprise: (actor: Actor) => Promise<void>;
+  buildEngine: () => TargetingEngine;
+  findHotspot: (engine: TargetingEngine, cell: string, commodity: string | null) => Promise<MissionHotspot | null>;
+}
+
+export const defaultDeps: TeamTargetingDeps = {
+  resolveActor: realResolveActor,
+  requireEnterprise: (actor) => realRequireEnterprise(actor, serviceClient()),
+  buildEngine: () => {
+    const svc = serviceClient();
+    const geo = makeServerGeoContext(svc);
+    // No `local` (no team-evidence source yet — Phase 5/6), no `pack`/`packOps`
+    // (no server-side pack equivalent yet — see serverGeoContext.ts's header
+    // note). The engine still runs the SAME algorithm over whatever evidence
+    // it has.
+    return new TargetingEngine(geo, H3_OPS);
+  },
+  findHotspot: (engine, cell, commodity) => {
+    // hotspotIn needs a geo-context source and h3 ops; TargetingEngine does
+    // not expose its own `geo`, so callers that want a hotspot build one the
+    // same way `buildEngine` does. Kept as an injected dep so tests can stub
+    // it without a live stack.
+    const svc = serviceClient();
+    const geo = makeServerGeoContext(svc);
+    return hotspotIn(geo, HOTSPOT_H3_OPS, null, cell, { commodity });
+  },
+};
+
+const EVIDENCE_CAVEAT =
+  "Structural (fault/contact), lithology-prior and terrain-prior evidence are " +
+  "not yet available server-side (they need a live equivalent of the mobile " +
+  "bundled pack, not built yet). Occurrence, association, community and " +
+  "geology-unit evidence are included. Scores are directly comparable to Solo " +
+  "only where both evidence sets happen to agree — see docs.";
+
+function num(v: unknown): number | null {
+  const n = typeof v === "string" ? Number(v) : (v as number);
+  return Number.isFinite(n) ? n : null;
+}
+
+export async function handleTeamTargeting(req: Request, deps: TeamTargetingDeps = defaultDeps): Promise<Response> {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  try {
+    const actor = await deps.resolveActor(req);
+    await deps.requireEnterprise(actor); // 403 unless enterprise-enabled
+
+    let body: Record<string, unknown> = {};
+    if (req.method === "POST") body = await req.json().catch(() => ({}));
+    const url = new URL(req.url);
+    const lat = num(body.lat ?? url.searchParams.get("lat"));
+    const lng = num(body.lng ?? url.searchParams.get("lng"));
+    if (lat === null || lng === null) throw new BadRequestError("lat and lng are required");
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) throw new BadRequestError("lat/lng out of range");
+
+    const radiusM = num(body.radiusM ?? url.searchParams.get("radiusM")) ?? DEFAULT_RADIUS_M;
+    const commodity = (body.commodity ?? url.searchParams.get("commodity") ?? null) as string | null;
+    const limit = num(body.limit ?? url.searchParams.get("limit")) ?? undefined;
+    const rings = num(body.rings ?? url.searchParams.get("rings")) ?? undefined;
+    const wantHotspot = String(body.hotspot ?? url.searchParams.get("hotspot") ?? "") === "true";
+
+    const engine = deps.buildEngine();
+    const result: TargetingResult = await engine.rank(lat, lng, { radiusM, commodity, limit, rings });
+
+    const best = result.targets[0] ?? null;
+    let hotspot: MissionHotspot | null = null;
+    if (wantHotspot && best) {
+      hotspot = await deps.findHotspot(engine, best.cell, commodity);
+    }
+
+    const response: TeamTargetingResponse = {
+      current: { cell: result.current.cell, score: result.current.score },
+      targets: result.targets.map((t) => ({
+        cell: t.cell, centre: t.centre, bearingDeg: t.bearingDeg, compass: t.compass,
+        distanceM: t.distanceM, score: t.score, reportScore: t.reportScore, band: t.band,
+        reasons: t.reasons, commodities: t.commodities, scoredForCommodity: t.scoredForCommodity,
+      })),
+      bestIsHere: result.bestIsHere,
+      hotspot,
+      evidenceCaveat: EVIDENCE_CAVEAT,
+    };
+    return json(response);
+  } catch (err) {
+    return errorResponse(err);
+  }
+}

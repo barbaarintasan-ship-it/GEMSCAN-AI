@@ -76,6 +76,12 @@ jobs:
       - name: Deno integration tests (orchestrate-scan)
         run: deno test --allow-env supabase/functions/orchestrate-scan/index.test.ts
 
+      - name: Deno unit tests (shared targeting engine — Solo/Team parity)
+        run: deno test shared/geo-core/gie/prospectivityEvidence.test.ts
+
+      - name: Deno unit tests (team-targeting handler)
+        run: deno test --allow-env supabase/functions/team-targeting/handler.test.ts
+
   android-build:
     name: Build verification — Android debug APK
     runs-on: ubuntu-latest
