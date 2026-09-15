@@ -32,7 +32,9 @@ import { resolveActor as realResolveActor, type Actor } from "../_shared/enterpr
 import { serviceClient, userClient, type DbClient } from "../_shared/enterprise/clients.ts";
 import { makeServerGeoContext, TEAM_TARGETING_ENGINE_VERSION } from "../_shared/geocontext/serverGeoContext.ts";
 import { cellFor, cellCentre, kRing } from "../_shared/geocontext/h3.ts";
-import { TargetingEngine, type H3Ops } from "../../../shared/geo-core/gie/targetingEngine.ts";
+import { fetchStructuralMapFeatures, packWithMapFeatures } from "../_shared/geocontext/structuralPack.ts";
+import { TargetingEngine, DEFAULT_CONTEXT_RADIUS_M, type H3Ops } from "../../../shared/geo-core/gie/targetingEngine.ts";
+import { haversineM } from "../../../shared/geo-core/geo/spatial.ts";
 import { teamIntegratedScore, type TeamStructuredEvidenceRow } from "../_shared/gie/teamIntegratedEvidence.ts";
 
 const H3_OPS: H3Ops = { cellFor, cellCentre, kRing };
@@ -87,10 +89,12 @@ export interface ScoreMissionCellsDeps {
 }
 
 const EVIDENCE_CAVEAT =
-  "Structural (fault/contact), lithology-prior and terrain-prior evidence are " +
-  "not yet available server-side (they need a live equivalent of the mobile " +
-  "bundled pack, not built yet). Occurrence, association, community and " +
-  "geology-unit evidence are included in these scores.";
+  "Fault evidence (geo.structural_feature) IS included, fetched fresh per batch. " +
+  "Contact, lithology-prior and terrain-prior evidence are not yet available " +
+  "server-side (no contact data is loaded yet, and lithology/terrain priors need " +
+  "a live equivalent of the mobile bundled pack's fitted statistics, not built " +
+  "yet). Occurrence, association, community and geology-unit evidence are " +
+  "included in these scores.";
 
 async function defaultCellsToScore(
   req: Request, missionId: string, areaId: string | null, force: boolean,
@@ -154,9 +158,32 @@ async function evidenceByCell(missionId: string): Promise<Map<string, TeamStruct
   return byCell;
 }
 
+/**
+ * One fetch, covering every cell in the batch — not one per cell. Computes
+ * the batch's centroid and the farthest cell from it, then asks for
+ * structural features within that distance PLUS the per-cell context radius
+ * (DEFAULT_CONTEXT_RADIUS_M): any point within DEFAULT_CONTEXT_RADIUS_M of a
+ * cell that is itself within D of the centroid is within D + radius of the
+ * centroid, so this single fetch covers every cell's own neighbourhood.
+ */
+async function structuralFeaturesForBatch(svc: ReturnType<typeof serviceClient>, cells: CellToScore[]) {
+  if (cells.length === 0) return [];
+  const centroid = {
+    lat: cells.reduce((s, c) => s + c.lat, 0) / cells.length,
+    lng: cells.reduce((s, c) => s + c.lng, 0) / cells.length,
+  };
+  const maxDistM = Math.max(...cells.map((c) => haversineM(centroid, { lat: c.lat, lng: c.lng })));
+  return fetchStructuralMapFeatures(svc, centroid.lat, centroid.lng, maxDistM + DEFAULT_CONTEXT_RADIUS_M);
+}
+
 async function defaultScoreCells(missionId: string, cells: CellToScore[], commodity: string | null): Promise<ScoredCell[]> {
-  const geo = makeServerGeoContext(serviceClient());
-  const engine = new TargetingEngine(geo, H3_OPS);
+  const svc = serviceClient();
+  const geo = makeServerGeoContext(svc);
+  // Structural (fault) evidence — see structuralPack.ts's own header note. No
+  // `packOps`, so lithology/terrain priors stay exactly as unavailable as
+  // today; only the structural block activates.
+  const mapFeatures = await structuralFeaturesForBatch(svc, cells);
+  const engine = new TargetingEngine(geo, H3_OPS, undefined, () => packWithMapFeatures(mapFeatures));
   const evidence = await evidenceByCell(missionId);
   const out: ScoredCell[] = [];
   for (const cell of cells) {

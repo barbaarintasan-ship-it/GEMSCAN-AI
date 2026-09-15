@@ -22,6 +22,7 @@ import { serviceClient } from "../_shared/enterprise/clients.ts";
 import { requireEnterprise as realRequireEnterprise } from "../_shared/enterprise/authz.ts";
 import { makeServerGeoContext } from "../_shared/geocontext/serverGeoContext.ts";
 import { cellFor, cellCentre, kRing, childrenOf } from "../_shared/geocontext/h3.ts";
+import { fetchStructuralMapFeatures, packWithMapFeatures } from "../_shared/geocontext/structuralPack.ts";
 import {
   TargetingEngine, type TargetingResult, type H3Ops,
 } from "../../../shared/geo-core/gie/targetingEngine.ts";
@@ -62,21 +63,23 @@ export interface TeamTargetingResponse {
 export interface TeamTargetingDeps {
   resolveActor: (req: Request) => Promise<Actor>;
   requireEnterprise: (actor: Actor) => Promise<void>;
-  buildEngine: () => TargetingEngine;
+  buildEngine: (lat: number, lng: number, radiusM: number) => Promise<TargetingEngine>;
   findHotspot: (engine: TargetingEngine, cell: string, commodity: string | null) => Promise<MissionHotspot | null>;
 }
 
 export const defaultDeps: TeamTargetingDeps = {
   resolveActor: realResolveActor,
   requireEnterprise: (actor) => realRequireEnterprise(actor, serviceClient()),
-  buildEngine: () => {
+  buildEngine: async (lat, lng, radiusM) => {
     const svc = serviceClient();
     const geo = makeServerGeoContext(svc);
-    // No `local` (no team-evidence source yet — Phase 5/6), no `pack`/`packOps`
-    // (no server-side pack equivalent yet — see serverGeoContext.ts's header
-    // note). The engine still runs the SAME algorithm over whatever evidence
-    // it has.
-    return new TargetingEngine(geo, H3_OPS);
+    // Structural (fault) evidence — a minimal server-side pack carrying ONLY
+    // fault/lineament geometry near this point (structuralPack.ts). No
+    // `packOps`, so lithology/terrain priors (which need it) stay exactly as
+    // unavailable as they are today; only the structural block activates.
+    // No `local` either (no team-evidence source yet).
+    const mapFeatures = await fetchStructuralMapFeatures(svc, lat, lng, radiusM);
+    return new TargetingEngine(geo, H3_OPS, undefined, () => packWithMapFeatures(mapFeatures));
   },
   findHotspot: (engine, cell, commodity) => {
     // hotspotIn needs a geo-context source and h3 ops; TargetingEngine does
@@ -90,11 +93,13 @@ export const defaultDeps: TeamTargetingDeps = {
 };
 
 const EVIDENCE_CAVEAT =
-  "Structural (fault/contact), lithology-prior and terrain-prior evidence are " +
-  "not yet available server-side (they need a live equivalent of the mobile " +
-  "bundled pack, not built yet). Occurrence, association, community and " +
-  "geology-unit evidence are included. Scores are directly comparable to Solo " +
-  "only where both evidence sets happen to agree — see docs.";
+  "Fault evidence (geo.structural_feature) IS included, fetched fresh per query " +
+  "point. Contact, lithology-prior and terrain-prior evidence are not yet " +
+  "available server-side (no contact data is loaded yet, and lithology/terrain " +
+  "priors need a live equivalent of the mobile bundled pack's fitted statistics, " +
+  "not built yet). Occurrence, association, community and geology-unit evidence " +
+  "are included. Scores are directly comparable to Solo only where both evidence " +
+  "sets happen to agree — see docs.";
 
 function num(v: unknown): number | null {
   const n = typeof v === "string" ? Number(v) : (v as number);
@@ -121,7 +126,7 @@ export async function handleTeamTargeting(req: Request, deps: TeamTargetingDeps 
     const rings = num(body.rings ?? url.searchParams.get("rings")) ?? undefined;
     const wantHotspot = String(body.hotspot ?? url.searchParams.get("hotspot") ?? "") === "true";
 
-    const engine = deps.buildEngine();
+    const engine = await deps.buildEngine(lat, lng, radiusM);
     const result: TargetingResult = await engine.rank(lat, lng, { radiusM, commodity, limit, rings });
 
     const best = result.targets[0] ?? null;

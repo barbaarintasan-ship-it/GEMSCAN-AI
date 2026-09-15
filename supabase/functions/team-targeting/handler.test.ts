@@ -57,7 +57,7 @@ function baseDeps(overrides: Partial<TeamTargetingDeps> = {}): TeamTargetingDeps
   return {
     resolveActor: async () => OWNER,
     requireEnterprise: async () => {},
-    buildEngine: () => new TargetingEngine(fakeGeoWithOccurrenceEverywhere(), FAKE_H3),
+    buildEngine: async () => new TargetingEngine(fakeGeoWithOccurrenceEverywhere(), FAKE_H3),
     findHotspot: async () => null,
     ...overrides,
   };
@@ -120,8 +120,20 @@ Deno.test("missing/invalid JWT → 401 via errorResponse", async () => {
   assertEquals(r.status, 401);
 });
 
+Deno.test("[structural evidence] buildEngine receives the query point + radius, not just called blind", async () => {
+  let received: [number, number, number] | null = null;
+  const deps = baseDeps({
+    buildEngine: async (lat, lng, radiusM) => {
+      received = [lat, lng, radiusM];
+      return new TargetingEngine(fakeGeoWithOccurrenceEverywhere(), FAKE_H3);
+    },
+  });
+  await handleTeamTargeting(req({ lat: 11.08838, lng: 49.01769, radiusM: 25000 }), deps);
+  assertEquals(received, [11.08838, 49.01769, 25000]);
+});
+
 Deno.test("unexpected error is mapped to an opaque 500, no internal detail leaked", async () => {
-  const deps = baseDeps({ buildEngine: () => { throw new Error("db exploded with secret detail"); } });
+  const deps = baseDeps({ buildEngine: async () => { throw new Error("db exploded with secret detail"); } });
   const r = await handleTeamTargeting(req({ lat: 9.5, lng: 44.5 }), deps);
   assertEquals(r.status, 500);
   const b = await r.json();
