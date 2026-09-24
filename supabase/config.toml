@@ -117,6 +117,12 @@ verify_jwt = true
 [functions.expeditions]
 verify_jwt = true
 
+# Phase 11 — human geological review of a mission's exploration_area
+# (accept/reject/needs-more-data). User-facing, requires a valid app JWT
+# (+ is_mission_manager in the RPC).
+[functions.review-area]
+verify_jwt = true
+
 # Object-storage presigning. The R2 secret lives only in this function's
 # environment; the device receives short-lived URLs for one object at a time.
 [functions.r2-presign]

@@ -565,3 +565,97 @@ export async function createManualArea(
   if (!res.ok) throw new Error(body?.detail || body?.error || `Manual area creation failed (${res.status})`);
   return body as ManualArea;
 }
+
+// ── Phase 11 — Human Geological Review ──────────────────────────────────────
+// The deterministic engine stays authoritative for score/evidence/reasons/
+// coverage (Phase 10); this layer only surfaces what's already persisted and
+// records a manager's accept/reject/needs-more-data decision on top of it —
+// review-area's own header note.
+
+export type AreaReviewStatus = "pending" | "accepted" | "rejected" | "needs_more_data";
+
+/** A cell within the area, WITH its Phase 10 evidence graph — selected
+ *  directly, never recomputed, so opening this screen costs one bounded
+ *  read (cells already scored by score-mission-cells), not a re-score. */
+export type AreaReviewCell = {
+  target_h3: string;
+  prospectivity_score: number | null;
+  integrated_score: number | null;
+  evidence_sample_count: number | null;
+  reasons: TeamTargetReason[] | null;
+  coverage: { roles: Array<{ role: string; state: string }>; present: number; total: number; unavailable: string[] } | null;
+  evidence: Array<{ item: { statement: string; weight: number; tier?: string }; role: string }> | null;
+};
+
+export interface AreaReviewDetail {
+  areaId: string;
+  name: string;
+  reviewStatus: AreaReviewStatus;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  reviewNotes: string | null;
+  reviewerRole: string | null;
+  sourceTargetH3: string | null;
+  sourceTargetScore: number | null;
+  sourceCommodity: string | null;
+  cells: AreaReviewCell[];
+}
+
+/** Everything the review screen needs, in the two bounded reads it actually
+ *  requires — the area's own row (review state + AI-recommendation
+ *  provenance, if any), and this area's own cells (already-scored, Phase 10
+ *  evidence graph included). Never touches other areas/missions. */
+export async function fetchAreaReviewDetail(missionId: string, areaId: string): Promise<AreaReviewDetail> {
+  const [{ data: area, error: areaError }, { data: cells, error: cellsError }] = await Promise.all([
+    supabase.schema("enterprise").from("exploration_area")
+      .select("id,name,review_status,reviewed_by,reviewed_at,review_notes,reviewer_role,source_target_h3,source_target_score,source_commodity")
+      .eq("id", areaId).maybeSingle(),
+    supabase.schema("enterprise").from("mission_assignment")
+      .select("target_h3,prospectivity_score,integrated_score,evidence_sample_count,reasons,coverage,evidence")
+      .eq("mission_id", missionId).eq("area_id", areaId).is("contributor_id", null)
+      .order("prospectivity_score", { ascending: false, nullsFirst: false }),
+  ]);
+  if (areaError) throw areaError;
+  if (cellsError) throw cellsError;
+  if (!area) throw new Error("Area not found");
+  return {
+    areaId: (area as any).id,
+    name: (area as any).name,
+    reviewStatus: (area as any).review_status,
+    reviewedBy: (area as any).reviewed_by,
+    reviewedAt: (area as any).reviewed_at,
+    reviewNotes: (area as any).review_notes,
+    reviewerRole: (area as any).reviewer_role,
+    sourceTargetH3: (area as any).source_target_h3,
+    sourceTargetScore: (area as any).source_target_score,
+    sourceCommodity: (area as any).source_commodity,
+    cells: (cells ?? []) as AreaReviewCell[],
+  };
+}
+
+export interface AreaReviewResult {
+  areaId: string;
+  reviewStatus: AreaReviewStatus;
+  reviewedBy: string;
+  reviewedAt: string;
+}
+
+/** Records the human review decision. Server-authoritative: reviewedBy/
+ *  reviewedAt come back from the RPC's own auth.uid()/now(), never echoed
+ *  from anything sent here — see review-area's own security tests. */
+export async function reviewArea(
+  missionId: string,
+  areaId: string,
+  decision: Exclude<AreaReviewStatus, "pending">,
+  notes?: string,
+): Promise<AreaReviewResult> {
+  const res = await fetch(`${FUNCTIONS_URL}/review-area`, {
+    method: "POST",
+    headers: await authHeader(),
+    body: JSON.stringify({ missionId, areaId, decision, notes }),
+  });
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!res.ok) throw new Error(body?.detail || body?.error || `Area review failed (${res.status})`);
+  return body as AreaReviewResult;
+}

@@ -376,12 +376,19 @@ export default function ManagerMissionScreen() {
             areas.map((a) => (
               <View key={a.area_id} style={styles.areaRow}>
                 <Text style={styles.areaName}>{a.name}</Text>
-                <Button
-                  title={so ? "Samee Unugyo" : "Generate Cells"}
-                  size="sm" variant="outline"
-                  loading={generating === a.area_id}
-                  onPress={() => handleGenerate(a.area_id)}
-                />
+                <View style={styles.areaRowButtons}>
+                  <Button
+                    title={so ? "Dib u eeg" : "Review"}
+                    size="sm" variant="outline"
+                    onPress={() => router.push(`/(app)/enterprise/area-review/${a.area_id}?missionId=${missionId}`)}
+                  />
+                  <Button
+                    title={so ? "Samee Unugyo" : "Generate Cells"}
+                    size="sm" variant="outline"
+                    loading={generating === a.area_id}
+                    onPress={() => handleGenerate(a.area_id)}
+                  />
+                </View>
               </View>
             ))
           )}
@@ -620,6 +627,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceAlt, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.sm,
   },
   areaName: { color: colors.text, fontSize: 14, fontWeight: "600", flexShrink: 1 },
+  areaRowButtons: { flexDirection: "row", gap: spacing.xs },
   newAreaButton: { marginBottom: spacing.sm },
   rosterCard: { gap: 0, marginBottom: spacing.sm },
   rosterRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10 },
