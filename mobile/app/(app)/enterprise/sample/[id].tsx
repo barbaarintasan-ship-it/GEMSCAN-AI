@@ -39,10 +39,19 @@ export default function SampleDetailScreen() {
       const s = await getSample(String(id));
       setSample(s);
       // Photos are private — resolve short-lived signed URLs for display.
+      // Batched into ONE request (createSignedUrls) instead of one round-trip
+      // per photo — a sample with several photos was making that many
+      // sequential network calls before this screen could render anything.
+      const media = s.sample_media ?? [];
       const map: Record<string, string> = {};
-      for (const m of s.sample_media ?? []) {
-        const { data } = await supabase.storage.from("scan-images").createSignedUrl(m.storage_path, 3600);
-        if (data?.signedUrl) map[m.id] = data.signedUrl;
+      if (media.length > 0) {
+        const { data } = await supabase.storage.from("scan-images")
+          .createSignedUrls(media.map((m) => m.storage_path), 3600);
+        const byPath = new Map((data ?? []).map((d) => [d.path, d.signedUrl]));
+        for (const m of media) {
+          const url = byPath.get(m.storage_path);
+          if (url) map[m.id] = url;
+        }
       }
       setThumbs(map);
       // Structured evidence (Phase 6) can arrive after submission — e.g. an
