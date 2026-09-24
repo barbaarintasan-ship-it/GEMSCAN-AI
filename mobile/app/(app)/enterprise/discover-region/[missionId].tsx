@@ -19,7 +19,7 @@ import { discoverRegionTargets, type DiscoverRegionResult, type RegionCluster } 
 import { bandToSimpleLevel, levelLabel, topReasonSentence, LEVEL_EMOJI } from "../../../../lib/enterprise/plainLanguage";
 
 export default function DiscoverRegionScreen() {
-  const { missionId } = useLocalSearchParams<{ missionId: string }>();
+  const { missionId, commodity } = useLocalSearchParams<{ missionId: string; commodity?: string }>();
   const { i18n } = useTranslation();
   const insets = useSafeAreaInsets();
   const so = i18n.language === "so";
@@ -42,7 +42,7 @@ export default function DiscoverRegionScreen() {
     setLoading(true);
     setResult(null);
     try {
-      const r = await discoverRegionTargets(missionId, [nA, nB]);
+      const r = await discoverRegionTargets(missionId, [nA, nB], commodity ? { commodity } : {});
       setResult(r);
     } catch (err) {
       Alert.alert(so ? "Khalad" : "Error", (err as Error).message);
@@ -67,6 +67,11 @@ export default function DiscoverRegionScreen() {
             ? "Geli laba geesood oo isku-mid ah (koonaha waqooyi-galbeed iyo koonaha koonfur-bari) si loo qeexo gobolka la sahamin doono."
             : "Enter two opposite corners (NW and SE) to define the rectangle to scan."}
         </Text>
+        {commodity && (
+          <Text style={styles.commodityBadge}>
+            {so ? `Raadinta: ${commodity}` : `Looking for: ${commodity}`}
+          </Text>
+        )}
 
         <Card style={styles.card}>
           <Text style={styles.sectionTitle}>{so ? "Geeska 1" : "Corner 1"}</Text>
@@ -165,6 +170,7 @@ const styles = StyleSheet.create({
   centerFill: { alignItems: "center", justifyContent: "center", paddingVertical: spacing.lg },
   body: { padding: spacing.md, gap: spacing.sm, paddingBottom: 60 },
   introText: { color: colors.textMuted, fontSize: 13, marginBottom: spacing.sm },
+  commodityBadge: { color: colors.gold, fontSize: 12, fontWeight: "700", marginBottom: spacing.sm },
   card: { gap: spacing.xs, marginBottom: spacing.sm },
   sectionTitle: { color: colors.gold, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4, marginTop: spacing.xs },
   row: { flexDirection: "row", gap: spacing.sm },

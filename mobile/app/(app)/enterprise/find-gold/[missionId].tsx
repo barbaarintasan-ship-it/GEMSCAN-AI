@@ -11,6 +11,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTranslation } from "react-i18next";
 import { colors, spacing } from "../../../../lib/theme";
 import { Card } from "../../../../components/ui/Card";
+import { Button } from "../../../../components/ui/Button";
 import { bandFor } from "../../../../../shared/geo-core/confidence.ts";
 import { fetchMissionAreas } from "../../../../lib/enterprise/missions";
 import { fetchAreaReviewDetail } from "../../../../lib/enterprise/missions";
@@ -21,7 +22,7 @@ type AreaCard = { area_id: string; name: string; level: SimpleLevel; sentence: s
 const LEVEL_ORDER: Record<SimpleLevel, number> = { good: 3, maybe: 2, low: 1, unknown: 0 };
 
 export default function FindGoldScreen() {
-  const { missionId } = useLocalSearchParams<{ missionId: string }>();
+  const { missionId, commodity } = useLocalSearchParams<{ missionId: string; commodity?: string }>();
   const { i18n } = useTranslation();
   const insets = useSafeAreaInsets();
   const so = i18n.language === "so";
@@ -85,6 +86,11 @@ export default function FindGoldScreen() {
             ? "Halkan waxaa ku qoran meelaha ugu fiican ee lagu raadin karo macdan, af fudud."
             : "Here are the best spots to explore, in plain language."}
         </Text>
+        {commodity && (
+          <Text style={styles.commodityBadge}>
+            {so ? `Raadinta: ${commodity}` : `Looking for: ${commodity}`}
+          </Text>
+        )}
         {cards.length === 0 && (
           <Text style={styles.mutedText}>
             {so ? "Weli meel lama xaddidin mishankan." : "No spots have been marked for this mission yet."}
@@ -108,6 +114,17 @@ export default function FindGoldScreen() {
             </Card>
           </Pressable>
         ))}
+
+        {missionId && (
+          <Button
+            title={so ? "🗺️ Sahami Gobol Cusub" : "🗺️ Discover a New Region"}
+            variant="outline"
+            onPress={() => router.push(
+              `/(app)/enterprise/discover-region/${missionId}${commodity ? `?commodity=${encodeURIComponent(commodity)}` : ""}`,
+            )}
+            style={styles.discoverButton}
+          />
+        )}
       </ScrollView>
     </View>
   );
@@ -120,6 +137,8 @@ const styles = StyleSheet.create({
   centerFill: { flex: 1, alignItems: "center", justifyContent: "center" },
   body: { padding: spacing.md, gap: spacing.sm, paddingBottom: 60 },
   introText: { color: colors.textMuted, fontSize: 13, marginBottom: spacing.sm },
+  commodityBadge: { color: colors.gold, fontSize: 12, fontWeight: "700", marginBottom: spacing.sm },
+  discoverButton: { marginTop: spacing.md },
   mutedText: { color: colors.textFaint, fontSize: 13, fontStyle: "italic" },
   areaCard: { marginBottom: spacing.sm },
   areaRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },

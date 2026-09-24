@@ -400,9 +400,9 @@ export default function ManagerMissionScreen() {
           />
           {areas.length > 0 && (
             <Button
-              title={so ? "🔍 Raadi Dahabka (Fudud)" : "🔍 Find Gold (Simple Mode)"}
+              title={so ? "🔍 Raadi (Fudud)" : "🔍 Find (Simple Mode)"}
               variant="outline"
-              onPress={() => missionId && router.push(`/(app)/enterprise/find-gold/${missionId}`)}
+              onPress={() => missionId && router.push(`/(app)/enterprise/find-gold-start/${missionId}`)}
               style={styles.newAreaButton}
             />
           )}

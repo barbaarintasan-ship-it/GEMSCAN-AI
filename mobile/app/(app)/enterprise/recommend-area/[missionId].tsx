@@ -53,7 +53,7 @@ function reasonLabel(r: Record<string, unknown>): string {
 }
 
 export default function RecommendAreaScreen() {
-  const { missionId } = useLocalSearchParams<{ missionId: string }>();
+  const { missionId, commodity } = useLocalSearchParams<{ missionId: string; commodity?: string }>();
   const { i18n } = useTranslation();
   const insets = useSafeAreaInsets();
   const so = i18n.language === "so";
@@ -116,7 +116,7 @@ export default function RecommendAreaScreen() {
     setLoadingTargets(true);
     try {
       const r = await fetchTeamTargetRecommendation(parsedLat, parsedLng,
-        wideScan ? { rings: WIDE_SCAN_RINGS, limit: WIDE_SCAN_LIMIT } : {},
+        { ...(wideScan ? { rings: WIDE_SCAN_RINGS, limit: WIDE_SCAN_LIMIT } : {}), ...(commodity ? { commodity } : {}) },
       );
       setResult(r);
       setStage("review");

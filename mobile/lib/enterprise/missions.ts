@@ -907,3 +907,36 @@ export async function discoverRegionTargets(
   if (!res.ok) throw new Error(body?.detail || body?.error || `Region discovery failed (${res.status})`);
   return body as DiscoverRegionResult;
 }
+
+// ── Phase 17 guided commodity entry (2026-09-24) ────────────────────────────
+// "What are you looking for?" — reads the ONE real commodity list
+// (geo.commodity_profile, already used server-side by TargetingEngine via
+// commodityModelFor()) rather than a hardcoded UI array. No new commodity
+// model; this is the exact same table the deterministic engine reads.
+
+export interface CommodityChoice {
+  code: string;
+  name: string;
+  category: string | null;
+  hasProfile: boolean;
+}
+
+const FEATURED_COMMODITIES = ["gold", "diamond", "silver", "copper"] as const;
+
+export async function fetchCommodityChoices(): Promise<CommodityChoice[]> {
+  const { data, error } = await supabase.schema("geo")
+    .from("commodity_profile")
+    .select("code, name, category, typical_host_rocks, deposit_models")
+    .order("name");
+  if (error) throw error;
+  return (data ?? []).map((r: any) => ({
+    code: r.code, name: r.name, category: r.category ?? null,
+    hasProfile: (r.typical_host_rocks?.length ?? 0) > 0 || (r.deposit_models?.length ?? 0) > 0,
+  }));
+}
+
+export async function fetchFeaturedCommodities(): Promise<CommodityChoice[]> {
+  const all = await fetchCommodityChoices();
+  const byCode = new Map(all.map((c) => [c.code, c]));
+  return FEATURED_COMMODITIES.map((code) => byCode.get(code)).filter((c): c is CommodityChoice => c != null);
+}
