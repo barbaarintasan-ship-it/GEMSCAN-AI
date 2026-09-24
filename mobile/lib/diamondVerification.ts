@@ -17,6 +17,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { decode } from "base64-arraybuffer";
 import * as FileSystem from "expo-file-system";
 import { supabase } from "./supabase";
+import { getAuthUserTimed } from "./getAuthUserTimed";
 
 const FUNCTIONS_URL = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL!;
 const DRAFT_KEY_PREFIX = "gemscan.verification.";
@@ -81,9 +82,7 @@ export type VerificationSession = {
 // losing progress — `diamond_verifications.scan_id` is unique), else creates
 // a fresh one.
 export async function startVerification(scanId: string): Promise<VerificationSession> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUserTimed();
   if (!user) throw new Error("Must be signed in to start verification");
 
   const { data: existing } = await supabase
@@ -131,9 +130,7 @@ export async function uploadVerificationImage(
   label: VerificationImageLabel,
   uri: string,
 ): Promise<string> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUserTimed();
   if (!user) throw new Error("Must be signed in to upload a verification photo");
 
   // Reuses the EXISTING scan-images bucket (no new bucket/policies needed) —
@@ -169,9 +166,7 @@ export async function startHighValueReportPurchase(
   verificationId: string,
   scanId: string,
 ): Promise<HighValueReportPurchase> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUserTimed();
   if (!user) throw new Error("Must be signed in to start a report purchase");
 
   const { data: existing } = await supabase

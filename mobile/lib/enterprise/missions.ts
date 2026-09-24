@@ -2,6 +2,7 @@
 // built server-side (Phase 2A/2B/2C). Same shape as lib/enterprise/team.ts:
 // deliberately dumb, authorization lives entirely in the RPCs/RLS.
 import { supabase } from "../supabase";
+import { getAuthUserTimed } from "../getAuthUserTimed";
 
 const FUNCTIONS_URL = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL!;
 
@@ -84,8 +85,8 @@ export type MissionProgress = {
 
 /** Missions the caller is a contributor (or owner) on. */
 export async function fetchMyMissions(): Promise<MyMission[]> {
-  const { data: auth } = await supabase.auth.getUser();
-  const uid = auth.user?.id;
+  const user = await getAuthUserTimed();
+  const uid = user?.id;
   if (!uid) return [];
   const { data, error } = await supabase.schema("enterprise")
     .from("mission_contributor")
@@ -168,8 +169,8 @@ export async function fetchMyProjects(): Promise<MyProject[]> {
 /** Direct insert — enterprise.project already grants this to authenticated,
  *  RLS requires org owner/admin (or personal ownership) at write time. */
 export async function createProject(name: string, organizationId: string | null): Promise<MyProject> {
-  const { data: auth } = await supabase.auth.getUser();
-  const uid = auth.user?.id;
+  const user = await getAuthUserTimed();
+  const uid = user?.id;
   if (!uid) throw new Error("You must be signed in.");
   const { data, error } = await supabase.schema("enterprise")
     .from("project")

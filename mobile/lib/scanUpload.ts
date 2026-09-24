@@ -10,6 +10,7 @@ import { decode } from "base64-arraybuffer";
 import * as FileSystem from "expo-file-system";
 import * as ImageManipulator from "expo-image-manipulator";
 import { supabase } from "./supabase";
+import { getAuthUserTimed } from "./getAuthUserTimed";
 import i18n from "./i18n";
 import type { BoundingBox, CoarseClassification } from "./onDeviceDetection";
 import type { QualityAssessment } from "../components/ImageProcessorGL";
@@ -118,9 +119,7 @@ export async function createScan(params: {
   location: ScanLocation | null;
   explanationStyle?: ExplanationStyle | null;
 }): Promise<string> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUserTimed();
   if (!user) throw new Error("Must be signed in to start a scan");
 
   enter("createScan (insert scans row)");
@@ -161,9 +160,7 @@ async function uploadFile(path: string, uri: string, contentType: string): Promi
 }
 
 export async function uploadScanImage(scanId: string, image: CapturedAngleImage): Promise<void> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUserTimed();
   if (!user) throw new Error("Must be signed in to upload a scan image");
 
   enter(`uploadScanImage angle=${image.angle}`);
@@ -346,9 +343,7 @@ export async function submitScanFeedback(
   scanId: string,
   feedback: { wasCorrect: boolean; correctedLabel?: string; notes?: string },
 ): Promise<void> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUserTimed();
   if (!user) throw new Error("Must be signed in to submit feedback");
 
   const { error } = await supabase.from("scan_feedback").insert({

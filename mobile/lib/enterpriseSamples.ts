@@ -10,6 +10,7 @@ import * as FileSystem from "expo-file-system";
 import * as ImageManipulator from "expo-image-manipulator";
 import { resizeTargetFor, UPLOAD_JPEG_QUALITY } from "./photoBudget";
 import * as Location from "expo-location";
+import { getAuthUserTimed } from "./getAuthUserTimed";
 import { supabase } from "./supabase";
 
 const FUNCTIONS_URL = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL!;
@@ -210,9 +211,7 @@ export async function shrinkForUpload(uri: string): Promise<string> {
 }
 
 export async function uploadSampleMedia(uri: string, role: MediaRole): Promise<SampleMediaInput> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUserTimed();
   if (!user) throw new Error("You must be signed in.");
 
   const sendUri = await shrinkForUpload(uri);

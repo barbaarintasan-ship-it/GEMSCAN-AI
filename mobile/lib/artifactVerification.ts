@@ -13,6 +13,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { decode } from "base64-arraybuffer";
 import * as FileSystem from "expo-file-system";
 import { supabase } from "./supabase";
+import { getAuthUserTimed } from "./getAuthUserTimed";
 
 const FUNCTIONS_URL = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL!;
 const DRAFT_KEY_PREFIX = "gemscan.artifactverification.";
@@ -88,9 +89,7 @@ export type ArtifactVerificationSession = {
 
 // Idempotent, mirroring startGoldVerification's existing-row-first pattern.
 export async function startArtifactVerification(scanId: string): Promise<ArtifactVerificationSession> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUserTimed();
   if (!user) throw new Error("Must be signed in to start verification");
 
   const { data: existing } = await supabase
@@ -139,9 +138,7 @@ export async function uploadArtifactVerificationImage(
   label: ArtifactVerificationImageLabel,
   uri: string,
 ): Promise<string> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUserTimed();
   if (!user) throw new Error("Must be signed in to upload a verification photo");
 
   // Reuses the EXISTING scan-images bucket, same path convention as the other
@@ -170,9 +167,7 @@ export async function startArtifactReportPurchase(
   verificationId: string,
   scanId: string,
 ): Promise<ArtifactReportPurchase> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUserTimed();
   if (!user) throw new Error("Must be signed in to start a report purchase");
 
   const { data: existing } = await supabase
