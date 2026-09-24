@@ -123,6 +123,12 @@ verify_jwt = true
 [functions.review-area]
 verify_jwt = true
 
+# Phase 12 — "Why A > B" deterministic comparison of two areas in the same
+# mission. Read-only. User-facing, requires a valid app JWT
+# (+ is_mission_member in the RPC).
+[functions.compare-areas]
+verify_jwt = true
+
 # Object-storage presigning. The R2 secret lives only in this function's
 # environment; the device receives short-lived URLs for one object at a time.
 [functions.r2-presign]

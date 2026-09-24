@@ -398,6 +398,14 @@ export default function ManagerMissionScreen() {
             onPress={() => missionId && router.push(`/(app)/enterprise/recommend-area/${missionId}`)}
             style={styles.newAreaButton}
           />
+          {areas.length >= 2 && (
+            <Button
+              title={so ? "Isbarbardhig Aagagga" : "Compare Areas"}
+              variant="outline"
+              onPress={() => missionId && router.push(`/(app)/enterprise/compare-areas/${missionId}`)}
+              style={styles.newAreaButton}
+            />
+          )}
 
           {cellGroups.some((g) => g.prospectivityScore != null) && (
             <>

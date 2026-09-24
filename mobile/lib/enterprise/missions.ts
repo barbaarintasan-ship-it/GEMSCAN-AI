@@ -659,3 +659,43 @@ export async function reviewArea(
   if (!res.ok) throw new Error(body?.detail || body?.error || `Area review failed (${res.status})`);
   return body as AreaReviewResult;
 }
+
+// ── Phase 12 — "Why A > B" comparative reasoning ────────────────────────────
+// Purely deterministic: reads the SAME reasons/coverage/score Phase 10
+// already persisted, via compare-areas → enterprise.compare_mission_areas.
+// No AI, no recomputation — see that RPC's own header note.
+
+export interface AreaComparisonSide {
+  area_id: string;
+  name: string;
+  review_status: AreaReviewStatus;
+  target_h3: string | null;
+  score: number | null;
+  integrated_score: number | null;
+  reasons: TeamTargetReason[] | null;
+  coverage: { roles: Array<{ role: string; state: string }>; present: number; total: number; unavailable: string[] } | null;
+}
+
+export interface AreaComparison {
+  area_a: AreaComparisonSide;
+  area_b: AreaComparisonSide;
+  diff: {
+    score_delta: number | null;
+    roles_only_in_a: string[];
+    roles_only_in_b: string[];
+    reason_kinds_only_in_a: string[];
+    reason_kinds_only_in_b: string[];
+  };
+}
+
+export async function compareMissionAreas(missionId: string, areaIdA: string, areaIdB: string): Promise<AreaComparison> {
+  const res = await fetch(`${FUNCTIONS_URL}/compare-areas`, {
+    method: "POST",
+    headers: await authHeader(),
+    body: JSON.stringify({ missionId, areaIdA, areaIdB }),
+  });
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!res.ok) throw new Error(body?.detail || body?.error || `Area comparison failed (${res.status})`);
+  return body as AreaComparison;
+}
