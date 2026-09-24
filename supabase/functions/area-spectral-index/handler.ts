@@ -49,6 +49,15 @@ const STATS_URL = "https://sh.dataspace.copernicus.eu/api/v1/statistics";
 // compute the ratio); this just also emits their own per-pixel values as two
 // extra OUTPUT bands in the SAME single Statistics API call. No new input
 // band, no second call, no AOI/quota change, cloud masking untouched.
+// Real production bug, found via device smoke test (2026-09-24): the
+// Statistics API requires an explicit "dataMask" output declared in
+// setup() to compute each output's sampleCount/noDataCount stats at all —
+// without it, every call fails with "Output dataMask requested but missing
+// from function setup()" (400). The very first working version (proven
+// live via the diag-sentinel probe) had this declared; it was dropped when
+// this evalscript was "simplified" for production and never re-tested
+// against the real API before that mistake shipped. Restored here,
+// alongside the b04/b02 outputs — same single API call either way.
 export const EVALSCRIPT = `//VERSION=3
 function setup() {
   return {
@@ -58,13 +67,14 @@ function setup() {
       { id: "cloud", bands: 1, sampleType: "FLOAT32" },
       { id: "b04", bands: 1, sampleType: "FLOAT32" },
       { id: "b02", bands: 1, sampleType: "FLOAT32" },
+      { id: "dataMask", bands: 1 },
     ],
   };
 }
 function evaluatePixel(s) {
   var cloud = (s.SCL === 8 || s.SCL === 9 || s.SCL === 10) ? 1 : 0;
   var idx = s.B02 > 0 ? s.B04 / s.B02 : 0;
-  return { index: [idx], cloud: [cloud], b04: [s.B04], b02: [s.B02] };
+  return { index: [idx], cloud: [cloud], b04: [s.B04], b02: [s.B02], dataMask: [s.dataMask] };
 }`;
 
 const MERCATOR_R = 6_378_137;
