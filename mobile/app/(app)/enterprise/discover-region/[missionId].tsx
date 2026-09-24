@@ -15,8 +15,15 @@ import { useTranslation } from "react-i18next";
 import { colors, spacing } from "../../../../lib/theme";
 import { Card } from "../../../../components/ui/Card";
 import { Button } from "../../../../components/ui/Button";
+import { captureSampleLocation } from "../../../../lib/enterpriseSamples";
 import { discoverRegionTargets, type DiscoverRegionResult, type RegionCluster } from "../../../../lib/enterprise/missions";
 import { bandToSimpleLevel, levelLabel, topReasonSentence, LEVEL_EMOJI } from "../../../../lib/enterprise/plainLanguage";
+
+// Requested live (2026-09-25): scan around where the manager is standing,
+// not just typed corners. ~2.2km half-width (~4.4km square, well under the
+// polygon's own cell/area caps) around the GPS fix — same
+// captureSampleLocation() recommend-area already uses, no new GPS code.
+const GPS_SCAN_HALF_WIDTH_DEG = 0.02;
 
 export default function DiscoverRegionScreen() {
   const { missionId, commodity } = useLocalSearchParams<{ missionId: string; commodity?: string }>();
@@ -29,6 +36,7 @@ export default function DiscoverRegionScreen() {
   const [latB, setLatB] = useState("");
   const [lngB, setLngB] = useState("");
   const [loading, setLoading] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [result, setResult] = useState<DiscoverRegionResult | null>(null);
 
   const nA = { lat: Number(latA), lng: Number(lngA) };
@@ -36,6 +44,26 @@ export default function DiscoverRegionScreen() {
   const validCorner = (p: { lat: number; lng: number }) =>
     Number.isFinite(p.lat) && Number.isFinite(p.lng) && p.lat >= -90 && p.lat <= 90 && p.lng >= -180 && p.lng <= 180;
   const canScan = validCorner(nA) && validCorner(nB) && (nA.lat !== nB.lat || nA.lng !== nB.lng);
+
+  async function handleUseGps() {
+    setLocating(true);
+    try {
+      const l = await captureSampleLocation();
+      if (!l) {
+        Alert.alert(
+          so ? "Goobta lama helin" : "Location unavailable",
+          so ? "Fasax GPS ma jiro — geli xarafaha si gacanta ah." : "No GPS fix — grant location permission or enter coordinates manually.",
+        );
+        return;
+      }
+      setLatA(String(l.lat - GPS_SCAN_HALF_WIDTH_DEG));
+      setLngA(String(l.lng - GPS_SCAN_HALF_WIDTH_DEG));
+      setLatB(String(l.lat + GPS_SCAN_HALF_WIDTH_DEG));
+      setLngB(String(l.lng + GPS_SCAN_HALF_WIDTH_DEG));
+    } finally {
+      setLocating(false);
+    }
+  }
 
   async function handleScan() {
     if (!missionId || !canScan) return;
@@ -74,6 +102,19 @@ export default function DiscoverRegionScreen() {
             {so ? `Raadinta: ${commodity}` : `Looking for: ${commodity}`}
           </Text>
         )}
+
+        <Button
+          title={locating ? "…" : (so ? "📍 Isticmaal Goobtayda (GPS)" : "📍 Use My Location (GPS)")}
+          variant="outline"
+          onPress={handleUseGps}
+          disabled={locating || loading}
+          style={styles.gpsButton}
+        />
+        <Text style={styles.gpsHint}>
+          {so
+            ? "Waxay si toos ah u buuxinaysaa labada geesood, gobol yar oo ku xeeran goobtaada."
+            : "Fills both corners automatically with a small region around you."}
+        </Text>
 
         <Card style={styles.card}>
           <Text style={styles.sectionTitle}>{so ? "Geeska 1" : "Corner 1"}</Text>
@@ -173,6 +214,8 @@ const styles = StyleSheet.create({
   body: { padding: spacing.md, gap: spacing.sm, paddingBottom: 60 },
   introText: { color: colors.textMuted, fontSize: 13, marginBottom: spacing.sm },
   commodityBadge: { color: colors.gold, fontSize: 12, fontWeight: "700", marginBottom: spacing.sm },
+  gpsButton: { marginBottom: spacing.xs },
+  gpsHint: { color: colors.textFaint, fontSize: 11, marginBottom: spacing.sm },
   card: { gap: spacing.xs, marginBottom: spacing.sm },
   sectionTitle: { color: colors.gold, fontSize: 12, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4, marginTop: spacing.xs },
   row: { flexDirection: "row", gap: spacing.sm },
