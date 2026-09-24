@@ -141,6 +141,13 @@ verify_jwt = true
 [functions.target-report]
 verify_jwt = true
 
+# Phase 16 — Remote-Sensing Spectral Intelligence (Iron Oxide Ratio via
+# Sentinel-2 L2A / Copernicus Data Space Ecosystem). SENTINEL_HUB_CLIENT_ID/
+# SECRET live only in this function's environment; the device never sees
+# them or the CDSE access token. Not wired into any deterministic score.
+[functions.area-spectral-index]
+verify_jwt = true
+
 # Object-storage presigning. The R2 secret lives only in this function's
 # environment; the device receives short-lived URLs for one object at a time.
 [functions.r2-presign]

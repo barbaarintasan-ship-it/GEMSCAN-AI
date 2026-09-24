@@ -16,7 +16,7 @@ import { Card } from "../../../../components/ui/Card";
 import { Button } from "../../../../components/ui/Button";
 import { SectionLabel } from "../../../../components/ui/SectionLabel";
 import { bandFor } from "../../../../../shared/geo-core/confidence.ts";
-import { fetchTargetReport, type TargetReport } from "../../../../lib/enterprise/missions";
+import { fetchTargetReport, computeAreaSpectralIndex, type TargetReport } from "../../../../lib/enterprise/missions";
 
 const STATUS_LABEL: Record<string, { en: string; so: string }> = {
   pending: { en: "Pending review", so: "Sugaya dib-u-eegis" },
@@ -51,6 +51,7 @@ export default function TargetReportScreen() {
 
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState<TargetReport | null>(null);
+  const [spectralLoading, setSpectralLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!areaId || !missionId) return;
@@ -68,6 +69,19 @@ export default function TargetReportScreen() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const band = report?.target.score != null ? bandFor(report.target.score) : null;
+
+  async function handleAnalyzeSpectral() {
+    if (!areaId || !missionId) return;
+    setSpectralLoading(true);
+    try {
+      const result = await computeAreaSpectralIndex(missionId, areaId);
+      setReport((prev) => (prev ? { ...prev, spectral: result } : prev));
+    } catch (err) {
+      Alert.alert(so ? "Khalad" : "Error", (err as Error).message);
+    } finally {
+      setSpectralLoading(false);
+    }
+  }
 
   async function handleShare() {
     if (!report) return;
@@ -156,6 +170,53 @@ export default function TargetReportScreen() {
             </Card>
           </>
         )}
+
+        <SectionLabel>{so ? "Falanqaynta Satellite-ka (Iron Oxide)" : "Satellite Analysis (Iron Oxide)"}</SectionLabel>
+        <Card style={styles.card}>
+          {report.spectral ? (
+            <>
+              {report.spectral.value != null ? (
+                <Text style={styles.scoreValue}>{report.spectral.value.toFixed(2)}</Text>
+              ) : (
+                <Text style={styles.mutedText}>
+                  {so ? "Ma jirto sawir cirbir-la'aan ah oo la helay" : "No cloud-free acquisition available"}
+                </Text>
+              )}
+              <Text style={styles.mutedText}>
+                {so ? "Taariikhda: " : "Acquisition: "}{report.spectral.acquisition_date}
+                {report.spectral.cloud_fraction != null && `  ·  ${so ? "Daruur" : "Cloud"} ${Math.round(report.spectral.cloud_fraction * 100)}%`}
+              </Text>
+              <Text style={styles.mutedText}>{report.spectral.source} · {report.spectral.resolution_m}m</Text>
+              <Text style={styles.mutedText}>
+                {so
+                  ? "Macluumaad kaliya — kuma jirto isku-dhafka rasmiga ah."
+                  : "Informational only — not part of the deterministic score."}
+              </Text>
+              <Button
+                title={spectralLoading ? "…" : (so ? "Cusboonaysii" : "Refresh")}
+                variant="outline"
+                onPress={handleAnalyzeSpectral}
+                disabled={spectralLoading}
+                style={styles.shareButton}
+              />
+            </>
+          ) : (
+            <>
+              <Text style={styles.mutedText}>
+                {so
+                  ? "Weli lama falanqeynin sawirka satellite-ka ee goobtan."
+                  : "This target hasn't been analyzed via satellite imagery yet."}
+              </Text>
+              <Button
+                title={spectralLoading ? "…" : (so ? "Falanqee Satellite-ka" : "Analyze via Satellite")}
+                variant="outline"
+                onPress={handleAnalyzeSpectral}
+                disabled={spectralLoading}
+                style={styles.shareButton}
+              />
+            </>
+          )}
+        </Card>
 
         {report.area.review_notes && (
           <>

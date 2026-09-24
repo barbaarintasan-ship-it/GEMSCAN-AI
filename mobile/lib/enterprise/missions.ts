@@ -758,6 +758,13 @@ export interface TargetReport {
     headline: string; headline_so: string | null; narrative: string; narrative_so: string | null;
     agreement: CellSynthesisAgreement; contributor_count: number; sample_count: number; generated_at: string;
   } | null;
+  /** Phase 16 — informational only. Never part of `target.score`/`reasons`;
+   *  null until a manager explicitly requests one via computeAreaSpectralIndex. */
+  spectral: {
+    index_name: string; value: number | null; acquisition_date: string;
+    cloud_fraction: number | null; valid_pixel_fraction: number | null;
+    resolution_m: number; source: string; computed_at: string;
+  } | null;
 }
 
 export async function fetchTargetReport(missionId: string, areaId: string): Promise<TargetReport> {
@@ -770,4 +777,29 @@ export async function fetchTargetReport(missionId: string, areaId: string): Prom
   const body = text ? JSON.parse(text) : {};
   if (!res.ok) throw new Error(body?.detail || body?.error || `Target report failed (${res.status})`);
   return body as TargetReport;
+}
+
+// ── Phase 16 — Remote-Sensing Spectral Intelligence ─────────────────────────
+// Iron Oxide Ratio (Sentinel-2 B04/B02), computed server-side on explicit
+// request — see area-spectral-index's own header note for the quota
+// discipline (small fixed AOI, one index, 14-day cache). Informational only:
+// this value never feeds the deterministic score.
+
+export interface AreaSpectralIndex {
+  index_name: string; value: number | null; acquisition_date: string;
+  cloud_fraction: number | null; valid_pixel_fraction: number | null;
+  resolution_m: number; source: string; computed_at: string;
+  cacheHit: boolean; note?: string;
+}
+
+export async function computeAreaSpectralIndex(missionId: string, areaId: string): Promise<AreaSpectralIndex> {
+  const res = await fetch(`${FUNCTIONS_URL}/area-spectral-index`, {
+    method: "POST",
+    headers: await authHeader(),
+    body: JSON.stringify({ missionId, areaId }),
+  });
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!res.ok) throw new Error(body?.detail || body?.error || `Spectral analysis failed (${res.status})`);
+  return body as AreaSpectralIndex;
 }
