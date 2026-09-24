@@ -21,6 +21,24 @@ type AreaCard = { area_id: string; name: string; level: SimpleLevel; sentence: s
 
 const LEVEL_ORDER: Record<SimpleLevel, number> = { good: 3, maybe: 2, low: 1, unknown: 0 };
 
+// Real bug (2026-09-25): the screen title stayed hardcoded "Find Gold" even
+// when a manager picked a different commodity from find-gold-start —
+// misleading, since the `commodity` badge below it correctly showed the
+// real selection. Title now reflects whatever was actually picked.
+const COMMODITY_TITLE: Record<string, { en: string; so: string }> = {
+  gold: { en: "Find Gold", so: "Raadi Dahabka" },
+  diamond: { en: "Find Diamond", so: "Raadi Dheemanka" },
+  silver: { en: "Find Silver", so: "Raadi Qalinka" },
+  copper: { en: "Find Copper", so: "Raadi Naxaaska" },
+};
+function titleFor(commodity: string | undefined, so: boolean): string {
+  if (!commodity) return so ? "Raadi Dahabka" : "Find Gold";
+  const known = COMMODITY_TITLE[commodity.toLowerCase()];
+  if (known) return so ? known.so : known.en;
+  const cap = commodity.charAt(0).toUpperCase() + commodity.slice(1);
+  return so ? `Raadi ${cap}` : `Find ${cap}`;
+}
+
 export default function FindGoldScreen() {
   const { missionId, commodity } = useLocalSearchParams<{ missionId: string; commodity?: string }>();
   const { i18n } = useTranslation();
@@ -76,7 +94,7 @@ export default function FindGoldScreen() {
         <Pressable onPress={() => router.back()} hitSlop={10}>
           <Ionicons name="chevron-back" size={24} color={colors.text} />
         </Pressable>
-        <Text style={styles.title}>{so ? "Raadi Dahabka" : "Find Gold"}</Text>
+        <Text style={styles.title}>{titleFor(commodity, so)}</Text>
         <View style={{ width: 24 }} />
       </View>
 
