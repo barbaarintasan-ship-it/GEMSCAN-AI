@@ -88,6 +88,36 @@ Deno.test("field_observation: empty payload produces nothing", () => {
   assertEquals(structuredEvidenceRowToScored(row({ evidenceType: "field_observation", payload: {} })).length, 0);
 });
 
+// ── Phase 10.3 — negative/disconfirming evidence ────────────────────────────
+
+Deno.test("field_observation: confirmedAbsent produces negative-polarity items, one per explicit true", () => {
+  const scored = structuredEvidenceRowToScored(row({
+    evidenceType: "field_observation",
+    payload: { confirmedAbsent: { alteration: true, sulfides: true, quartzVein: false } },
+  }));
+  assertEquals(scored.length, 2); // quartzVein: false must NOT produce an item
+  for (const s of scored) assertEquals(s.polarity, "negative");
+  assert(scored.some((s) => s.group.includes("confirmed_absent:alteration")));
+  assert(scored.some((s) => s.group.includes("confirmed_absent:sulfides")));
+});
+
+Deno.test("field_observation: confirmedAbsent with everything undefined/omitted produces nothing — tri-state by omission", () => {
+  const scored = structuredEvidenceRowToScored(row({
+    evidenceType: "field_observation",
+    payload: { confirmedAbsent: {} },
+  }));
+  assertEquals(scored.length, 0);
+});
+
+Deno.test("field_observation: a positive finding and a confirmedAbsent finding on the same row both survive, uncancelled", () => {
+  const scored = structuredEvidenceRowToScored(row({
+    evidenceType: "field_observation",
+    payload: { gossanRust: true, confirmedAbsent: { sulfides: true } },
+  }));
+  assertEquals(scored.filter((s) => s.polarity === "negative").length, 1);
+  assertEquals(scored.filter((s) => s.polarity !== "negative").length, 1);
+});
+
 // ── teamIntegratedScore ─────────────────────────────────────────────────────
 
 const BASELINE: Scored[] = [
@@ -121,4 +151,28 @@ Deno.test("teamIntegratedScore with empty baseline still scores off evidence alo
   ];
   const combined = teamIntegratedScore([], rows);
   assert(combined !== null && combined! > 0);
+});
+
+Deno.test("[Phase 10.3] confirmed-absent evidence dampens the score, never zeroes it out", () => {
+  const positiveOnly = teamIntegratedScore(BASELINE, [
+    row({ evidenceType: "field_observation", payload: { gossanRust: true, sulfides: true } }),
+  ]);
+  const withNegative = teamIntegratedScore(BASELINE, [
+    row({
+      evidenceType: "field_observation",
+      payload: { gossanRust: true, sulfides: true, confirmedAbsent: { quartzVein: true, alteration: true } },
+    }),
+  ]);
+  assert(positiveOnly !== null && withNegative !== null);
+  assert(withNegative! < positiveOnly!); // disconfirming evidence pulls the score down...
+  assert(withNegative! > 0); // ...but never to zero — a mapped fault/occurrence doesn't stop being real
+});
+
+Deno.test("[Phase 10.3] confirmed-absent alone (no positive finding) still produces a real, non-null score", () => {
+  const rows: TeamStructuredEvidenceRow[] = [
+    row({ evidenceType: "field_observation", payload: { confirmedAbsent: { sulfides: true } } }),
+  ];
+  const combined = teamIntegratedScore(BASELINE, rows);
+  assert(combined !== null);
+  assert(combined! < 0.4); // damping the baseline-only combine, not ignored
 });

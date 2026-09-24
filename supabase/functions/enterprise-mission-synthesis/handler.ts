@@ -36,6 +36,17 @@ export interface SynthesisContext {
   target_h3: string;
   deterministic_score: number | null;
   score_engine_version: string | null;
+  /**
+   * Phase 10.4 — the SAME reasons/coverage `score-mission-cells` now persists
+   * onto mission_assignment (Phase 10.1/10.2): the deterministic engine's own
+   * account of what it found near this cell (mapped occurrences, fault
+   * distance, ...) and which evidence roles simply have no data here. Read-
+   * only grounding for the narrative — Claude reproduces or extends neither.
+   * null for a cell scored before 0142/0143, or never scored — never a
+   * fabricated default, same rule `deterministic_score` already follows.
+   */
+  reasons?: unknown[] | null;
+  coverage?: Record<string, unknown> | null;
   contributor_count: number;
   sample_count: number;
   contributors: Array<Record<string, unknown>>;
@@ -51,13 +62,22 @@ export interface SynthesisResult {
 }
 
 export function buildSynthesisPrompt(ctx: SynthesisContext): string {
+  const hasEngineContext = (ctx.reasons && ctx.reasons.length > 0) || (ctx.coverage != null);
+  const engineContextBlock = hasEngineContext
+    ? `\n\nWHAT THE DETERMINISTIC ENGINE ALREADY FOUND NEAR THIS CELL (mapped occurrences, faults, \
+geology — computed independently of anyone's field visit, read-only ground truth, NOT something you \
+compute or restate as a number):
+reasons: ${JSON.stringify(ctx.reasons ?? [])}
+coverage (which evidence roles have data here vs none/not-yet-scored): ${JSON.stringify(ctx.coverage ?? null)}`
+    : "";
+
   return `You are assisting a mineral-exploration team lead. Below is field evidence collected \
 independently by ${ctx.contributor_count} different contributor(s) across ${ctx.sample_count} \
 sample(s), all from the SAME map cell (H3 index ${ctx.target_h3}) inside one exploration mission. \
 Each contributor did not see the others' submissions.
 
 DATA (ground truth — ids, timestamps and structured fields are not in question):
-${JSON.stringify(ctx.contributors, null, 2)}
+${JSON.stringify(ctx.contributors, null, 2)}${engineContextBlock}
 
 RULES — read carefully:
 1. NEVER state a probability, percentage, score, rating, chance, likelihood or odds of anything —
@@ -69,7 +89,11 @@ RULES — read carefully:
    someone back to re-check this cell.
 3. If there is only one contributor, or too little data to meaningfully compare, say so plainly
    and set "agreement" to "insufficient_data" — do not invent a comparison that isn't there.
-4. Write in clear, plain language. Provide BOTH an English version and a Somali translation for
+4. If the engine context above is present, use it only to note whether contributors' own findings
+   line up with, contradict, or leave unaddressed what the engine already found nearby (e.g. a
+   contributor's sample sitting right next to a mapped occurrence nobody mentioned) — never restate
+   it as your own discovery, and never turn "coverage: no data here" into a claim about the ground.
+5. Write in clear, plain language. Provide BOTH an English version and a Somali translation for
    every text field (the _so twin) — natural Somali, not a literal word-for-word translation.
 
 Respond with ONLY minified JSON, no markdown, matching exactly this shape:

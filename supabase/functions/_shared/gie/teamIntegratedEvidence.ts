@@ -40,6 +40,50 @@ const INDICATOR_WEIGHT: Record<string, number> = {
   shear_zone: 0.5,
 };
 
+// Phase 10.3 (Geological Intelligence Transformation) — negative/disconfirming
+// evidence, mirroring mobile/lib/exploration/structuredEvidenceSource.ts's
+// NEGATIVE_INDICATOR_WEIGHT/CONFIRMED_ABSENT_LABEL exactly (same values,
+// copied not cross-imported — see this file's header note on why Team never
+// imports mobile's scoring tables). A Team "confirmed absent" finding is
+// worth the same as a Solo one of the same kind.
+const NEGATIVE_INDICATOR_WEIGHT: Record<string, number> = {
+  alteration: 0.6,
+  sulfides: 0.7,
+  quartz_vein: 0.55,
+  visible_mineralization: 0.6,
+  favorable_structure: 0.5,
+  geochemical_anomaly: 0.65,
+};
+
+const CONFIRMED_ABSENT_TYPE: Record<string, string> = {
+  alteration: "alteration",
+  sulfides: "sulfides",
+  quartzVein: "quartz_vein",
+  visibleMineralization: "visible_mineralization",
+  favorableStructure: "favorable_structure",
+  geochemicalAnomaly: "geochemical_anomaly",
+};
+
+/**
+ * `payload.confirmedAbsent` (a `ConfirmedAbsentFindings`-shaped record) into
+ * negative `ScoredEvidence`. Tri-state by omission, same rule as Solo's
+ * `confirmedAbsentToObservations`: only an explicit `true` produces an item —
+ * `undefined`/`false` means "not asked", never "confirmed present".
+ */
+function confirmedAbsentToScored(sampleId: string, tier: string, confirmedAbsent: unknown): ScoredEvidence[] {
+  if (!confirmedAbsent || typeof confirmedAbsent !== "object") return [];
+  const findings = confirmedAbsent as Record<string, unknown>;
+  const out: ScoredEvidence[] = [];
+  for (const [key, canonicalType] of Object.entries(CONFIRMED_ABSENT_TYPE)) {
+    if (findings[key] !== true) continue;
+    out.push({
+      weight: NEGATIVE_INDICATOR_WEIGHT[canonicalType], tier, role: "field", polarity: "negative",
+      group: evidenceGroupKey(sampleId, `confirmed_absent:${canonicalType}`),
+    });
+  }
+  return out;
+}
+
 // remote_sensing is captured (so it's visible in the mission's evidence) but
 // not yet admitted to any live score — the SAME withholding Solo's own
 // INTEGRATED_ROLES_PENDING_ADMISSION applies, for the same measured reason
@@ -172,6 +216,7 @@ export function structuredEvidenceRowToScored(row: TeamStructuredEvidenceRow): S
           group: evidenceGroupKey(row.sampleId, "historical_workings"),
         });
       }
+      out.push(...confirmedAbsentToScored(row.sampleId, tier, p.confirmedAbsent));
       break;
     }
   }

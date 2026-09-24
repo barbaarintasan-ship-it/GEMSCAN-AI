@@ -118,6 +118,26 @@ Deno.test("[firewall] buildSynthesisPrompt explicitly forbids probability/score 
   assert(prompt.includes(CTX.target_h3));
 });
 
+// ── Phase 10.4 — deterministic engine context (reasons/coverage) ───────────
+
+Deno.test("[Phase 10.4] a cell with no reasons/coverage (scored before 0142, or never scored) omits the engine-context block entirely", () => {
+  const prompt = buildSynthesisPrompt(CTX); // CTX has neither field set
+  assert(!/WHAT THE DETERMINISTIC ENGINE ALREADY FOUND/.test(prompt));
+});
+
+Deno.test("[Phase 10.4] reasons/coverage are included verbatim as read-only grounding, with an explicit non-restatement rule", () => {
+  const ctx: SynthesisContext = {
+    ...CTX,
+    reasons: [{ kind: "occurrence", commodity: "gold", distanceM: 180 }],
+    coverage: { roles: [{ role: "structural", state: "present" }], present: 1, total: 6, unavailable: ["contacts"] },
+  };
+  const prompt = buildSynthesisPrompt(ctx);
+  assert(/WHAT THE DETERMINISTIC ENGINE ALREADY FOUND/.test(prompt));
+  assert(prompt.includes("gold"));
+  assert(prompt.includes("180"));
+  assert(/never restate\s+it as your own discovery/i.test(prompt));
+});
+
 Deno.test("[firewall] parseSynthesisResponse strips score-like keys the model might still emit", () => {
   const raw = JSON.stringify({
     headline: "H", headline_so: "H-so", narrative: "N", narrative_so: "N-so", agreement: "mixed",

@@ -77,6 +77,12 @@ export default function AddEvidenceScreen() {
   const [gossanRust, setGossanRust] = useState(false);
   const [shearing, setShearing] = useState(false);
   const [oldWorkings, setOldWorkings] = useState(false);
+  // Confirmed-absent (negative evidence) — tri-state by omission: only an
+  // explicit true is ever sent, never inferred from the switch's default.
+  const [absentAlteration, setAbsentAlteration] = useState(false);
+  const [absentSulfides, setAbsentSulfides] = useState(false);
+  const [absentQuartzVein, setAbsentQuartzVein] = useState(false);
+  const [absentStructure, setAbsentStructure] = useState(false);
 
   function buildPayload(): Record<string, unknown> {
     switch (type) {
@@ -88,9 +94,24 @@ export default function AddEvidenceScreen() {
         return { hostLithology: hostLithology.trim(), veinType: veinType.trim(), gossan, sulfides };
       case "remote_sensing":
         return { source, interpretation: interpretation.trim() };
-      case "field_observation":
-        return { visibleMineral, quartzVein, gossanRust, shearing, oldWorkings };
+      case "field_observation": {
+        const confirmedAbsent = {
+          alteration: absentAlteration || undefined,
+          sulfides: absentSulfides || undefined,
+          quartzVein: absentQuartzVein || undefined,
+          favorableStructure: absentStructure || undefined,
+        };
+        const hasAbsent = Object.values(confirmedAbsent).some((v) => v === true);
+        return {
+          visibleMineral, quartzVein, gossanRust, shearing, oldWorkings,
+          ...(hasAbsent ? { confirmedAbsent } : {}),
+        };
+      }
     }
+  }
+
+  function hasConfirmedAbsent(): boolean {
+    return absentAlteration || absentSulfides || absentQuartzVein || absentStructure;
   }
 
   function hasContent(): boolean {
@@ -99,7 +120,8 @@ export default function AddEvidenceScreen() {
       case "geophysics": return anomalyPresent || anomalyDescription.trim() !== "";
       case "mapping": return hostLithology.trim() !== "" || veinType.trim() !== "" || gossan || sulfides;
       case "remote_sensing": return interpretation.trim() !== "";
-      case "field_observation": return visibleMineral || quartzVein || gossanRust || shearing || oldWorkings;
+      case "field_observation":
+        return visibleMineral || quartzVein || gossanRust || shearing || oldWorkings || hasConfirmedAbsent();
     }
   }
 
@@ -183,6 +205,20 @@ export default function AddEvidenceScreen() {
             </>
           )}
         </Card>
+
+        {type === "field_observation" && (
+          <>
+            <SectionLabel>
+              {so ? "La hubiyay oo lama helin (caddeyn taban)" : "Specifically checked and absent (negative evidence)"}
+            </SectionLabel>
+            <Card style={styles.card}>
+              <View style={styles.switchRow}><Text style={styles.switchLabel}>{so ? "Isbeddel (alteration)" : "Alteration"}</Text><Switch value={absentAlteration} onValueChange={setAbsentAlteration} /></View>
+              <View style={styles.switchRow}><Text style={styles.switchLabel}>{so ? "Sulfide-yo" : "Sulfides"}</Text><Switch value={absentSulfides} onValueChange={setAbsentSulfides} /></View>
+              <View style={styles.switchRow}><Text style={styles.switchLabel}>{so ? "Xidh Quartz ah" : "Quartz vein"}</Text><Switch value={absentQuartzVein} onValueChange={setAbsentQuartzVein} /></View>
+              <View style={styles.switchRow}><Text style={styles.switchLabel}>{so ? "Qaab dhismeed fiican (fault/shear)" : "Favourable structure (fault/shear)"}</Text><Switch value={absentStructure} onValueChange={setAbsentStructure} /></View>
+            </Card>
+          </>
+        )}
 
         <SectionLabel>{so ? "Xaqiijinta" : "Verification"}</SectionLabel>
         <View style={styles.chips}>

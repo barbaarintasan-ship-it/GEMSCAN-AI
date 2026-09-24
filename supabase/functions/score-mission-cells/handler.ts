@@ -33,7 +33,10 @@ import { serviceClient, userClient, type DbClient } from "../_shared/enterprise/
 import { makeServerGeoContext, TEAM_TARGETING_ENGINE_VERSION } from "../_shared/geocontext/serverGeoContext.ts";
 import { cellFor, cellCentre, kRing } from "../_shared/geocontext/h3.ts";
 import { fetchStructuralMapFeatures, packWithMapFeatures } from "../_shared/geocontext/structuralPack.ts";
-import { TargetingEngine, DEFAULT_CONTEXT_RADIUS_M, type H3Ops } from "../../../shared/geo-core/gie/targetingEngine.ts";
+import {
+  TargetingEngine, DEFAULT_CONTEXT_RADIUS_M, type H3Ops,
+  type EvidenceCoverage, type Scored, type TargetReason,
+} from "../../../shared/geo-core/gie/targetingEngine.ts";
 import { haversineM } from "../../../shared/geo-core/geo/spatial.ts";
 import { teamIntegratedScore, type TeamStructuredEvidenceRow } from "../_shared/gie/teamIntegratedEvidence.ts";
 
@@ -62,6 +65,16 @@ export interface ScoredCell {
    *  found nothing new". */
   integratedScore: number | null;
   evidenceSampleCount: number;
+  /**
+   * Phase 10 (Geological Intelligence Transformation) — the SAME evidence
+   * graph/coverage `ExplorationTarget` already computes on every score,
+   * persisted instead of discarded. Lets a manager ask "why is this cell
+   * 0.72" days later without re-running scoring, and distinguishes "ground
+   * is unfavourable" from "no data here" (`coverage`).
+   */
+  reasons: readonly TargetReason[];
+  coverage: EvidenceCoverage;
+  evidence: readonly Scored[];
 }
 
 export interface ScoreMissionCellsResponse {
@@ -225,6 +238,9 @@ async function defaultScoreCells(missionId: string, cells: CellToScore[], commod
       // for why this never feeds back into `target.score` itself.
       integratedScore: teamIntegratedScore(target.evidence, cellEvidence),
       evidenceSampleCount: new Set(cellEvidence.map((r) => r.sampleId)).size,
+      reasons: target.reasons,
+      coverage: target.coverage,
+      evidence: target.evidence,
     });
   }
   return out;
@@ -281,6 +297,7 @@ export async function handleScoreMissionCells(
         p_scores: scored.map((s) => ({
           target_h3: s.targetH3, score: s.score, engine_version: TEAM_TARGETING_ENGINE_VERSION,
           integrated_score: s.integratedScore, evidence_sample_count: s.evidenceSampleCount,
+          reasons: s.reasons, coverage: s.coverage, evidence: s.evidence,
         })),
       });
       if (error) throw new BadRequestError(error.message);
