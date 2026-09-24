@@ -398,6 +398,14 @@ export default function ManagerMissionScreen() {
             onPress={() => missionId && router.push(`/(app)/enterprise/recommend-area/${missionId}`)}
             style={styles.newAreaButton}
           />
+          {areas.length > 0 && (
+            <Button
+              title={so ? "🔍 Raadi Dahabka (Fudud)" : "🔍 Find Gold (Simple Mode)"}
+              variant="outline"
+              onPress={() => missionId && router.push(`/(app)/enterprise/find-gold/${missionId}`)}
+              style={styles.newAreaButton}
+            />
+          )}
           {areas.length >= 2 && (
             <Button
               title={so ? "Isbarbardhig Aagagga" : "Compare Areas"}
