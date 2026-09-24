@@ -148,6 +148,13 @@ verify_jwt = true
 [functions.area-spectral-index]
 verify_jwt = true
 
+# Issue 1 (2026-09-24 audit) — TRUE region-wide discovery over a manager-
+# drawn polygon: H3 fill, deterministic TargetingEngine scoring, spatial
+# clustering. Manager-gated (cost-bearing scan). Separate from team-
+# targeting's point+kRing sweep, which is unchanged.
+[functions.discover-region-targets]
+verify_jwt = true
+
 # Object-storage presigning. The R2 secret lives only in this function's
 # environment; the device receives short-lived URLs for one object at a time.
 [functions.r2-presign]

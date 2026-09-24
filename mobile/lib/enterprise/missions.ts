@@ -761,8 +761,8 @@ export interface TargetReport {
   /** Phase 16 — informational only. Never part of `target.score`/`reasons`;
    *  null until a manager explicitly requests one via computeAreaSpectralIndex. */
   spectral: {
-    index_name: string; value: number | null; acquisition_date: string;
-    cloud_fraction: number | null; valid_pixel_fraction: number | null;
+    index_name: string; value: number | null; b04_mean: number | null; b02_mean: number | null;
+    acquisition_date: string; cloud_fraction: number | null; valid_pixel_fraction: number | null;
     resolution_m: number; source: string; computed_at: string;
   } | null;
 }
@@ -786,8 +786,8 @@ export async function fetchTargetReport(missionId: string, areaId: string): Prom
 // this value never feeds the deterministic score.
 
 export interface AreaSpectralIndex {
-  index_name: string; value: number | null; acquisition_date: string;
-  cloud_fraction: number | null; valid_pixel_fraction: number | null;
+  index_name: string; value: number | null; b04_mean: number | null; b02_mean: number | null;
+  acquisition_date: string; cloud_fraction: number | null; valid_pixel_fraction: number | null;
   resolution_m: number; source: string; computed_at: string;
   cacheHit: boolean; note?: string;
 }
@@ -802,4 +802,108 @@ export async function computeAreaSpectralIndex(missionId: string, areaId: string
   const body = text ? JSON.parse(text) : {};
   if (!res.ok) throw new Error(body?.detail || body?.error || `Spectral analysis failed (${res.status})`);
   return body as AreaSpectralIndex;
+}
+
+// ── Phase 17 Issue 3 (2026-09-24 audit) — field contributor suggestions ────
+// A NON-authoritative action distinct from enterprise.review_area (Phase 11,
+// manager-only). Never writes exploration_area.review_status — see
+// submit_area_field_suggestion's own header note (migration 0156).
+
+export type FieldSuggestion = "found_evidence" | "not_found" | "not_sure";
+
+export interface AreaFieldSuggestionRow {
+  id: string;
+  area_id: string;
+  contributor_id: string;
+  suggestion: FieldSuggestion;
+  notes: string | null;
+  created_at: string;
+}
+
+/** Whether the caller can perform the FORMAL Phase 11 review on this
+ *  mission — same boundary enterprise.review_area itself enforces, read
+ *  here only to decide which buttons to show (never to skip the real
+ *  server-side check when the action is actually taken). */
+export async function isMissionManager(missionId: string): Promise<boolean> {
+  const { data, error } = await supabase.schema("enterprise").rpc("is_mission_manager", { p_mission: missionId });
+  if (error) return false;
+  return data === true;
+}
+
+export async function fetchAreaFieldSuggestions(areaId: string): Promise<AreaFieldSuggestionRow[]> {
+  const { data, error } = await supabase.schema("enterprise")
+    .from("area_field_suggestion")
+    .select("id, area_id, contributor_id, suggestion, notes, created_at")
+    .eq("area_id", areaId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as AreaFieldSuggestionRow[];
+}
+
+export async function submitAreaFieldSuggestion(
+  missionId: string, areaId: string, suggestion: FieldSuggestion, notes?: string,
+): Promise<AreaFieldSuggestionRow> {
+  const { data, error } = await supabase.schema("enterprise").rpc("submit_area_field_suggestion", {
+    p_mission: missionId, p_area: areaId, p_suggestion: suggestion, p_notes: notes ?? null,
+  });
+  if (error) throw error;
+  return data as AreaFieldSuggestionRow;
+}
+
+// ── Issue 1 (2026-09-24 audit) — TRUE region-wide discovery over a manager-
+// drawn polygon. Separate from fetchTeamTargetRecommendation's point+kRing
+// sweep — see discover-region-targets/handler.ts's own header note.
+
+export interface RegionCluster {
+  clusterId: string;
+  memberCells: string[];
+  cellCount: number;
+  score: number;
+  reportScore: number;
+  band: string;
+  commodities: string[];
+  scoredForCommodity: string | null;
+  reasons: TeamTargetReason[];
+  coverage: AreaReviewCell["coverage"];
+  center: { lat: number; lng: number };
+  geometry: { type: "MultiPolygon"; coordinates: number[][][][] };
+}
+
+export interface DiscoverRegionResult {
+  resolution: number;
+  totalCellsInPolygon: number;
+  scoredCells: number;
+  filteredOutCells: number;
+  minScore: number;
+  clusters: RegionCluster[];
+  evidenceCaveat: string;
+}
+
+/** `corners` are two opposite corners of a rectangle — the smallest real,
+ *  authoritative polygon a manager can specify without a freehand-drawing
+ *  tool (this app's map is a custom offline canvas, not react-native-maps;
+ *  a freehand draw tool is a separate follow-up). The backend treats this
+ *  exactly like any other GeoJSON polygon — it has no idea it's a rectangle. */
+export async function discoverRegionTargets(
+  missionId: string,
+  corners: [{ lat: number; lng: number }, { lat: number; lng: number }],
+  opts: { commodity?: string; minScore?: number; radiusM?: number } = {},
+): Promise<DiscoverRegionResult> {
+  const [a, b] = corners;
+  const minLat = Math.min(a.lat, b.lat);
+  const maxLat = Math.max(a.lat, b.lat);
+  const minLng = Math.min(a.lng, b.lng);
+  const maxLng = Math.max(a.lng, b.lng);
+  const ring = [[minLng, minLat], [maxLng, minLat], [maxLng, maxLat], [minLng, maxLat], [minLng, minLat]];
+  const polygon = { type: "Polygon", coordinates: [ring] };
+
+  const res = await fetch(`${FUNCTIONS_URL}/discover-region-targets`, {
+    method: "POST",
+    headers: await authHeader(),
+    body: JSON.stringify({ missionId, polygon, ...opts }),
+  });
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!res.ok) throw new Error(body?.detail || body?.error || `Region discovery failed (${res.status})`);
+  return body as DiscoverRegionResult;
 }

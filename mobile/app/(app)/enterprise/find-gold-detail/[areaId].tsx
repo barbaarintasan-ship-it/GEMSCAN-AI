@@ -14,7 +14,8 @@ import { Button } from "../../../../components/ui/Button";
 import { bandFor } from "../../../../../shared/geo-core/confidence.ts";
 import {
   fetchAreaReviewDetail, reviewArea, computeAreaSpectralIndex,
-  type AreaReviewDetail, type AreaSpectralIndex,
+  isMissionManager, fetchAreaFieldSuggestions, submitAreaFieldSuggestion,
+  type AreaReviewDetail, type AreaSpectralIndex, type AreaFieldSuggestionRow, type FieldSuggestion,
 } from "../../../../lib/enterprise/missions";
 import { bandToSimpleLevel, levelLabel, allReasonSentences, LEVEL_EMOJI, type SimpleLevel } from "../../../../lib/enterprise/plainLanguage";
 
@@ -29,12 +30,22 @@ export default function FindGoldDetailScreen() {
   const [deciding, setDeciding] = useState(false);
   const [spectralLoading, setSpectralLoading] = useState(false);
   const [spectral, setSpectral] = useState<AreaSpectralIndex | null>(null);
+  const [isManager, setIsManager] = useState(false);
+  const [suggestions, setSuggestions] = useState<AreaFieldSuggestionRow[]>([]);
+  const [suggesting, setSuggesting] = useState(false);
 
   const load = useCallback(async () => {
     if (!areaId || !missionId) return;
     setLoading(true);
     try {
-      setDetail(await fetchAreaReviewDetail(missionId, areaId));
+      const [d, manager, sugg] = await Promise.all([
+        fetchAreaReviewDetail(missionId, areaId),
+        isMissionManager(missionId),
+        fetchAreaFieldSuggestions(areaId),
+      ]);
+      setDetail(d);
+      setIsManager(manager);
+      setSuggestions(sugg);
     } catch (err) {
       Alert.alert(so ? "Khalad" : "Error", (err as Error).message);
     } finally {
@@ -54,6 +65,19 @@ export default function FindGoldDetailScreen() {
       Alert.alert(so ? "Khalad" : "Error", (err as Error).message);
     } finally {
       setDeciding(false);
+    }
+  }
+
+  async function handleSuggest(suggestion: FieldSuggestion) {
+    if (!areaId || !missionId) return;
+    setSuggesting(true);
+    try {
+      await submitAreaFieldSuggestion(missionId, areaId, suggestion);
+      setSuggestions(await fetchAreaFieldSuggestions(areaId));
+    } catch (err) {
+      Alert.alert(so ? "Khalad" : "Error", (err as Error).message);
+    } finally {
+      setSuggesting(false);
     }
   }
 
@@ -135,40 +159,90 @@ export default function FindGoldDetailScreen() {
           )}
         </Card>
 
-        <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>{so ? "Ma tagtay halkan?" : "Have you visited here?"}</Text>
-          {alreadyDecided ? (
-            <Text style={styles.mutedText}>
-              {so ? "Go'aan horey ayaa la gaadhay: " : "Already decided: "}{detail.reviewStatus}
-            </Text>
-          ) : null}
-          <View style={styles.decideRow}>
+        {isManager ? (
+          <Card style={styles.card}>
+            <Text style={styles.sectionTitle}>{so ? "Go'aan rasmi ah (Manager)" : "Formal review (Manager)"}</Text>
+            {alreadyDecided ? (
+              <Text style={styles.mutedText}>
+                {so ? "Go'aan horey ayaa la gaadhay: " : "Already decided: "}{detail.reviewStatus}
+              </Text>
+            ) : null}
+            <View style={styles.decideRow}>
+              <Button
+                title={so ? "Haa, wax baan helay" : "Yes, found something"}
+                onPress={() => handleDecide("accepted")}
+                disabled={deciding}
+                style={styles.decideButton}
+              />
+              <Button
+                title={so ? "Maya, waxba ma jiraan" : "No, nothing here"}
+                variant="outline"
+                onPress={() => handleDecide("rejected")}
+                disabled={deciding}
+                style={styles.decideButton}
+              />
+            </View>
             <Button
-              title={so ? "Haa, wax baan helay" : "Yes, found something"}
-              onPress={() => handleDecide("accepted")}
-              disabled={deciding}
-              style={styles.decideButton}
-            />
-            <Button
-              title={so ? "Maya, waxba ma jiraan" : "No, nothing here"}
+              title={so ? "Wali ma hubo" : "Not sure yet"}
               variant="outline"
-              onPress={() => handleDecide("rejected")}
+              onPress={() => handleDecide("needs_more_data")}
               disabled={deciding}
-              style={styles.decideButton}
+              style={styles.shareButton}
             />
-          </View>
-          <Button
-            title={so ? "Wali ma hubo" : "Not sure yet"}
-            variant="outline"
-            onPress={() => handleDecide("needs_more_data")}
-            disabled={deciding}
-            style={styles.shareButton}
-          />
-        </Card>
+          </Card>
+        ) : (
+          <Card style={styles.card}>
+            <Text style={styles.sectionTitle}>{so ? "Soo jeedin (Adigu)" : "Your suggestion"}</Text>
+            <Text style={styles.captionText}>
+              {so
+                ? "Tani ma aha go'aan rasmi ah — waxay u tagaysaa hoggaamiyaha si uu ugu fikiro."
+                : "This is not a formal decision — it goes to your team lead as input."}
+            </Text>
+            <View style={styles.decideRow}>
+              <Button
+                title={so ? "Wax baan helay" : "Found something"}
+                onPress={() => handleSuggest("found_evidence")}
+                disabled={suggesting}
+                style={styles.decideButton}
+              />
+              <Button
+                title={so ? "Waxba ma jiraan" : "Nothing here"}
+                variant="outline"
+                onPress={() => handleSuggest("not_found")}
+                disabled={suggesting}
+                style={styles.decideButton}
+              />
+            </View>
+            <Button
+              title={so ? "Wali ma hubo" : "Not sure yet"}
+              variant="outline"
+              onPress={() => handleSuggest("not_sure")}
+              disabled={suggesting}
+              style={styles.shareButton}
+            />
+          </Card>
+        )}
+
+        {suggestions.length > 0 && (
+          <Card style={styles.card}>
+            <Text style={styles.sectionTitle}>{so ? "Soo jeedimaha Kooxda" : "Team suggestions"}</Text>
+            {suggestions.map((s) => (
+              <Text key={s.id} style={styles.sentence}>
+                • {SUGGESTION_LABEL[s.suggestion][so ? "so" : "en"]} — {new Date(s.created_at).toLocaleDateString()}
+              </Text>
+            ))}
+          </Card>
+        )}
       </ScrollView>
     </View>
   );
 }
+
+const SUGGESTION_LABEL: Record<FieldSuggestion, { en: string; so: string }> = {
+  found_evidence: { en: "Found something", so: "Wax baa la helay" },
+  not_found: { en: "Nothing found", so: "Waxba ma jirin" },
+  not_sure: { en: "Not sure", so: "Lama hubin" },
+};
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },

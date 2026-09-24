@@ -45,6 +45,10 @@ const MAX_INPUT_CLOUD_COVERAGE = 60;
 const TOKEN_URL = "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token";
 const STATS_URL = "https://sh.dataspace.copernicus.eu/api/v1/statistics";
 
+// Issue 2 (2026-09-24 audit) — b04/b02 are read as INPUT bands already (to
+// compute the ratio); this just also emits their own per-pixel values as two
+// extra OUTPUT bands in the SAME single Statistics API call. No new input
+// band, no second call, no AOI/quota change, cloud masking untouched.
 export const EVALSCRIPT = `//VERSION=3
 function setup() {
   return {
@@ -52,13 +56,15 @@ function setup() {
     output: [
       { id: "index", bands: 1, sampleType: "FLOAT32" },
       { id: "cloud", bands: 1, sampleType: "FLOAT32" },
+      { id: "b04", bands: 1, sampleType: "FLOAT32" },
+      { id: "b02", bands: 1, sampleType: "FLOAT32" },
     ],
   };
 }
 function evaluatePixel(s) {
   var cloud = (s.SCL === 8 || s.SCL === 9 || s.SCL === 10) ? 1 : 0;
   var idx = s.B02 > 0 ? s.B04 / s.B02 : 0;
-  return { index: [idx], cloud: [cloud] };
+  return { index: [idx], cloud: [cloud], b04: [s.B04], b02: [s.B02] };
 }`;
 
 const MERCATOR_R = 6_378_137;
@@ -83,6 +89,8 @@ export function degBboxToMercator(bbox: [number, number, number, number]): [numb
 export interface SpectralRow {
   index_name: string;
   value: number | null;
+  b04_mean: number | null;
+  b02_mean: number | null;
   acquisition_date: string;
   cloud_fraction: number | null;
   valid_pixel_fraction: number | null;
@@ -94,6 +102,8 @@ export interface SpectralRow {
 interface BestInterval {
   date: string;
   value: number;
+  b04Mean: number | null;
+  b02Mean: number | null;
   cloudFraction: number;
   validPixelFraction: number;
 }
@@ -112,10 +122,14 @@ export function pickBestInterval(statsResponse: unknown): BestInterval | null {
       outputs?: {
         index?: { bands?: { B0?: { stats?: { mean?: number; sampleCount?: number; noDataCount?: number } } } };
         cloud?: { bands?: { B0?: { stats?: { mean?: number } } } };
+        b04?: { bands?: { B0?: { stats?: { mean?: number } } } };
+        b02?: { bands?: { B0?: { stats?: { mean?: number } } } };
       };
     };
     const idxStats = e.outputs?.index?.bands?.B0?.stats;
     const cloudStats = e.outputs?.cloud?.bands?.B0?.stats;
+    const b04Stats = e.outputs?.b04?.bands?.B0?.stats;
+    const b02Stats = e.outputs?.b02?.bands?.B0?.stats;
     const date = e.interval?.from?.slice(0, 10);
     if (!idxStats || !date || typeof idxStats.sampleCount !== "number" || idxStats.sampleCount <= 0) continue;
     const noData = idxStats.noDataCount ?? 0;
@@ -123,6 +137,8 @@ export function pickBestInterval(statsResponse: unknown): BestInterval | null {
     const candidate: BestInterval = {
       date,
       value: idxStats.mean ?? 0,
+      b04Mean: b04Stats?.mean ?? null,
+      b02Mean: b02Stats?.mean ?? null,
       cloudFraction: cloudStats?.mean ?? 1,
       validPixelFraction: (idxStats.sampleCount - noData) / idxStats.sampleCount,
     };
@@ -229,7 +245,7 @@ export const defaultDeps: SpectralDeps = {
     const svc = serviceClient();
     const { data } = await svc
       .from("area_spectral_index")
-      .select("index_name, value, acquisition_date, cloud_fraction, valid_pixel_fraction, resolution_m, source, computed_at")
+      .select("index_name, value, b04_mean, b02_mean, acquisition_date, cloud_fraction, valid_pixel_fraction, resolution_m, source, computed_at")
       .eq("area_id", areaId)
       .eq("index_name", INDEX_NAME)
       .order("computed_at", { ascending: false })
@@ -247,7 +263,7 @@ export const defaultDeps: SpectralDeps = {
         { mission_id: missionId, area_id: areaId, ...row, computed_by: computedBy, raw },
         { onConflict: "area_id,index_name,acquisition_date" },
       )
-      .select("index_name, value, acquisition_date, cloud_fraction, valid_pixel_fraction, resolution_m, source, computed_at")
+      .select("index_name, value, b04_mean, b02_mean, acquisition_date, cloud_fraction, valid_pixel_fraction, resolution_m, source, computed_at")
       .single();
     if (error) throw new Error(`persisting spectral index: ${error.message}`);
     return data as SpectralRow;
@@ -295,7 +311,7 @@ export async function handleAreaSpectralIndex(req: Request, deps: SpectralDeps =
       const row = await deps.persist(
         missionId, areaId,
         {
-          index_name: INDEX_NAME, value: null, acquisition_date: to.slice(0, 10),
+          index_name: INDEX_NAME, value: null, b04_mean: null, b02_mean: null, acquisition_date: to.slice(0, 10),
           cloud_fraction: null, valid_pixel_fraction: null, resolution_m: RESOLUTION_M, source: SOURCE_LABEL,
         },
         actor.userId, stats,
@@ -309,7 +325,7 @@ export async function handleAreaSpectralIndex(req: Request, deps: SpectralDeps =
     const row = await deps.persist(
       missionId, areaId,
       {
-        index_name: INDEX_NAME, value: best.value, acquisition_date: best.date,
+        index_name: INDEX_NAME, value: best.value, b04_mean: best.b04Mean, b02_mean: best.b02Mean, acquisition_date: best.date,
         cloud_fraction: best.cloudFraction, valid_pixel_fraction: best.validPixelFraction,
         resolution_m: RESOLUTION_M, source: SOURCE_LABEL,
       },

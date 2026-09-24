@@ -59,7 +59,7 @@ Deno.test("[quota] a fresh cached row is returned WITHOUT calling CDSE at all", 
   let tokenCalls = 0;
   let statsCalls = 0;
   const cached: SpectralRow = {
-    index_name: "iron_oxide_ratio", value: 1.8, acquisition_date: "2026-09-15",
+    index_name: "iron_oxide_ratio", value: 1.8, b04_mean: 0.24, b02_mean: 0.13, acquisition_date: "2026-09-15",
     cloud_fraction: 0.05, valid_pixel_fraction: 0.99, resolution_m: 10,
     source: "Sentinel-2 L2A (Copernicus Data Space Ecosystem)",
     computed_at: "2026-09-15T00:00:00.000Z", // 9 days before `now` — inside the 14-day freshness window
@@ -80,7 +80,7 @@ Deno.test("[quota] a fresh cached row is returned WITHOUT calling CDSE at all", 
 
 Deno.test("a stale cached row (older than freshness window) triggers a fresh CDSE call", async () => {
   const stale: SpectralRow = {
-    index_name: "iron_oxide_ratio", value: 1.2, acquisition_date: "2026-08-01",
+    index_name: "iron_oxide_ratio", value: 1.2, b04_mean: 0.2, b02_mean: 0.17, acquisition_date: "2026-08-01",
     cloud_fraction: 0.4, valid_pixel_fraction: 0.9, resolution_m: 10,
     source: "Sentinel-2 L2A (Copernicus Data Space Ecosystem)",
     computed_at: "2026-08-01T00:00:00.000Z", // 54 days before `now`
@@ -101,10 +101,14 @@ Deno.test("real acquisition → persists and returns the clearest interval's val
       { interval: { from: "2026-09-01T00:00:00Z" }, outputs: {
         index: { bands: { B0: { stats: { mean: 2.1, sampleCount: 100, noDataCount: 0 } } } },
         cloud: { bands: { B0: { stats: { mean: 0.6 } } } }, // heavily clouded
+        b04: { bands: { B0: { stats: { mean: 0.30 } } } },
+        b02: { bands: { B0: { stats: { mean: 0.14 } } } },
       } },
       { interval: { from: "2026-08-20T00:00:00Z" }, outputs: {
         index: { bands: { B0: { stats: { mean: 1.4, sampleCount: 100, noDataCount: 5 } } } },
         cloud: { bands: { B0: { stats: { mean: 0.02 } } } }, // clear, but older
+        b04: { bands: { B0: { stats: { mean: 0.21 } } } },
+        b02: { bands: { B0: { stats: { mean: 0.15 } } } },
       } },
     ],
   };
@@ -120,6 +124,41 @@ Deno.test("real acquisition → persists and returns the clearest interval's val
   assertEquals(b.acquisition_date, "2026-08-20");
   assertEquals(persisted.row.cloud_fraction, 0.02);
   assertEquals(Math.round(persisted.row.valid_pixel_fraction * 100), 95);
+});
+
+// ── Issue 2 (2026-09-24 audit) — B04/B02 raw mean traceability ─────────────
+
+Deno.test("[Issue 2] B04 mean, B02 mean, and the ratio are all stored — the clearest interval's own values, not the most recent", async () => {
+  const stats = {
+    data: [
+      { interval: { from: "2026-09-01T00:00:00Z" }, outputs: {
+        index: { bands: { B0: { stats: { mean: 2.1, sampleCount: 100, noDataCount: 0 } } } },
+        cloud: { bands: { B0: { stats: { mean: 0.6 } } } },
+        b04: { bands: { B0: { stats: { mean: 0.30 } } } },
+        b02: { bands: { B0: { stats: { mean: 0.14 } } } },
+      } },
+      { interval: { from: "2026-08-20T00:00:00Z" }, outputs: {
+        index: { bands: { B0: { stats: { mean: 1.4, sampleCount: 100, noDataCount: 5 } } } },
+        cloud: { bands: { B0: { stats: { mean: 0.02 } } } },
+        b04: { bands: { B0: { stats: { mean: 0.21 } } } },
+        b02: { bands: { B0: { stats: { mean: 0.15 } } } },
+      } },
+    ],
+  };
+  const deps = baseDeps({ fetchStatistics: async () => stats });
+  const r = await handleAreaSpectralIndex(req({ missionId: "m1", areaId: "a1" }), deps);
+  const b = await r.json();
+  assertEquals(b.b04_mean, 0.21);
+  assertEquals(b.b02_mean, 0.15);
+  assertEquals(b.value, 1.4);
+});
+
+Deno.test("[Issue 2] no usable acquisition → b04_mean/b02_mean are also honestly null, not fabricated", async () => {
+  const deps = baseDeps({ fetchStatistics: async () => ({ data: [] }) });
+  const r = await handleAreaSpectralIndex(req({ missionId: "m1", areaId: "a1" }), deps);
+  const b = await r.json();
+  assertEquals(b.b04_mean, null);
+  assertEquals(b.b02_mean, null);
 });
 
 Deno.test("no usable acquisition in the search window → honest null result, not an error", async () => {

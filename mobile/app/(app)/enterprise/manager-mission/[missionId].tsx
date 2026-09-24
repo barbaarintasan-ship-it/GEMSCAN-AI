@@ -406,6 +406,12 @@ export default function ManagerMissionScreen() {
               style={styles.newAreaButton}
             />
           )}
+          <Button
+            title={so ? "🗺️ Sahami Gobolka" : "🗺️ Scan a Region"}
+            variant="outline"
+            onPress={() => missionId && router.push(`/(app)/enterprise/discover-region/${missionId}`)}
+            style={styles.newAreaButton}
+          />
           {areas.length >= 2 && (
             <Button
               title={so ? "Isbarbardhig Aagagga" : "Compare Areas"}
