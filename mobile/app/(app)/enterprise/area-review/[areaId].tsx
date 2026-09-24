@@ -119,6 +119,12 @@ export default function AreaReviewScreen() {
           <Ionicons name="chevron-back" size={24} color={colors.text} />
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>{detail.name}</Text>
+        <Pressable
+          onPress={() => missionId && areaId && router.push(`/(app)/enterprise/target-report/${areaId}?missionId=${missionId}`)}
+          hitSlop={10}
+        >
+          <Ionicons name="document-text-outline" size={22} color={colors.gold} />
+        </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={styles.body}>
@@ -294,7 +300,7 @@ function statusColorStyle(status: AreaReviewStatus) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   header: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-  title: { color: colors.text, fontSize: 16, fontWeight: "800", letterSpacing: 0.3, flexShrink: 1 },
+  title: { color: colors.text, fontSize: 16, fontWeight: "800", letterSpacing: 0.3, flex: 1 },
   centerFill: { flex: 1, alignItems: "center", justifyContent: "center" },
   body: { padding: spacing.md, gap: spacing.sm, paddingBottom: 60 },
   card: { gap: 4, marginBottom: spacing.sm },

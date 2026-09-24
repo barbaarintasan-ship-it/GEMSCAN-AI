@@ -135,6 +135,12 @@ verify_jwt = true
 [functions.area-geological-analogues]
 verify_jwt = true
 
+# Phase 14 — Unified Target Report: pure aggregation of Phase 7/10/11's
+# already-persisted data into one document. Read-only. User-facing, requires
+# a valid app JWT (+ is_mission_member in the RPC).
+[functions.target-report]
+verify_jwt = true
+
 # Object-storage presigning. The R2 secret lives only in this function's
 # environment; the device receives short-lived URLs for one object at a time.
 [functions.r2-presign]

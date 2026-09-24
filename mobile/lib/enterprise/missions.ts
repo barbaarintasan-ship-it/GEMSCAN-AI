@@ -735,3 +735,39 @@ export async function fetchAreaGeologicalAnalogues(
   if (!res.ok) throw new Error(body?.detail || body?.error || `Analogue lookup failed (${res.status})`);
   return body as AreaAnaloguesResult;
 }
+
+// ── Phase 14 — Unified Target Report ────────────────────────────────────────
+// Pure aggregation of Phase 7/10/11's already-persisted data into one
+// document — see target-report's own header note. No new computation.
+
+export interface TargetReport {
+  mission_id: string;
+  area: {
+    area_id: string; name: string; review_status: AreaReviewStatus;
+    reviewed_by: string | null; reviewed_at: string | null; review_notes: string | null; reviewer_role: string | null;
+    source_target_h3: string | null; source_target_score: number | null; source_commodity: string | null;
+    created_at: string;
+  };
+  target: {
+    target_h3?: string; score?: number | null; scored_at?: string | null;
+    integrated_score?: number | null; evidence_sample_count?: number | null;
+    reasons?: TeamTargetReason[] | null; coverage?: AreaReviewCell["coverage"]; evidence?: AreaReviewCell["evidence"];
+    note?: string;
+  };
+  ai_synthesis: {
+    headline: string; headline_so: string | null; narrative: string; narrative_so: string | null;
+    agreement: CellSynthesisAgreement; contributor_count: number; sample_count: number; generated_at: string;
+  } | null;
+}
+
+export async function fetchTargetReport(missionId: string, areaId: string): Promise<TargetReport> {
+  const res = await fetch(`${FUNCTIONS_URL}/target-report`, {
+    method: "POST",
+    headers: await authHeader(),
+    body: JSON.stringify({ missionId, areaId }),
+  });
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!res.ok) throw new Error(body?.detail || body?.error || `Target report failed (${res.status})`);
+  return body as TargetReport;
+}
