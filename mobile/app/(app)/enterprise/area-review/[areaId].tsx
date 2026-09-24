@@ -18,8 +18,8 @@ import { Button } from "../../../../components/ui/Button";
 import { SectionLabel } from "../../../../components/ui/SectionLabel";
 import { bandFor } from "../../../../../shared/geo-core/confidence.ts";
 import {
-  fetchAreaReviewDetail, reviewArea,
-  type AreaReviewDetail, type AreaReviewStatus,
+  fetchAreaReviewDetail, reviewArea, fetchAreaGeologicalAnalogues,
+  type AreaReviewDetail, type AreaReviewStatus, type AreaAnaloguesResult,
 } from "../../../../lib/enterprise/missions";
 
 const STATUS_LABEL: Record<AreaReviewStatus, { en: string; so: string }> = {
@@ -39,6 +39,10 @@ export default function AreaReviewScreen() {
   const [detail, setDetail] = useState<AreaReviewDetail | null>(null);
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState<AreaReviewStatus | null>(null);
+  // Phase 13 — fetched lazily (an explicit tap, not on screen load): a real
+  // read, but no reason to pay for it before the manager asks.
+  const [analogues, setAnalogues] = useState<AreaAnaloguesResult | null>(null);
+  const [loadingAnalogues, setLoadingAnalogues] = useState(false);
 
   const load = useCallback(async () => {
     if (!areaId || !missionId) return;
@@ -64,6 +68,19 @@ export default function AreaReviewScreen() {
   // findings as clearly as supporting ones, never silently folded together.
   const positiveEvidence = (bestCell?.evidence ?? []).filter((e: any) => e.reason?.polarity !== "negative" && (e as any).polarity !== "negative");
   const negativeEvidence = (bestCell?.evidence ?? []).filter((e: any) => (e as any).polarity === "negative");
+
+  async function handleLoadAnalogues() {
+    if (!areaId || !missionId) return;
+    setLoadingAnalogues(true);
+    try {
+      const r = await fetchAreaGeologicalAnalogues(missionId, areaId);
+      setAnalogues(r);
+    } catch (err) {
+      Alert.alert(so ? "Khalad" : "Error", (err as Error).message);
+    } finally {
+      setLoadingAnalogues(false);
+    }
+  }
 
   async function handleDecision(decision: Exclude<AreaReviewStatus, "pending">) {
     if (!areaId || !missionId) return;
@@ -200,6 +217,33 @@ export default function AreaReviewScreen() {
           </>
         )}
 
+        <SectionLabel>{so ? "Aagagga la mid ah (Analogues)" : "Known analogues"}</SectionLabel>
+        <Card style={styles.card}>
+          {!analogues ? (
+            <Pressable style={styles.analoguesFetchBtn} onPress={handleLoadAnalogues} disabled={loadingAnalogues}>
+              {loadingAnalogues
+                ? <ActivityIndicator color={colors.gold} size="small" />
+                : <Text style={styles.analoguesFetchBtnText}>{so ? "Raadi aagagga la mid ah" : "Find known analogues"}</Text>}
+            </Pressable>
+          ) : analogues.analogues.length === 0 ? (
+            <Text style={styles.mutedText}>
+              {analogues.note ?? (so ? "Wax aagag la mid ah ah lama helin." : "No known analogues found.")}
+            </Text>
+          ) : (
+            <>
+              {analogues.analogues.map((a, i) => (
+                <Text key={i} style={styles.evidenceText}>
+                  • {a.name ?? (so ? "Magac lama helin" : "Unnamed")} — {a.commodity_key}
+                  {a.deposit_type ? ` (${a.deposit_type})` : ""}
+                </Text>
+              ))}
+              {!analogues.deposit_style_ontology_populated && (
+                <Text style={styles.mutedText}>{analogues.note}</Text>
+              )}
+            </>
+          )}
+        </Card>
+
         <SectionLabel>{so ? "Fiiro dib-u-eegis (ikhtiyaari)" : "Review notes (optional)"}</SectionLabel>
         <TextInput
           style={styles.notesInput}
@@ -269,6 +313,8 @@ const styles = StyleSheet.create({
   reasonText: { color: colors.textMuted, fontSize: 12, marginBottom: 2 },
   evidenceText: { color: colors.textMuted, fontSize: 12, marginBottom: 2 },
   negativeCard: { borderWidth: 1, borderColor: "#c0392b33" },
+  analoguesFetchBtn: { paddingVertical: 6, alignItems: "flex-start" },
+  analoguesFetchBtnText: { color: colors.gold, fontWeight: "700", fontSize: 13 },
   notesInput: {
     borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
     paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.text, fontSize: 14,

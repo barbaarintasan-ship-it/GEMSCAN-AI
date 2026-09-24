@@ -129,6 +129,12 @@ verify_jwt = true
 [functions.compare-areas]
 verify_jwt = true
 
+# Phase 13 — geological analogue matching: real, named occurrences elsewhere
+# sharing an area's commodity/deposit_type. Read-only. User-facing, requires
+# a valid app JWT (+ is_mission_member in the RPC).
+[functions.area-geological-analogues]
+verify_jwt = true
+
 # Object-storage presigning. The R2 secret lives only in this function's
 # environment; the device receives short-lived URLs for one object at a time.
 [functions.r2-presign]

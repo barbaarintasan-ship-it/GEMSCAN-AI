@@ -699,3 +699,39 @@ export async function compareMissionAreas(missionId: string, areaIdA: string, ar
   if (!res.ok) throw new Error(body?.detail || body?.error || `Area comparison failed (${res.status})`);
   return body as AreaComparison;
 }
+
+// ── Phase 13 — Geological analogue matching ─────────────────────────────────
+// Real, named occurrences elsewhere sharing an area's commodity (and
+// deposit_type when recorded) — see area-geological-analogues's own header
+// note. No invented similarity score, no AI.
+
+export interface AreaAnalogue {
+  name: string | null;
+  commodity_key: string | null;
+  deposit_type: string | null;
+  host_rocks: string[] | null;
+  reference: string | null;
+  shares_deposit_type: boolean;
+}
+
+export interface AreaAnaloguesResult {
+  target_h3: string | null;
+  commodities: string[];
+  deposit_style_ontology_populated: boolean;
+  analogues: AreaAnalogue[];
+  note: string | null;
+}
+
+export async function fetchAreaGeologicalAnalogues(
+  missionId: string, areaId: string, limit?: number,
+): Promise<AreaAnaloguesResult> {
+  const res = await fetch(`${FUNCTIONS_URL}/area-geological-analogues`, {
+    method: "POST",
+    headers: await authHeader(),
+    body: JSON.stringify({ missionId, areaId, limit }),
+  });
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!res.ok) throw new Error(body?.detail || body?.error || `Analogue lookup failed (${res.status})`);
+  return body as AreaAnaloguesResult;
+}
