@@ -5,7 +5,7 @@
 // against a fake GeoContext source — only the network/DB edges are faked,
 // exactly like team-targeting's own test suite.
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { handleDiscoverRegionTargets, MAX_POLYGON_CELLS, type RegionDiscoveryDeps } from "./handler.ts";
+import { handleDiscoverRegionTargets, MAX_POLYGON_CELLS, MAX_BBOX_AREA_KM2, type RegionDiscoveryDeps } from "./handler.ts";
 import type { Actor } from "../_shared/enterprise/auth.ts";
 import { ForbiddenError, UnauthorizedError } from "../_shared/enterprise/errors.ts";
 import { cellFor, cellCentre } from "../_shared/geocontext/h3.ts";
@@ -160,6 +160,32 @@ Deno.test("[3][4] a polygon exceeding MAX_POLYGON_CELLS is REJECTED (422/400-sha
   assertEquals(typeof b.error, "string");
   assertEquals(b.error.includes(String(MAX_POLYGON_CELLS)), true);
   assertEquals(engineBuilt, false, "scoring must never start once the cap is exceeded");
+});
+
+// ── Real bug (2026-09-24): astronomically oversized polygon rejected BEFORE
+// the expensive real fill, not left to hang/crash the function ─────────────
+
+Deno.test("[bbox guard] a ~3700km-tall polygon (real mistyped-corner bug) is rejected fast, before fillMultiPolygon ever runs", async () => {
+  // Corner A ~ (9.5156, 44.x), Corner B ~ (43.1432, 49.x) — the exact
+  // real-world mistake: a latitude typo turned a small scan into a
+  // continental one. bbox rejection must fire without ever calling the
+  // (potentially very slow/expensive) real H3 fill for a box this size.
+  const gigantic = {
+    type: "Polygon",
+    coordinates: [[[44.0, 9.5156], [49.0, 9.5156], [49.0, 43.1432], [44.0, 43.1432], [44.0, 9.5156]]],
+  };
+  let engineBuilt = false;
+  const deps = baseDeps({ buildEngine: async () => { engineBuilt = true; throw new Error("must not be reached"); } });
+  const start = Date.now();
+  const r = await handleDiscoverRegionTargets(req({ missionId: "m1", polygon: gigantic }), deps);
+  const elapsedMs = Date.now() - start;
+  assertEquals(r.status, 400);
+  const b = await r.json();
+  assertEquals(b.error.includes(MAX_BBOX_AREA_KM2.toLocaleString()), true);
+  assertEquals(engineBuilt, false);
+  // A real fillMultiPolygon over a box this size would be far slower than
+  // this — confirms the guard fired first, not merely that scoring failed.
+  assertEquals(elapsedMs < 2000, true, `rejection took ${elapsedMs}ms — bbox guard may not have short-circuited before the real fill`);
 });
 
 // ── [5] deterministic TargetingEngine used ──────────────────────────────────

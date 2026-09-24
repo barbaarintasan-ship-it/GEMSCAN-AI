@@ -17,6 +17,39 @@ export type GeoJsonMultiPolygonIn = { type: "MultiPolygon"; coordinates: number[
 
 export class InvalidPolygonInputError extends Error {}
 
+/** Cheap bbox-extent area estimate in km², BEFORE the expensive real fill.
+ *  Real-world bug (2026-09-24): a polygon spanning ~34° of latitude by
+ *  mistake made fillMultiPolygon try to enumerate an astronomical H3 cell
+ *  set, which could hang or exhaust the edge function's memory/time budget
+ *  long before MAX_POLYGON_CELLS' post-fill check ever runs — surfacing to
+ *  the client as a raw connection failure, not a clean 400. This walks
+ *  every ring's raw coordinates (no h3-js call) to reject absurd input
+ *  fast, without ever attempting the real fill. Bbox area is always ≥ the
+ *  true polygon area, so a generous margin over the cell cap's own
+ *  representable area avoids false-positives on legitimately large but
+ *  irregular polygons.
+ */
+export function estimateBboxAreaKm2(geojson: GeoJsonMultiPolygonIn): number {
+  const KM_PER_DEG_LAT = 111.32;
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+  for (const polygon of geojson.coordinates) {
+    for (const ring of polygon) {
+      for (const [lng, lat] of ring) {
+        if (lng < minLng) minLng = lng;
+        if (lng > maxLng) maxLng = lng;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+      }
+    }
+  }
+  if (!Number.isFinite(minLng) || !Number.isFinite(minLat)) return 0;
+  const midLat = (minLat + maxLat) / 2;
+  const kmPerDegLng = KM_PER_DEG_LAT * Math.max(0.01, Math.cos((midLat * Math.PI) / 180));
+  const heightKm = Math.max(0, maxLat - minLat) * KM_PER_DEG_LAT;
+  const widthKm = Math.max(0, maxLng - minLng) * kmPerDegLng;
+  return heightKm * widthKm;
+}
+
 /** Polygon → MultiPolygon (wrap once); MultiPolygon passes through unchanged.
  *  Anything else is rejected — this function never guesses. */
 export function normalizePolygonToMultiPolygon(

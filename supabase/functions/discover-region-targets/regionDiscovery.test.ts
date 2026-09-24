@@ -1,7 +1,7 @@
 import { assertEquals, assertThrows } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { gridDisk } from "https://esm.sh/h3-js@4.1.0";
 import { fillMultiPolygon } from "../generate-mission-cells/h3fill.ts";
-import { normalizePolygonToMultiPolygon, clusterAdjacentCells, InvalidPolygonInputError } from "./regionDiscovery.ts";
+import { normalizePolygonToMultiPolygon, clusterAdjacentCells, estimateBboxAreaKm2, InvalidPolygonInputError } from "./regionDiscovery.ts";
 
 const RES = 7;
 const BOX_A: number[][] = [
@@ -95,4 +95,29 @@ Deno.test("[cluster] removing a bridging cell splits one cluster into two", () =
 // includes the cell itself.
 Deno.test("[fixture sanity] gridDisk(cell,1) includes the cell itself", () => {
   assertEquals(gridDisk(REAL_CELLS[0], 1).includes(REAL_CELLS[0]), true);
+});
+
+// ── estimateBboxAreaKm2 — real bug (2026-09-24) ─────────────────────────────
+
+Deno.test("[bbox area] a small, real-scale scan region estimates a small area", () => {
+  const mp = normalizePolygonToMultiPolygon({ type: "Polygon", coordinates: [BOX_A] });
+  const km2 = estimateBboxAreaKm2(mp);
+  // BOX_A is ~11km x ~11km (see generate-mission-cells/h3fill.test.ts) — well
+  // under any sane per-scan cap.
+  assertEquals(km2 > 50 && km2 < 200, true, `expected ~100km², got ${km2}`);
+});
+
+Deno.test("[bbox area] the exact real-world mistyped-corner disaster (9.5°→43.1° latitude) estimates a huge area", () => {
+  const gigantic = normalizePolygonToMultiPolygon({
+    type: "Polygon",
+    coordinates: [[[44.0, 9.5156], [49.0, 9.5156], [49.0, 43.1432], [44.0, 43.1432], [44.0, 9.5156]]],
+  });
+  const km2 = estimateBboxAreaKm2(gigantic);
+  // ~34° latitude (~3785km) x ~5° longitude at low latitude (~550km+) — a
+  // couple million km², nowhere near a legitimate single-scan region.
+  assertEquals(km2 > 1_000_000, true, `expected a multi-million km² disaster, got ${km2}`);
+});
+
+Deno.test("[bbox area] degenerate/empty geometry estimates zero rather than NaN or throwing", () => {
+  assertEquals(estimateBboxAreaKm2({ type: "MultiPolygon", coordinates: [] }), 0);
 });

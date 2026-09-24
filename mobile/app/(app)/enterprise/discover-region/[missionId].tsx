@@ -45,7 +45,9 @@ export default function DiscoverRegionScreen() {
       const r = await discoverRegionTargets(missionId, [nA, nB], commodity ? { commodity } : {});
       setResult(r);
     } catch (err) {
-      Alert.alert(so ? "Khalad" : "Error", (err as Error).message);
+      const e = err as any;
+      const detail = [e?.message, e?.code ? `code=${e.code}` : null, e?.name].filter(Boolean).join(" | ") || String(err);
+      Alert.alert(so ? "Khalad" : "Error", detail);
     } finally {
       setLoading(false);
     }

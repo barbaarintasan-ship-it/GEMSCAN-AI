@@ -37,9 +37,19 @@ import { fetchStructuralMapFeatures, packWithMapFeatures } from "../_shared/geoc
 import { H3_RESOLUTION } from "../../../shared/geo-core/geo/h3.ts";
 import { fillMultiPolygon, InvalidAreaGeometryError } from "../generate-mission-cells/h3fill.ts";
 import { TargetingEngine, type H3Ops, type ExplorationTarget } from "../../../shared/geo-core/gie/targetingEngine.ts";
-import { normalizePolygonToMultiPolygon, clusterAdjacentCells, InvalidPolygonInputError } from "./regionDiscovery.ts";
+import { normalizePolygonToMultiPolygon, clusterAdjacentCells, estimateBboxAreaKm2, InvalidPolygonInputError } from "./regionDiscovery.ts";
 
 export const MAX_POLYGON_CELLS = 200;
+// Real production bug (2026-09-24): a mistyped corner (~34° of latitude
+// apart, ~3700km) made fillMultiPolygon try to enumerate an astronomical
+// cell set — hanging/crashing the function before MAX_POLYGON_CELLS' own
+// post-fill check ever ran, surfacing to the client as a raw connection
+// failure with no usable message. This cheap pre-check (bbox extent only,
+// no h3-js call) rejects absurd input BEFORE the expensive real fill.
+// ~5x the cap's own representable area (200 cells × ~5.16km² ≈ 1032km²) —
+// generous enough not to false-positive on legitimately large, irregular
+// polygons that would still fail the real cell-count check moments later.
+export const MAX_BBOX_AREA_KM2 = 5_000;
 export const DEFAULT_MIN_SCORE = 0.05;
 const DEFAULT_RADIUS_M = 10_000;
 const STRUCTURAL_MARGIN_M = 3_000;
@@ -159,6 +169,15 @@ export async function handleDiscoverRegionTargets(req: Request, deps: RegionDisc
     const radiusM = num(body.radiusM) ?? DEFAULT_RADIUS_M;
 
     const normalized = normalizePolygonToMultiPolygon(body.polygon);
+
+    const bboxAreaKm2 = estimateBboxAreaKm2(normalized);
+    if (bboxAreaKm2 > MAX_BBOX_AREA_KM2) {
+      throw new BadRequestError(
+        `this polygon's bounding box is ~${Math.round(bboxAreaKm2).toLocaleString()} km² — far above the ` +
+        `${MAX_BBOX_AREA_KM2.toLocaleString()} km² supported per scan. Check your corners; draw a smaller area or split it into multiple scans.`,
+      );
+    }
+
     const cells = fillMultiPolygon(normalized, H3_RESOLUTION);
 
     if (cells.length > MAX_POLYGON_CELLS) {
