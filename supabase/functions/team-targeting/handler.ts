@@ -31,6 +31,22 @@ import {
 } from "../../../shared/geo-core/gie/hotspot.ts";
 
 const DEFAULT_RADIUS_M = 25_000;
+/**
+ * Phase 15 (Geological Intelligence Transformation) — region-wide target
+ * discovery reuses this SAME endpoint with a larger `rings`/`limit` (no new
+ * engine, no new scoring): a manager scanning a wider region just asks for
+ * more neighbours ranked instead of one target's immediate surroundings.
+ *
+ * MISSING UNTIL NOW: neither bound was enforced — a caller could request an
+ * arbitrarily large `rings`, and k-ring cell count grows as 3r(r+1)+1
+ * (~217 cells at r=8, ~1,261 at r=20), each cell needing its own GeoContext
+ * fetch. `score-mission-cells` has carried an equivalent cap
+ * (MAX_CELLS_PER_SCORING_CALL) since Phase 3; this was the one ranking path
+ * that never got one. 8 rings (≈217 cells) keeps a single call inside the
+ * same "a few seconds per cell" budget that cap was chosen for.
+ */
+export const MAX_RINGS = 8;
+export const MAX_TARGETING_LIMIT = 50;
 const H3_OPS: H3Ops = { cellFor, cellCentre, kRing };
 const HOTSPOT_H3_OPS: HotspotH3Ops = { cellCentre, childrenOf };
 
@@ -122,8 +138,13 @@ export async function handleTeamTargeting(req: Request, deps: TeamTargetingDeps 
 
     const radiusM = num(body.radiusM ?? url.searchParams.get("radiusM")) ?? DEFAULT_RADIUS_M;
     const commodity = (body.commodity ?? url.searchParams.get("commodity") ?? null) as string | null;
-    const limit = num(body.limit ?? url.searchParams.get("limit")) ?? undefined;
-    const rings = num(body.rings ?? url.searchParams.get("rings")) ?? undefined;
+    const rawLimit = num(body.limit ?? url.searchParams.get("limit"));
+    const rawRings = num(body.rings ?? url.searchParams.get("rings"));
+    if (rawRings !== null && rawRings > MAX_RINGS) {
+      throw new BadRequestError(`rings must be at most ${MAX_RINGS} (requested ${rawRings}) — scan a smaller region or in batches`);
+    }
+    const limit = rawLimit !== null ? Math.min(rawLimit, MAX_TARGETING_LIMIT) : undefined;
+    const rings = rawRings ?? undefined;
     const wantHotspot = String(body.hotspot ?? url.searchParams.get("hotspot") ?? "") === "true";
 
     const engine = await deps.buildEngine(lat, lng, radiusM);

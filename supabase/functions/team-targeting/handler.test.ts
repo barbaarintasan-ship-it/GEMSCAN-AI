@@ -3,7 +3,7 @@
 // JWT→entitlement flow, request validation, the ranking response shape, the
 // opt-in hotspot call, and error mapping. Solo→Team shared-targeting Phase 1.
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { handleTeamTargeting, type TeamTargetingDeps } from "./handler.ts";
+import { handleTeamTargeting, MAX_RINGS, MAX_TARGETING_LIMIT, type TeamTargetingDeps } from "./handler.ts";
 import type { Actor } from "../_shared/enterprise/auth.ts";
 import { ForbiddenError, UnauthorizedError } from "../_shared/enterprise/errors.ts";
 import { TargetingEngine, type H3Ops, type GeoContextBatchSource } from "../../../shared/geo-core/gie/targetingEngine.ts";
@@ -130,6 +130,45 @@ Deno.test("[structural evidence] buildEngine receives the query point + radius, 
   });
   await handleTeamTargeting(req({ lat: 11.08838, lng: 49.01769, radiusM: 25000 }), deps);
   assertEquals(received, [11.08838, 49.01769, 25000]);
+});
+
+// ── Phase 15 — region-wide discovery caps ───────────────────────────────────
+
+Deno.test("[Phase 15] rings beyond MAX_RINGS is refused loudly, not silently reduced", async () => {
+  const r = await handleTeamTargeting(req({ lat: 9.5, lng: 44.5, rings: MAX_RINGS + 1 }), baseDeps());
+  assertEquals(r.status, 400);
+  const b = await r.json();
+  assertEquals(b.code, "bad_request");
+});
+
+Deno.test("[Phase 15] rings at exactly MAX_RINGS is accepted", async () => {
+  let receivedRings: number | undefined;
+  const deps = baseDeps({
+    buildEngine: async () => {
+      const engine = new TargetingEngine(fakeGeoWithOccurrenceEverywhere(), FAKE_H3);
+      const realRank = engine.rank.bind(engine);
+      engine.rank = (lat, lng, opts) => { receivedRings = opts?.rings; return realRank(lat, lng, opts); };
+      return engine;
+    },
+  });
+  const r = await handleTeamTargeting(req({ lat: 9.5, lng: 44.5, rings: MAX_RINGS }), deps);
+  assertEquals(r.status, 200);
+  assertEquals(receivedRings, MAX_RINGS);
+});
+
+Deno.test("[Phase 15] limit beyond MAX_TARGETING_LIMIT is silently clamped — harmless, so no error needed", async () => {
+  let receivedLimit: number | undefined;
+  const deps = baseDeps({
+    buildEngine: async () => {
+      const engine = new TargetingEngine(fakeGeoWithOccurrenceEverywhere(), FAKE_H3);
+      const realRank = engine.rank.bind(engine);
+      engine.rank = (lat, lng, opts) => { receivedLimit = opts?.limit; return realRank(lat, lng, opts); };
+      return engine;
+    },
+  });
+  const r = await handleTeamTargeting(req({ lat: 9.5, lng: 44.5, limit: MAX_TARGETING_LIMIT + 100 }), deps);
+  assertEquals(r.status, 200);
+  assertEquals(receivedLimit, MAX_TARGETING_LIMIT);
 });
 
 Deno.test("unexpected error is mapped to an opaque 500, no internal detail leaked", async () => {

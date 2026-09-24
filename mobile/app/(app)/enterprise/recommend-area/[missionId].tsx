@@ -12,7 +12,7 @@
 // (see manager-mission/[missionId].tsx's own header note), so the review
 // step is a ranked list, exactly like that screen's H3-cell list.
 import React, { useCallback, useMemo, useState } from "react";
-import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Alert } from "react-native";
+import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, TextInput, Alert, Switch } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -71,6 +71,13 @@ export default function RecommendAreaScreen() {
   // score involved — e.g. after "no evidence found" for a spot they already
   // know matters (a mapped fault, etc; see EVIDENCE_CAVEAT).
   const [manualMode, setManualMode] = useState(false);
+  // Phase 15 — region-wide discovery. Same team-targeting call, same
+  // TargetingEngine, just a wider k-ring sweep and more candidates ranked —
+  // never a second scoring engine. Capped server-side (MAX_RINGS/
+  // MAX_TARGETING_LIMIT in team-targeting/handler.ts).
+  const [wideScan, setWideScan] = useState(false);
+  const WIDE_SCAN_RINGS = 8;
+  const WIDE_SCAN_LIMIT = 30;
 
   const parsedLat = Number(lat);
   const parsedLng = Number(lng);
@@ -108,7 +115,9 @@ export default function RecommendAreaScreen() {
     if (!hasValidCoords) return;
     setLoadingTargets(true);
     try {
-      const r = await fetchTeamTargetRecommendation(parsedLat, parsedLng, {});
+      const r = await fetchTeamTargetRecommendation(parsedLat, parsedLng,
+        wideScan ? { rings: WIDE_SCAN_RINGS, limit: WIDE_SCAN_LIMIT } : {},
+      );
       setResult(r);
       setStage("review");
     } catch (err) {
@@ -244,6 +253,19 @@ export default function RecommendAreaScreen() {
                 variant="outline" size="sm" loading={locating} onPress={grabLocation}
               />
             </Card>
+            <Card style={styles.card}>
+              <View style={styles.switchRow}>
+                <View style={styles.switchLabelBlock}>
+                  <Text style={styles.switchLabel}>{so ? "Sahan gobol oo ballaaran" : "Region-wide scan"}</Text>
+                  <Text style={styles.switchHint}>
+                    {so
+                      ? `Baadh gobol aad u ballaaran (ilaa ${WIDE_SCAN_LIMIT} target) halkii hal target oo agagaarkiisa ah, isla engine-ka deterministic-ka ah.`
+                      : `Scan a much wider area (up to ${WIDE_SCAN_LIMIT} targets) instead of one target's immediate neighbours — same deterministic engine.`}
+                  </Text>
+                </View>
+                <Switch value={wideScan} onValueChange={setWideScan} />
+              </View>
+            </Card>
             <Button
               title={so ? "Hel Talooyinka" : "Get Recommendations"}
               disabled={!hasValidCoords}
@@ -287,7 +309,11 @@ export default function RecommendAreaScreen() {
               </Card>
             </Pressable>
 
-            <SectionLabel>{so ? "Target-yada la kala saaray (deriska)" : "Ranked targets (neighbors)"}</SectionLabel>
+            <SectionLabel>
+              {wideScan
+                ? (so ? "Target-yada gobolka (la kala saaray)" : "Region-wide targets (ranked)")
+                : (so ? "Target-yada la kala saaray (deriska)" : "Ranked targets (neighbors)")}
+            </SectionLabel>
             {result.targets.length === 0 ? (
               <>
                 <Text style={styles.mutedText}>
@@ -391,6 +417,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md, paddingVertical: 10, color: colors.text, fontSize: 14, flex: 1,
   },
   primaryButton: { marginTop: spacing.sm },
+  switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  switchLabelBlock: { flex: 1, gap: 2 },
+  switchLabel: { color: colors.text, fontSize: 13, fontWeight: "700" },
+  switchHint: { color: colors.textFaint, fontSize: 11, lineHeight: 15 },
   caveatCard: { backgroundColor: colors.surfaceAlt, marginBottom: spacing.sm },
   caveatText: { color: colors.textMuted, fontSize: 11, lineHeight: 16 },
   targetCard: { marginBottom: spacing.sm, gap: 4 },
