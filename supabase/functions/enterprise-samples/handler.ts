@@ -20,6 +20,8 @@ const LOCATION_ORIGINS = ["observed", "reported"];
 // StructuredGeologicalEvidence section names (structuredEvidenceTypes.ts).
 const STRUCTURED_EVIDENCE_TYPES = ["assay", "geophysics", "mapping", "remote_sensing", "field_observation"];
 const H3_RES = 9; // ~174 m cells for sample points
+const DEFAULT_LIST_LIMIT = 200;
+const MAX_LIST_LIMIT = 500;
 // Mission-assignment resolution (Phase 2B/2C) — the SAME shared H3_RESOLUTION
 // mission_assignment.target_h3 is generated at, deliberately coarser than the
 // sample's own H3_RES=9 point cell. Two different questions: "exactly where
@@ -43,7 +45,7 @@ export interface Deps {
   requirePersonalSampleAccess: (actor: Actor) => Promise<void>;
   createSample: (actor: Actor, payload: Record<string, unknown>) => Promise<unknown>;
   editSample: (actor: Actor, id: string, payload: Record<string, unknown>) => Promise<unknown>;
-  listSamples: (req: Request, actor: Actor, origin?: string) => Promise<unknown>;
+  listSamples: (req: Request, actor: Actor, origin?: string, page?: { limit: number; offset: number }) => Promise<unknown>;
   getSample: (req: Request, actor: Actor, id: string) => Promise<unknown | null>;
   reanalyze: (actor: Actor, id: string) => Promise<void>;
   deleteSample: (actor: Actor, id: string) => Promise<void>;
@@ -140,7 +142,7 @@ export const defaultDeps: Deps = {
     const { data: detail } = await svc.from("sample").select(DETAIL).eq("id", id).maybeSingle();
     return { ...(data as object), sample: detail };
   },
-  listSamples: async (req, actor, origin) => {
+  listSamples: async (req, actor, origin, page = { limit: DEFAULT_LIST_LIMIT, offset: 0 }) => {
     let q = userClient(req).from("sample")
       .select(LIST_COLS)
       .eq("collector_id", actor.userId).is("deleted_at", null);
@@ -149,7 +151,12 @@ export const defaultDeps: Deps = {
     // would still have downloaded a mission's evidence into a personal
     // collection, and the next person to add a list would forget the hiding.
     if (origin) q = q.eq("origin", origin);
-    const { data, error } = await q.order("created_at", { ascending: false });
+    // A prolific field collector's samples grow unbounded over time — this
+    // table has no natural ceiling. Paginated (newest first) rather than
+    // returned in full every call.
+    const { data, error } = await q
+      .order("created_at", { ascending: false })
+      .range(page.offset, page.offset + page.limit - 1);
     if (error) throw new Error(`list: ${error.message}`);
     return data ?? [];
   },
@@ -188,21 +195,27 @@ export const defaultDeps: Deps = {
     const uc = userClient(req);
     const { data } = await uc.from("sample").select(DETAIL).eq("id", id).maybeSingle();
     if (!data) return null;
-    // Latest geological assessment (RLS: can_read_assessment) + its evidence graph.
-    const { data: assessment } = await userClient(req, "geo").from("geological_assessment")
-      .select("id,overall_confidence,status,report,created_at," +
-        "assessment_conclusion(id,kind,statement,statement_so,is_interpretation,confidence)," +
-        "assessment_evidence(id,source,ev_type,statement,statement_so,is_observation,tier,quality)," +
-        "assessment_edge(conclusion_id,evidence_id,polarity,contribution,effective_weight)")
-      .eq("sample_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle();
-    // Geologist's latest binding review + the discussion timeline, so the collector
-    // actually SEES the reviewer's decision, confidence, notes and messages (RLS:
-    // can_read_sample lets the collector read their own sample's review/discussion).
-    const { data: review } = await uc.from("sample_review")
-      .select("id,round_no,status,decision,geologist_confidence,corrected_interpretation,review_notes,recommendation,reviewer_role,submitted_at")
-      .eq("sample_id", id).eq("status", "submitted").order("round_no", { ascending: false }).limit(1).maybeSingle();
-    const { data: discussion } = await uc.from("sample_discussion")
-      .select("id,author_role,body,created_at").eq("sample_id", id).order("created_at", { ascending: true });
+    // Assessment/review/discussion each depend only on `id` (already known),
+    // not on `data` or on each other — run concurrently instead of one round
+    // trip at a time.
+    const [{ data: assessment }, { data: review }, { data: discussion }] = await Promise.all([
+      // Latest geological assessment (RLS: can_read_assessment) + its evidence graph.
+      userClient(req, "geo").from("geological_assessment")
+        .select("id,overall_confidence,status,report,created_at," +
+          "assessment_conclusion(id,kind,statement,statement_so,is_interpretation,confidence)," +
+          "assessment_evidence(id,source,ev_type,statement,statement_so,is_observation,tier,quality)," +
+          "assessment_edge(conclusion_id,evidence_id,polarity,contribution,effective_weight)")
+        .eq("sample_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      // Geologist's latest binding review, so the collector actually SEES the
+      // reviewer's decision, confidence, notes (RLS: can_read_sample lets the
+      // collector read their own sample's review/discussion).
+      uc.from("sample_review")
+        .select("id,round_no,status,decision,geologist_confidence,corrected_interpretation,review_notes,recommendation,reviewer_role,submitted_at")
+        .eq("sample_id", id).eq("status", "submitted").order("round_no", { ascending: false }).limit(1).maybeSingle(),
+      // ...and the discussion timeline.
+      uc.from("sample_discussion")
+        .select("id,author_role,body,created_at").eq("sample_id", id).order("created_at", { ascending: true }),
+    ]);
     return { ...(data as object), assessment: assessment ?? null, review: review ?? null, discussion: discussion ?? [] };
   },
 };
@@ -331,19 +344,22 @@ async function copyScanMediaForActor(
     return dst;
   };
 
-  const media: Array<Record<string, unknown>> = [];
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    const src = r.processed_storage_path || r.original_storage_path;
-    if (!src) continue;
-    media.push({
-      role: i === 0 ? "context" : "surface_closeup",
-      storage_path: await copyOne(src),
-      width: r.width ?? undefined, height: r.height ?? undefined,
-      image_quality_score: r.quality_score ?? undefined,
-    });
-  }
-  if (media.length === 0) throw new BadRequestError("this scan has no usable photos to reuse");
+  // Each photo copy is an independent Storage call — run them concurrently
+  // instead of one round trip at a time. `i` (role: first photo is the
+  // "context" shot, everything else is a close-up) is kept from the ORIGINAL
+  // row position, not the post-filter index, so this preserves the exact
+  // role assignment the sequential loop had.
+  const valid = rows
+    .map((r, i) => ({ r, i, src: r.processed_storage_path || r.original_storage_path }))
+    .filter((e): e is typeof e & { src: string } => !!e.src);
+  if (valid.length === 0) throw new BadRequestError("this scan has no usable photos to reuse");
+  const copiedPaths = await Promise.all(valid.map((e) => copyOne(e.src)));
+  const media: Array<Record<string, unknown>> = valid.map((e, idx) => ({
+    role: e.i === 0 ? "context" : "surface_closeup",
+    storage_path: copiedPaths[idx],
+    width: e.r.width ?? undefined, height: e.r.height ?? undefined,
+    image_quality_score: e.r.quality_score ?? undefined,
+  }));
   // A single-photo scan still needs a close-up role to pass validation.
   if (media.length === 1) {
     const only = media[0];
@@ -515,9 +531,12 @@ export async function handleSamples(req: Request, deps: Deps = defaultDeps): Pro
       // ?origin=personal — what My Samples asks for. Validated against the enum
       // rather than passed through: an unrecognised value must not silently
       // become "no filter" and hand back a mission's evidence.
-      const raw = new URL(req.url).searchParams.get("origin");
+      const params = new URL(req.url).searchParams;
+      const raw = params.get("origin");
       const origin = raw === "personal" || raw === "exploration" ? raw : undefined;
-      return json({ samples: await deps.listSamples(req, actor, origin) });
+      const limit = Math.min(MAX_LIST_LIMIT, Math.max(1, num(params.get("limit")) ?? DEFAULT_LIST_LIMIT));
+      const offset = Math.max(0, num(params.get("offset")) ?? 0);
+      return json({ samples: await deps.listSamples(req, actor, origin, { limit, offset }) });
     }
     return json({ error: "method not allowed" }, 405);
   } catch (err) {

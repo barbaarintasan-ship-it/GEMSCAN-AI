@@ -191,6 +191,21 @@ Deno.test("GET list -> 200 with samples", async () => {
   const r = await handleSamples(req("GET"), base());
   assertEquals(r.status, 200); assertEquals((await r.json()).samples.length, 2);
 });
+Deno.test("[perf] GET list defaults to a bounded page, not an unbounded fetch", async () => {
+  let received: { limit: number; offset: number } | undefined;
+  const deps = base({ listSamples: async (_r, _a, _o, page) => { received = page; return []; } });
+  await handleSamples(req("GET"), deps);
+  assertEquals(received, { limit: 200, offset: 0 });
+});
+Deno.test("[perf] GET list honors ?limit=&offset=, clamped to a sane max", async () => {
+  let received: { limit: number; offset: number } | undefined;
+  const deps = base({ listSamples: async (_r, _a, _o, page) => { received = page; return []; } });
+  await handleSamples(req("GET", undefined, "https://x/enterprise-samples?limit=50&offset=100"), deps);
+  assertEquals(received, { limit: 50, offset: 100 });
+  // A client asking for an enormous page is clamped, never passed through raw.
+  await handleSamples(req("GET", undefined, "https://x/enterprise-samples?limit=999999"), deps);
+  assertEquals(received!.limit, 500);
+});
 Deno.test("GET :id found -> 200", async () => {
   const r = await handleSamples(req("GET", undefined, "https://x/enterprise-samples/s1"), base());
   assertEquals(r.status, 200); assertEquals((await r.json()).id, "s1");

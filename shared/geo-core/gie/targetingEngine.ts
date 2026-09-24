@@ -180,7 +180,6 @@ export class TargetingEngine {
     opts: TargetingOptions = {},
   ): Promise<ExplorationTarget | null> {
     const radiusM = opts.radiusM ?? DEFAULT_CONTEXT_RADIUS_M;
-    await this.geo.contextAt(from.lat, from.lng, { radiusM });
     const packData = this.pack?.();
     return this.buildTarget(
       this.h3.cellFor(at.lat, at.lng), from, radiusM,

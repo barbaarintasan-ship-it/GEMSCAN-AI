@@ -176,6 +176,27 @@ async function structuralFeaturesForBatch(svc: ReturnType<typeof serviceClient>,
   return fetchStructuralMapFeatures(svc, centroid.lat, centroid.lng, maxDistM + DEFAULT_CONTEXT_RADIUS_M);
 }
 
+// Cells are independent (structural evidence + mission evidence are already
+// prefetched once, in batch, above) — nothing requires scoring them one at a
+// time. A plain sequential loop serialized up to MAX_CELLS_PER_SCORING_CALL
+// (200) real network/DB round trips; a bounded worker pool keeps this well
+// inside the function's own "a few seconds per cell" budget without firing
+// 200 requests at Postgres simultaneously.
+const SCORE_CONCURRENCY = 10;
+
+export async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 async function defaultScoreCells(missionId: string, cells: CellToScore[], commodity: string | null): Promise<ScoredCell[]> {
   const svc = serviceClient();
   const geo = makeServerGeoContext(svc);
@@ -185,10 +206,12 @@ async function defaultScoreCells(missionId: string, cells: CellToScore[], commod
   const mapFeatures = await structuralFeaturesForBatch(svc, cells);
   const engine = new TargetingEngine(geo, H3_OPS, undefined, () => packWithMapFeatures(mapFeatures));
   const evidence = await evidenceByCell(missionId);
-  const out: ScoredCell[] = [];
-  for (const cell of cells) {
+  const targeted = await mapWithConcurrency(cells, SCORE_CONCURRENCY, async (cell) => {
     const centre = { lat: cell.lat, lng: cell.lng };
-    const target = await engine.targetAt(centre, centre, { commodity });
+    return { cell, target: await engine.targetAt(centre, centre, { commodity }) };
+  });
+  const out: ScoredCell[] = [];
+  for (const { cell, target } of targeted) {
     // Invariant 2: a cell with nothing to say about itself is not scored —
     // it stays null (not zero, which would read as "known to be barren").
     if (!target) continue;

@@ -5,7 +5,8 @@
 // error mapping. Solo→Team shared-targeting Phase 3.
 import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
-  handleScoreMissionCells, MAX_CELLS_PER_SCORING_CALL, type ScoreMissionCellsDeps, type CellToScore, type ScoredCell,
+  handleScoreMissionCells, MAX_CELLS_PER_SCORING_CALL, mapWithConcurrency,
+  type ScoreMissionCellsDeps, type CellToScore, type ScoredCell,
 } from "./handler.ts";
 import type { Actor } from "../_shared/enterprise/auth.ts";
 import { UnauthorizedError } from "../_shared/enterprise/errors.ts";
@@ -203,4 +204,32 @@ Deno.test("[Phase 8] scoreCells receives the missionId, not just the cell list",
   });
   await handleScoreMissionCells(req({ missionId: "mission-xyz" }), deps);
   assertEquals(receivedMissionId, "mission-xyz");
+});
+
+// ── mapWithConcurrency (perf) ────────────────────────────────────────────────
+
+Deno.test("[perf] mapWithConcurrency preserves input order regardless of completion order", async () => {
+  const delays = [30, 10, 20, 0];
+  const results = await mapWithConcurrency(delays, 4, (ms) => new Promise((r) => setTimeout(() => r(ms), ms)));
+  assertEquals(results, delays);
+});
+
+Deno.test("[perf] mapWithConcurrency never runs more than `limit` at once", async () => {
+  let active = 0;
+  let maxActive = 0;
+  const items = Array.from({ length: 20 }, (_, i) => i);
+  await mapWithConcurrency(items, 3, async (i) => {
+    active++;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((r) => setTimeout(r, 5));
+    active--;
+    return i;
+  });
+  assert(maxActive <= 3);
+});
+
+Deno.test("[perf] mapWithConcurrency processes every item exactly once", async () => {
+  const items = Array.from({ length: 37 }, (_, i) => i);
+  const results = await mapWithConcurrency(items, 10, async (i) => i * 2);
+  assertEquals(results, items.map((i) => i * 2));
 });
