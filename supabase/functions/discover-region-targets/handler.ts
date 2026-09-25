@@ -33,7 +33,7 @@ import { resolveActor as realResolveActor, type Actor } from "../_shared/enterpr
 import { serviceClient, userClient } from "../_shared/enterprise/clients.ts";
 import { makeServerGeoContext } from "../_shared/geocontext/serverGeoContext.ts";
 import { cellFor, cellCentre, cellBoundaryRing } from "../_shared/geocontext/h3.ts";
-import { fetchStructuralMapFeatures, packWithMapFeatures } from "../_shared/geocontext/structuralPack.ts";
+import { fetchStructuralMapFeatures, fetchCommodityProfile, packWithMapFeatures } from "../_shared/geocontext/structuralPack.ts";
 import { H3_RESOLUTION } from "../../../shared/geo-core/geo/h3.ts";
 import { fillMultiPolygon, InvalidAreaGeometryError } from "../generate-mission-cells/h3fill.ts";
 import { TargetingEngine, type H3Ops, type ExplorationTarget } from "../../../shared/geo-core/gie/targetingEngine.ts";
@@ -120,7 +120,7 @@ export interface DiscoverRegionResponse {
 export interface RegionDiscoveryDeps {
   resolveActor: (req: Request) => Promise<Actor>;
   isMissionManager: (req: Request, missionId: string) => Promise<boolean>;
-  buildEngine: (lat: number, lng: number, radiusM: number) => Promise<TargetingEngine>;
+  buildEngine: (lat: number, lng: number, radiusM: number, commodity: string | null) => Promise<TargetingEngine>;
 }
 
 export const defaultDeps: RegionDiscoveryDeps = {
@@ -130,11 +130,16 @@ export const defaultDeps: RegionDiscoveryDeps = {
     if (error) return false;
     return data === true;
   },
-  buildEngine: async (lat, lng, radiusM) => {
+  buildEngine: async (lat, lng, radiusM, commodity) => {
     const svc = serviceClient();
     const geo = makeServerGeoContext(svc);
-    const mapFeatures = await fetchStructuralMapFeatures(svc, lat, lng, radiusM);
-    return new TargetingEngine(geo, H3_OPS, undefined, () => packWithMapFeatures(mapFeatures));
+    // Real bug fix (2026-09-25): commodity used to be discarded — the pack
+    // always carried `commodities: []`. Now fetched for real (structuralPack.ts).
+    const [mapFeatures, commodities] = await Promise.all([
+      fetchStructuralMapFeatures(svc, lat, lng, radiusM),
+      fetchCommodityProfile(svc, commodity),
+    ]);
+    return new TargetingEngine(geo, H3_OPS, undefined, () => packWithMapFeatures(mapFeatures, commodities));
   },
 };
 
@@ -194,7 +199,7 @@ export async function handleDiscoverRegionTargets(req: Request, deps: RegionDisc
     };
     const structuralRadiusM = Math.max(...centres.map((c) => haversineM(centroid, c.centre))) + STRUCTURAL_MARGIN_M;
 
-    const engine = await deps.buildEngine(centroid.lat, centroid.lng, structuralRadiusM);
+    const engine = await deps.buildEngine(centroid.lat, centroid.lng, structuralRadiusM, commodity);
 
     const built = await mapWithConcurrency(centres, SCORING_CONCURRENCY, ({ cell, centre }) =>
       engine.targetAt(centroid, centre, { commodity, radiusM }).then((t) => ({ cell, target: t })));

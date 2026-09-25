@@ -59,9 +59,19 @@ async function functionsBySchema(): Promise<{ geo: Set<string>; enterprise: Set<
 }
 
 
-/** The one rule, named once, so the scan and the case below cannot drift apart. */
+/** The one rule, named once, so the scan and the case below cannot drift apart.
+ *
+ * Two shapes are accepted, both because the schema is explicit in the SAME
+ * expression as the call, checkable by a reader with no other context:
+ *   - `serviceClient("geo").rpc(...)` — the direct, most common form.
+ *   - `<anything>.schema("geo").rpc(...)` — structuralPack.ts's shared helpers
+ *     (fetchStructuralMapFeatures, fetchCommodityProfile) take an already-
+ *     constructed client as a parameter (so every Team buildEngine() caller
+ *     can inject its own), then re-scope it to `geo` right at the call site.
+ *     Equally safe, equally visible — just not literally `serviceClient()`. */
 export function callsThroughGeoClient(statement: string): boolean {
-  return /serviceClient\(\s*["']geo["']\s*\)/.test(statement);
+  return /serviceClient\(\s*["']geo["']\s*\)/.test(statement) ||
+    /\.schema\(\s*["']geo["']\s*\)/.test(statement);
 }
 
 Deno.test("the migrations really do define functions in both schemas", async () => {
@@ -131,6 +141,12 @@ Deno.test("THE GUARD ACTUALLY CATCHES IT — the exact two shapes that broke", (
   );
   assertEquals(
     callsThroughGeoClient('const { data, error } = await serviceClient("geo")   .rpc("save_mission_report", {'),
+    true,
+  );
+  // And the injected-client form (structuralPack.ts) — an explicit
+  // `.schema("geo")` immediately before `.rpc(...)` is equally checkable.
+  assertEquals(
+    callsThroughGeoClient('const { data, error } = await client.schema("geo").rpc("commodity_profiles", {'),
     true,
   );
 });

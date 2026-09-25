@@ -15,12 +15,14 @@ import { bandFor } from "../../../../../shared/geo-core/confidence.ts";
 import {
   fetchAreaReviewDetail, reviewArea, computeAreaSpectralIndex,
   isMissionManager, fetchAreaFieldSuggestions, submitAreaFieldSuggestion,
+  fetchCommodityFieldChecklist,
   type AreaReviewDetail, type AreaSpectralIndex, type AreaFieldSuggestionRow, type FieldSuggestion,
+  type CommodityFieldChecklist,
 } from "../../../../lib/enterprise/missions";
 import { bandToSimpleLevel, levelLabel, allReasonSentences, LEVEL_EMOJI, type SimpleLevel } from "../../../../lib/enterprise/plainLanguage";
 
 export default function FindGoldDetailScreen() {
-  const { areaId, missionId } = useLocalSearchParams<{ areaId: string; missionId: string }>();
+  const { areaId, missionId, commodity } = useLocalSearchParams<{ areaId: string; missionId: string; commodity?: string }>();
   const { i18n } = useTranslation();
   const insets = useSafeAreaInsets();
   const so = i18n.language === "so";
@@ -33,25 +35,28 @@ export default function FindGoldDetailScreen() {
   const [isManager, setIsManager] = useState(false);
   const [suggestions, setSuggestions] = useState<AreaFieldSuggestionRow[]>([]);
   const [suggesting, setSuggesting] = useState(false);
+  const [checklist, setChecklist] = useState<CommodityFieldChecklist | null>(null);
 
   const load = useCallback(async () => {
     if (!areaId || !missionId) return;
     setLoading(true);
     try {
-      const [d, manager, sugg] = await Promise.all([
+      const [d, manager, sugg, cl] = await Promise.all([
         fetchAreaReviewDetail(missionId, areaId),
         isMissionManager(missionId),
         fetchAreaFieldSuggestions(areaId),
+        commodity ? fetchCommodityFieldChecklist(commodity) : Promise.resolve(null),
       ]);
       setDetail(d);
       setIsManager(manager);
       setSuggestions(sugg);
+      setChecklist(cl);
     } catch (err) {
       Alert.alert(so ? "Khalad" : "Error", (err as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [areaId, missionId, so]);
+  }, [areaId, missionId, commodity, so]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -129,6 +134,35 @@ export default function FindGoldDetailScreen() {
           <Card style={styles.card}>
             <Text style={styles.sectionTitle}>{so ? "Sababta" : "Why"}</Text>
             {sentences.map((s, i) => <Text key={i} style={styles.sentence}>• {s}</Text>)}
+          </Card>
+        )}
+
+        {checklist && (checklist.explorationIndicators.length > 0 || checklist.alterationStyles.length > 0 || checklist.associatedMinerals.length > 0) && (
+          <Card style={styles.card}>
+            <Text style={styles.sectionTitle}>
+              {so ? `Waxa lagu doondooni doono: ${checklist.name}` : `What to look for: ${checklist.name}`}
+            </Text>
+            {checklist.explorationIndicators.length > 0 && (
+              <>
+                <Text style={styles.checklistGroupLabel}>{so ? "Calaamado" : "Signs"}</Text>
+                {checklist.explorationIndicators.map((s, i) => <Text key={`ei-${i}`} style={styles.sentence}>• {s}</Text>)}
+              </>
+            )}
+            {checklist.alterationStyles.length > 0 && (
+              <>
+                <Text style={styles.checklistGroupLabel}>{so ? "Isbedelka dhagaxa" : "Rock alteration"}</Text>
+                {checklist.alterationStyles.map((s, i) => <Text key={`as-${i}`} style={styles.sentence}>• {s}</Text>)}
+              </>
+            )}
+            {checklist.associatedMinerals.length > 0 && (
+              <>
+                <Text style={styles.checklistGroupLabel}>{so ? "Macdanaha la xiriira" : "Associated minerals"}</Text>
+                {checklist.associatedMinerals.map((s, i) => <Text key={`am-${i}`} style={styles.sentence}>• {s}</Text>)}
+              </>
+            )}
+            {checklist.limitations && (
+              <Text style={styles.captionText}>{checklist.limitations}</Text>
+            )}
           </Card>
         )}
 
@@ -256,6 +290,7 @@ const styles = StyleSheet.create({
   card: { gap: 6, marginBottom: spacing.sm },
   sectionTitle: { color: colors.gold, fontSize: 13, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
   sentence: { color: colors.text, fontSize: 14 },
+  checklistGroupLabel: { color: colors.textMuted, fontSize: 12, fontWeight: "700", marginTop: spacing.xs },
   mutedText: { color: colors.textFaint, fontSize: 13 },
   captionText: { color: colors.textFaint, fontSize: 11, fontStyle: "italic" },
   decideRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },

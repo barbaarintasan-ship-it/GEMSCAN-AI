@@ -22,7 +22,7 @@ import { serviceClient } from "../_shared/enterprise/clients.ts";
 import { requireEnterprise as realRequireEnterprise } from "../_shared/enterprise/authz.ts";
 import { makeServerGeoContext } from "../_shared/geocontext/serverGeoContext.ts";
 import { cellFor, cellCentre, kRing, childrenOf } from "../_shared/geocontext/h3.ts";
-import { fetchStructuralMapFeatures, packWithMapFeatures } from "../_shared/geocontext/structuralPack.ts";
+import { fetchStructuralMapFeatures, fetchCommodityProfile, packWithMapFeatures } from "../_shared/geocontext/structuralPack.ts";
 import {
   TargetingEngine, type TargetingResult, type H3Ops,
 } from "../../../shared/geo-core/gie/targetingEngine.ts";
@@ -79,14 +79,14 @@ export interface TeamTargetingResponse {
 export interface TeamTargetingDeps {
   resolveActor: (req: Request) => Promise<Actor>;
   requireEnterprise: (actor: Actor) => Promise<void>;
-  buildEngine: (lat: number, lng: number, radiusM: number) => Promise<TargetingEngine>;
+  buildEngine: (lat: number, lng: number, radiusM: number, commodity: string | null) => Promise<TargetingEngine>;
   findHotspot: (engine: TargetingEngine, cell: string, commodity: string | null) => Promise<MissionHotspot | null>;
 }
 
 export const defaultDeps: TeamTargetingDeps = {
   resolveActor: realResolveActor,
   requireEnterprise: (actor) => realRequireEnterprise(actor, serviceClient()),
-  buildEngine: async (lat, lng, radiusM) => {
+  buildEngine: async (lat, lng, radiusM, commodity) => {
     const svc = serviceClient();
     const geo = makeServerGeoContext(svc);
     // Structural (fault) evidence — a minimal server-side pack carrying ONLY
@@ -94,8 +94,14 @@ export const defaultDeps: TeamTargetingDeps = {
     // `packOps`, so lithology/terrain priors (which need it) stay exactly as
     // unavailable as they are today; only the structural block activates.
     // No `local` either (no team-evidence source yet).
-    const mapFeatures = await fetchStructuralMapFeatures(svc, lat, lng, radiusM);
-    return new TargetingEngine(geo, H3_OPS, undefined, () => packWithMapFeatures(mapFeatures));
+    // Real bug fix (2026-09-25): `commodity` used to reach here and then be
+    // silently discarded — the pack always carried `commodities: []`, so
+    // commodityModelFor() could never match it. Now fetched for real.
+    const [mapFeatures, commodities] = await Promise.all([
+      fetchStructuralMapFeatures(svc, lat, lng, radiusM),
+      fetchCommodityProfile(svc, commodity),
+    ]);
+    return new TargetingEngine(geo, H3_OPS, undefined, () => packWithMapFeatures(mapFeatures, commodities));
   },
   findHotspot: (engine, cell, commodity) => {
     // hotspotIn needs a geo-context source and h3 ops; TargetingEngine does
@@ -147,7 +153,7 @@ export async function handleTeamTargeting(req: Request, deps: TeamTargetingDeps 
     const rings = rawRings ?? undefined;
     const wantHotspot = String(body.hotspot ?? url.searchParams.get("hotspot") ?? "") === "true";
 
-    const engine = await deps.buildEngine(lat, lng, radiusM);
+    const engine = await deps.buildEngine(lat, lng, radiusM, commodity);
     const result: TargetingResult = await engine.rank(lat, lng, { radiusM, commodity, limit, rings });
 
     const best = result.targets[0] ?? null;

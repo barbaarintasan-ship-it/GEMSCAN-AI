@@ -11,7 +11,9 @@ import { ForbiddenError, UnauthorizedError } from "../_shared/enterprise/errors.
 import { cellFor, cellCentre } from "../_shared/geocontext/h3.ts";
 import { fillMultiPolygon } from "../generate-mission-cells/h3fill.ts";
 import { TargetingEngine, type H3Ops, type GeoContextBatchSource } from "../../../shared/geo-core/gie/targetingEngine.ts";
+import { packWithMapFeatures } from "../_shared/geocontext/structuralPack.ts";
 import type { GeoContext } from "../../../shared/geo-core/types.ts";
+import type { PackCommodityProfile, PackMapFeature } from "../../../shared/geo-core/pack/types.ts";
 
 const OWNER: Actor = { userId: "owner-1", email: "owner@example.com", contributorId: "c1", role: "admin" };
 
@@ -267,4 +269,78 @@ Deno.test("unexpected error → opaque 500, no internal detail leaked as a 2xx",
   const deps = baseDeps({ buildEngine: async () => { throw new Error("db exploded with secret detail"); } });
   const r = await handleDiscoverRegionTargets(req({ missionId: "m1", polygon: SMALL_POLYGON }), deps);
   assertEquals(r.status, 500);
+});
+
+// ── [pack.commodities fix, 2026-09-25] a real commodity profile must genuinely
+// change scoring, not just pass the `commodity` string through unaffected ──
+//
+// Drainage evidence (prospectivityEvidence.ts) is gated ENTIRELY behind
+// isRelevant(model, "drainage") — true only for a placer-family commodity
+// profile — so with an EMPTY geo context otherwise, a cell near a mapped
+// drainage channel has NO evidence at all (target === null, excluded from
+// results) unless a real, populated commodity profile reaches the pack. This
+// is exactly the defect the audit found: `commodity` used to be discarded
+// before it could ever activate a role like this.
+
+const GOLD_PLACER_PROFILE: PackCommodityProfile = {
+  code: "gold", name: "Gold", category: "metal",
+  typical_host_rocks: null, associated_minerals: null, alteration_styles: null,
+  deposit_models: ["placer / alluvial"], tectonic_settings: null,
+  exploration_indicators: null, industrial_uses: null,
+  is_critical_mineral: null, strategic_importance: null, confidence_limitations: "",
+};
+
+function drainageFeatureNear(cell: string): PackMapFeature {
+  const c = cellCentre(cell);
+  const lines: [number, number][][] = [[[c.lng - 0.01, c.lat], [c.lng + 0.01, c.lat]]];
+  return {
+    id: "drainage-1", kind: "drainage", name: null, source: "test",
+    attributes: null, lines,
+    bbox: [c.lng - 0.01, c.lat, c.lng + 0.01, c.lat],
+  };
+}
+
+function emptyGeoBatchSource(): GeoContextBatchSource {
+  const query = async (lat: number, lng: number) => ({ context: emptyContext(lat, lng), hasKnowledge: true });
+  return { contextAt: query, openBatch: async () => query };
+}
+
+/** Mimics the REAL (fixed) buildEngine wiring: a commodity profile only ever
+ *  reaches the pack when a commodity was actually requested — proving the
+ *  contract the production code now implements, not just that a fake can be
+ *  made to score differently by fiat. */
+function depsWithDrainageNear(hotCell: string) {
+  return baseDeps({
+    buildEngine: async (_lat, _lng, _radiusM, commodity) =>
+      new TargetingEngine(
+        emptyGeoBatchSource(), REAL_H3_OPS, undefined,
+        () => packWithMapFeatures([drainageFeatureNear(hotCell)], commodity ? [GOLD_PLACER_PROFILE] : []),
+      ),
+  });
+}
+
+Deno.test("[pack.commodities fix] with NO commodity selected, a drainage-only cell has zero evidence and is excluded entirely", async () => {
+  const deps = depsWithDrainageNear(SMALL_CELLS[0]);
+  const r = await handleDiscoverRegionTargets(req({ missionId: "m1", polygon: SMALL_POLYGON, minScore: 0 }), deps);
+  const b = await r.json();
+  assertEquals(b.clusters.length, 0, "no commodity => drainage role never activates => no evidence => no target at all");
+});
+
+Deno.test("[pack.commodities fix] selecting a placer commodity (gold) activates drainage evidence and the cell scores > 0", async () => {
+  const deps = depsWithDrainageNear(SMALL_CELLS[0]);
+  const r = await handleDiscoverRegionTargets(
+    req({ missionId: "m1", polygon: SMALL_POLYGON, minScore: 0, commodity: "gold" }), deps,
+  );
+  const b = await r.json();
+  const hotCluster = b.clusters.find((c: any) => c.memberCells.includes(SMALL_CELLS[0]));
+  assertEquals(hotCluster != null, true, "with gold selected, drainage evidence must produce a real target for this cell");
+  assertEquals(hotCluster.score > 0, true);
+  assertEquals(hotCluster.scoredForCommodity, "gold");
+  // The fixture has no other evidence source at all (empty geo context, no
+  // fault/contact map features) — the single reason present can only be the
+  // drainage evidence just activated. reasonsFor() strips `role`, and
+  // prospectivityEvidence.ts's drainage block deliberately reuses reason kind
+  // "contact" (see its own comment) — not a bug in this test.
+  assertEquals(hotCluster.reasons.length, 1);
+  assertEquals(hotCluster.reasons[0].kind, "contact");
 });

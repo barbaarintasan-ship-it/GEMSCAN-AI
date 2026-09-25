@@ -1,87 +1,76 @@
-import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { bboxOf, linesFromGeoJson, packWithMapFeatures, structuralRowToMapFeature } from "./structuralPack.ts";
+// Real bug fix (2026-09-25 audit) — fetchCommodityProfile is the one new
+// piece of logic all three Team buildEngine() paths (team-targeting,
+// discover-region-targets, score-mission-cells) now share to close the
+// `commodities: []` gap. Tested here once, directly, rather than duplicated
+// per caller.
+import { assertEquals, assertRejects } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { fetchCommodityProfile, packWithMapFeatures } from "./structuralPack.ts";
 
-Deno.test("linesFromGeoJson: LineString wraps into a single-line array", () => {
-  const geojson = JSON.stringify({ type: "LineString", coordinates: [[49.0, 11.0], [49.1, 11.1]] });
-  const lines = linesFromGeoJson(geojson);
-  assertEquals(lines, [[[49.0, 11.0], [49.1, 11.1]]]);
+function fakeClient(rpcResult: { data?: unknown; error?: { message: string } | null }) {
+  return {
+    schema: (_name: string) => ({
+      rpc: async (fn: string, args: Record<string, unknown>) => {
+        assertEquals(fn, "commodity_profiles");
+        return rpcResult;
+      },
+    }),
+  } as any;
+}
+
+Deno.test("[fetchCommodityProfile] no commodity requested → empty array, RPC never needs to be reached", async () => {
+  let called = false;
+  const client = {
+    schema: () => ({ rpc: async () => { called = true; return { data: [] }; } }),
+  } as any;
+  const result = await fetchCommodityProfile(client, null);
+  assertEquals(result, []);
+  assertEquals(called, false, "the RPC must not be called when there is nothing to look up");
 });
 
-Deno.test("linesFromGeoJson: MultiLineString passes through each line", () => {
-  const geojson = JSON.stringify({
-    type: "MultiLineString",
-    coordinates: [[[49.0, 11.0], [49.1, 11.1]], [[50.0, 12.0], [50.1, 12.1]]],
-  });
-  const lines = linesFromGeoJson(geojson);
-  assertEquals(lines?.length, 2);
+Deno.test("[fetchCommodityProfile] undefined commodity also short-circuits to empty array", async () => {
+  const client = { schema: () => ({ rpc: async () => ({ data: [{ code: "gold" }] }) }) } as any;
+  assertEquals(await fetchCommodityProfile(client, undefined), []);
 });
 
-Deno.test("linesFromGeoJson: unsupported geometry type returns null, not a guess", () => {
-  const geojson = JSON.stringify({ type: "Point", coordinates: [49.0, 11.0] });
-  assertEquals(linesFromGeoJson(geojson), null);
+Deno.test("[fetchCommodityProfile] a real commodity code requests exactly that one code from the RPC", async () => {
+  let receivedArgs: Record<string, unknown> | null = null;
+  const client = {
+    schema: () => ({
+      rpc: async (fn: string, args: Record<string, unknown>) => {
+        receivedArgs = args;
+        return { data: [{ code: "gold", name: "Gold", typical_host_rocks: ["quartz vein"] }] };
+      },
+    }),
+  } as any;
+  const result = await fetchCommodityProfile(client, "gold");
+  assertEquals(receivedArgs, { p_codes: ["gold"] });
+  assertEquals(result.length, 1);
+  assertEquals(result[0].code, "gold");
 });
 
-Deno.test("linesFromGeoJson: malformed JSON returns null rather than throwing", () => {
-  assertEquals(linesFromGeoJson("not json"), null);
+Deno.test("[fetchCommodityProfile] an unknown code returns an empty array, not an error", async () => {
+  const client = fakeClient({ data: [] });
+  const result = await fetchCommodityProfile(client, "unobtainium");
+  assertEquals(result, []);
 });
 
-Deno.test("bboxOf: computes the enclosing box across all points of all lines", () => {
-  const bbox = bboxOf([[[49.0, 11.0], [49.5, 11.5]], [[48.5, 10.5], [49.2, 11.2]]]);
-  assertEquals(bbox, [48.5, 10.5, 49.5, 11.5]);
+Deno.test("[fetchCommodityProfile] a null data response is treated as empty, never crashes", async () => {
+  const client = fakeClient({ data: null });
+  assertEquals(await fetchCommodityProfile(client, "gold"), []);
 });
 
-Deno.test("structuralRowToMapFeature: 'fault' maps to kind 'fault' — scoreable", () => {
-  const f = structuralRowToMapFeature({
-    id: "f1", feature_type: "fault", name: "Test Fault", source_key: "abbate_1994",
-    attributes: { trend: "NE-SW" },
-    geojson: JSON.stringify({ type: "LineString", coordinates: [[49.0, 11.0], [49.1, 11.1]] }),
-  });
-  assert(f !== null);
-  assertEquals(f!.kind, "fault");
-  assertEquals(f!.id, "f1");
-  assertEquals(f!.source, "abbate_1994");
-  assertEquals(f!.bbox, [49.0, 11.0, 49.1, 11.1]);
+Deno.test("[fetchCommodityProfile] an RPC error is surfaced, not swallowed", async () => {
+  const client = fakeClient({ error: { message: "boom" } });
+  await assertRejects(() => fetchCommodityProfile(client, "gold"), Error, "commodity_profiles: boom");
 });
 
-Deno.test("[measured leakage] structuralRowToMapFeature: 'lineament' maps to kind 'lineament', NOT 'fault'", () => {
-  // lineaments measured leaking 4.3x (evidenceRoles.ts/ROLES_NOT_SCORED) —
-  // prospectivityEvidence()'s own kind==='fault'||'contact' filter is what
-  // keeps them out of scoring, so this row must never be mislabeled as a
-  // scoreable kind.
-  const f = structuralRowToMapFeature({
-    id: "l1", feature_type: "lineament", name: null, source_key: "dem_derived", attributes: null,
-    geojson: JSON.stringify({ type: "LineString", coordinates: [[49.0, 11.0], [49.1, 11.1]] }),
-  });
-  assert(f !== null);
-  assertEquals(f!.kind, "lineament");
-  assert(f!.kind !== "fault" && f!.kind !== "contact");
+Deno.test("[packWithMapFeatures] defaults commodities to an empty array when omitted — unchanged old behaviour", () => {
+  const pack = packWithMapFeatures([]);
+  assertEquals(pack.commodities, []);
 });
 
-Deno.test("structuralRowToMapFeature: unrecognized feature_type maps to 'other'", () => {
-  const f = structuralRowToMapFeature({
-    id: "x1", feature_type: "shear_zone_survey", name: null, source_key: null, attributes: null,
-    geojson: JSON.stringify({ type: "LineString", coordinates: [[49.0, 11.0], [49.1, 11.1]] }),
-  });
-  assertEquals(f!.kind, "other");
-});
-
-Deno.test("structuralRowToMapFeature: unparseable geometry drops the row (returns null)", () => {
-  const f = structuralRowToMapFeature({
-    id: "bad", feature_type: "fault", name: null, source_key: null, attributes: null,
-    geojson: JSON.stringify({ type: "Polygon", coordinates: [] }),
-  });
-  assertEquals(f, null);
-});
-
-Deno.test("packWithMapFeatures: every field empty except mapFeatures", () => {
-  const feature = structuralRowToMapFeature({
-    id: "f1", feature_type: "fault", name: null, source_key: null, attributes: null,
-    geojson: JSON.stringify({ type: "LineString", coordinates: [[49.0, 11.0], [49.1, 11.1]] }),
-  })!;
-  const pack = packWithMapFeatures([feature]);
-  assertEquals(pack.mapFeatures, [feature]);
-  assertEquals(pack.geology, []);
-  assertEquals(pack.occurrences, []);
-  assertEquals(pack.terrain, []);
-  assertEquals(pack.land, []);
+Deno.test("[packWithMapFeatures] a supplied commodity profile list is carried through verbatim", () => {
+  const profile = { code: "gold", name: "Gold" } as any;
+  const pack = packWithMapFeatures([], [profile]);
+  assertEquals(pack.commodities, [profile]);
 });

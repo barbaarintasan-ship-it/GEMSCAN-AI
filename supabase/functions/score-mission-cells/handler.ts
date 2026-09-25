@@ -32,7 +32,7 @@ import { resolveActor as realResolveActor, type Actor } from "../_shared/enterpr
 import { serviceClient, userClient, type DbClient } from "../_shared/enterprise/clients.ts";
 import { makeServerGeoContext, TEAM_TARGETING_ENGINE_VERSION } from "../_shared/geocontext/serverGeoContext.ts";
 import { cellFor, cellCentre, kRing } from "../_shared/geocontext/h3.ts";
-import { fetchStructuralMapFeatures, packWithMapFeatures } from "../_shared/geocontext/structuralPack.ts";
+import { fetchStructuralMapFeatures, fetchCommodityProfile, packWithMapFeatures } from "../_shared/geocontext/structuralPack.ts";
 import {
   TargetingEngine, DEFAULT_CONTEXT_RADIUS_M, type H3Ops,
   type EvidenceCoverage, type Scored, type TargetReason,
@@ -216,8 +216,16 @@ async function defaultScoreCells(missionId: string, cells: CellToScore[], commod
   // Structural (fault) evidence — see structuralPack.ts's own header note. No
   // `packOps`, so lithology/terrain priors stay exactly as unavailable as
   // today; only the structural block activates.
-  const mapFeatures = await structuralFeaturesForBatch(svc, cells);
-  const engine = new TargetingEngine(geo, H3_OPS, undefined, () => packWithMapFeatures(mapFeatures));
+  // Real bug fix (2026-09-25): `commodity` reached targetAt() below but the
+  // pack always carried `commodities: []`, so commodityModelFor() could
+  // never match it — every commodity scored identically. Now fetched for
+  // real (structuralPack.ts's fetchCommodityProfile, same RPC the
+  // geological-knowledge provider already uses).
+  const [mapFeatures, commodities] = await Promise.all([
+    structuralFeaturesForBatch(svc, cells),
+    fetchCommodityProfile(svc, commodity),
+  ]);
+  const engine = new TargetingEngine(geo, H3_OPS, undefined, () => packWithMapFeatures(mapFeatures, commodities));
   const evidence = await evidenceByCell(missionId);
   const targeted = await mapWithConcurrency(cells, SCORE_CONCURRENCY, async (cell) => {
     const centre = { lat: cell.lat, lng: cell.lng };

@@ -19,7 +19,7 @@
 // Solo already exercises with its own bundled mapFeatures, now fed real
 // server data instead of nothing.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import type { MapFeatureKind, PackData, PackMapFeature, Position } from "../../../../shared/geo-core/pack/types.ts";
+import type { MapFeatureKind, PackCommodityProfile, PackData, PackMapFeature, Position } from "../../../../shared/geo-core/pack/types.ts";
 
 export interface StructuralGeometryRow {
   id: string;
@@ -114,15 +114,38 @@ export async function fetchStructuralMapFeatures(
   return features;
 }
 
-/** A minimal PackData carrying ONLY structural map features — every other
+/**
+ * Real bug (2026-09-25 audit): every Team buildEngine() passed
+ * `commodities: []` unconditionally, so commodityModelFor() always returned
+ * null regardless of which commodity a caller selected — the `commodity`
+ * parameter reached TargetingEngine and was faithfully echoed back
+ * (`scoredForCommodity`), but had ZERO effect on scoring factors. Reuses the
+ * SAME `geo.commodity_profiles` RPC the geological-knowledge provider
+ * already calls (gateway.ts) — not a new commodity source. Returns `[]` for
+ * no commodity (unchanged behaviour), never throws for an unknown code (the
+ * RPC just returns no rows — commodityModelFor() already treats "no match"
+ * as null safely).
+ */
+export async function fetchCommodityProfile(
+  client: SupabaseClient<any, any>,
+  commodity: string | null | undefined,
+): Promise<PackCommodityProfile[]> {
+  if (!commodity) return [];
+  const { data, error } = await client.schema("geo").rpc("commodity_profiles", { p_codes: [commodity] });
+  if (error) throw new Error(`commodity_profiles: ${error.message}`);
+  return (data ?? []) as PackCommodityProfile[];
+}
+
+/** A minimal PackData carrying structural map features and (since the fix
+ *  above) the requested commodity's real profile, if any — every other
  *  field empty. Pass with no `packOps` (TargetingEngine's 5th constructor
  *  arg) so lithology/terrain stay exactly as unavailable as today; only
- *  prospectivityEvidence()'s structural block (pack.mapFeatures) newly
- *  activates. */
-export function packWithMapFeatures(mapFeatures: PackMapFeature[]): PackData {
+ *  prospectivityEvidence()'s structural block (pack.mapFeatures) and
+ *  commodity-relevance factors (pack.commodities) activate. */
+export function packWithMapFeatures(mapFeatures: PackMapFeature[], commodities: PackCommodityProfile[] = []): PackData {
   return {
     geology: [], occurrences: [], knowledge: [], structures: [], community: [],
-    mapFeatures, terrain: [], associations: [], rules: [], commodities: [],
+    mapFeatures, terrain: [], associations: [], rules: [], commodities,
     assemblages: [], land: [],
   };
 }

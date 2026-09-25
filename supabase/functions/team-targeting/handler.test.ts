@@ -7,7 +7,9 @@ import { handleTeamTargeting, MAX_RINGS, MAX_TARGETING_LIMIT, type TeamTargeting
 import type { Actor } from "../_shared/enterprise/auth.ts";
 import { ForbiddenError, UnauthorizedError } from "../_shared/enterprise/errors.ts";
 import { TargetingEngine, type H3Ops, type GeoContextBatchSource } from "../../../shared/geo-core/gie/targetingEngine.ts";
+import { packWithMapFeatures } from "../_shared/geocontext/structuralPack.ts";
 import type { GeoContext } from "../../../shared/geo-core/types.ts";
+import type { PackCommodityProfile, PackMapFeature } from "../../../shared/geo-core/pack/types.ts";
 
 const OWNER: Actor = { userId: "owner-1", email: "owner@example.com", contributorId: "c1", role: "admin" };
 
@@ -178,4 +180,59 @@ Deno.test("unexpected error is mapped to an opaque 500, no internal detail leake
   const b = await r.json();
   assertEquals(b.error, "internal error");
   assertEquals(String(b.detail).includes("secret"), true); // owner-beta detail surfacing, same as geocontext
+});
+
+// ── [pack.commodities fix, 2026-09-25] a real commodity profile must genuinely
+// change scoring here too — team-targeting had the identical bug as
+// discover-region-targets (pack.commodities always []). Same drainage-gate
+// proof: an empty geo context plus a mapped drainage channel right at the
+// query point produces NO evidence at all (current.score === 0) unless a
+// populated placer-family commodity profile reaches the pack.
+
+const GOLD_PLACER_PROFILE: PackCommodityProfile = {
+  code: "gold", name: "Gold", category: "metal",
+  typical_host_rocks: null, associated_minerals: null, alteration_styles: null,
+  deposit_models: ["placer / alluvial"], tectonic_settings: null,
+  exploration_indicators: null, industrial_uses: null,
+  is_critical_mineral: null, strategic_importance: null, confidence_limitations: "",
+};
+
+function drainageFeatureAt(lat: number, lng: number): PackMapFeature {
+  const lines: [number, number][][] = [[[lng - 0.01, lat], [lng + 0.01, lat]]];
+  return {
+    id: "drainage-1", kind: "drainage", name: null, source: "test",
+    attributes: null, lines,
+    bbox: [lng - 0.01, lat, lng + 0.01, lat],
+  };
+}
+
+function emptyGeoBatchSource(): GeoContextBatchSource {
+  const query = async (lat: number, lng: number) => ({ context: emptyContext(lat, lng), hasKnowledge: true });
+  return { contextAt: query, openBatch: async () => query };
+}
+
+/** Mimics the REAL (fixed) buildEngine wiring: the commodity profile only
+ *  reaches the pack when a commodity was actually requested. */
+function depsWithDrainageAt(lat: number, lng: number) {
+  return baseDeps({
+    buildEngine: async (_lat, _lng, _radiusM, commodity) =>
+      new TargetingEngine(
+        emptyGeoBatchSource(), FAKE_H3, undefined,
+        () => packWithMapFeatures([drainageFeatureAt(lat, lng)], commodity ? [GOLD_PLACER_PROFILE] : []),
+      ),
+  });
+}
+
+Deno.test("[pack.commodities fix] with NO commodity selected, a drainage-only point scores 0 — the role never activates", async () => {
+  const deps = depsWithDrainageAt(9.5, 44.5);
+  const r = await handleTeamTargeting(req({ lat: 9.5, lng: 44.5 }), deps);
+  const b = await r.json();
+  assertEquals(b.current.score, 0);
+});
+
+Deno.test("[pack.commodities fix] selecting a placer commodity (gold) activates drainage evidence and the point scores > 0", async () => {
+  const deps = depsWithDrainageAt(9.5, 44.5);
+  const r = await handleTeamTargeting(req({ lat: 9.5, lng: 44.5, commodity: "gold" }), deps);
+  const b = await r.json();
+  assertEquals(b.current.score > 0, true, "with gold selected, drainage evidence must produce a real score at this point");
 });

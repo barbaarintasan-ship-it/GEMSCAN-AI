@@ -940,3 +940,36 @@ export async function fetchFeaturedCommodities(): Promise<CommodityChoice[]> {
   const byCode = new Map(all.map((c) => [c.code, c]));
   return FEATURED_COMMODITIES.map((code) => byCode.get(code)).filter((c): c is CommodityChoice => c != null);
 }
+
+// ── Phase 17 field checklist (2026-09-25) ───────────────────────────────────
+// "What should I look for on the ground?" — the SAME geo.commodity_profile
+// row commodityModelFor() reads server-side, restated as a plain checklist
+// for whichever commodity the manager picked in find-gold-start. No new
+// content, no AI: exploration_indicators/alteration_styles/associated_minerals
+// are the profile's own geological fields.
+
+export interface CommodityFieldChecklist {
+  code: string;
+  name: string;
+  explorationIndicators: string[];
+  alterationStyles: string[];
+  associatedMinerals: string[];
+  limitations: string | null;
+}
+
+export async function fetchCommodityFieldChecklist(code: string): Promise<CommodityFieldChecklist | null> {
+  const { data, error } = await supabase.schema("geo")
+    .from("commodity_profile")
+    .select("code, name, exploration_indicators, alteration_styles, associated_minerals, confidence_limitations")
+    .eq("code", code)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    code: data.code, name: data.name,
+    explorationIndicators: data.exploration_indicators ?? [],
+    alterationStyles: data.alteration_styles ?? [],
+    associatedMinerals: data.associated_minerals ?? [],
+    limitations: data.confidence_limitations ?? null,
+  };
+}

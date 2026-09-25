@@ -117,7 +117,9 @@ export default function FindGoldScreen() {
         {cards.map((c) => (
           <Pressable
             key={c.area_id}
-            onPress={() => router.push(`/(app)/enterprise/find-gold-detail/${c.area_id}?missionId=${missionId}`)}
+            onPress={() => router.push(
+              `/(app)/enterprise/find-gold-detail/${c.area_id}?missionId=${missionId}${commodity ? `&commodity=${encodeURIComponent(commodity)}` : ""}`,
+            )}
           >
             <Card style={styles.areaCard}>
               <View style={styles.areaRow}>
