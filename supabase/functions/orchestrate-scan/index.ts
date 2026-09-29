@@ -30,9 +30,10 @@ import { log, logError } from "../_shared/logger.ts";
 import { deepScanAllowanceFor, featuresForTier, resolveEffectiveTier } from "../_shared/entitlements.ts";
 import {
   consumeDeepScan,
+  consumeStandardScan,
   getDeepScanStatus,
   periodStartFor,
-  recordStandardScan,
+  refundStandardScan,
 } from "../_shared/deepScanCredits.ts";
 import { providerRegistry } from "./providers/providerRegistry.ts";
 import type { ProviderInput, ProviderResult, VisionProvider } from "./providers/types.ts";
@@ -264,6 +265,10 @@ export async function handleRequest(req: Request): Promise<Response> {
 
     // Entitlement + cost gate, enforced HERE (server-side), before any AI call.
     let ensembleScansEnabled = false;
+    // True once a standard-scan slot has been reserved by THIS request (not a
+    // retry). Gates the failure-path refund so a failed scan doesn't consume
+    // the free lifetime allowance.
+    let standardScanReserved = false;
 
     if (scanType === "deep") {
       // Deep Scan = expensive ensemble → must be paid for with a credit.
@@ -301,34 +306,39 @@ export async function handleRequest(req: Request): Promise<Response> {
       log("info", "orchestrate-scan", "deep scan authorized", { scanId, source, remaining: status.remaining - 1 });
       ensembleScansEnabled = true;
     } else {
-      // Standard Scan = one cheap model. No credit; a daily cap only guards
-      // against abuse.
-      if (features.standardScanDailyLimit !== null) {
-        const startOfToday = new Date();
-        startOfToday.setUTCHours(0, 0, 0, 0);
-        const { count } = await serviceClient
-          .from("scan_usage")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", user.id)
-          .eq("scan_type", "standard")
-          .gte("created_at", startOfToday.toISOString());
-        if ((count ?? 0) >= features.standardScanDailyLimit) {
-          return jsonResponse(
-            {
-              error: "Daily Standard Scan limit reached. Please try again tomorrow.",
-              code: "standard_limit_reached",
-              standardScanDailyLimit: features.standardScanDailyLimit,
-            },
-            429, // Too Many Requests.
-          );
-        }
-      }
-      await recordStandardScan(serviceClient, {
+      // Standard Scan = one cheap model. No credit. The cap is enforced AND
+      // recorded atomically in a single per-user-serialized transaction (see
+      // consume_standard_scan / migration 0161): free tier = a lifetime total
+      // that never resets, paid tiers = a per-UTC-day abuse guard. This closes
+      // the concurrency race the old JS count-then-insert had and makes a retry
+      // of the same scanId idempotent. null limit = unlimited (owner tiers).
+      const period = features.standardScanLimitPeriod ?? "day";
+      const verdict = await consumeStandardScan(serviceClient, {
         userId: user.id,
         scanId,
         plan: tier,
+        limit: features.standardScanDailyLimit,
+        lifetime: period === "lifetime",
         aiModels: ["gemini"],
       });
+      if (!verdict.allowed) {
+        // Stable, already-handled code (see mobile lib/scanUpload.ts,
+        // batch.tsx). `standardScanLimitPeriod` lets the app show the right
+        // copy: a lifetime paywall vs. a "try again tomorrow" daily message.
+        return jsonResponse(
+          {
+            error: period === "lifetime"
+              ? "You've used all of your free lifetime scans. Upgrade to keep scanning."
+              : "Daily Standard Scan limit reached. Please try again tomorrow.",
+            code: "standard_limit_reached",
+            standardScanDailyLimit: features.standardScanDailyLimit,
+            standardScanLimitPeriod: period,
+            standardScanUsed: verdict.used,
+          },
+          429, // Too Many Requests.
+        );
+      }
+      standardScanReserved = !verdict.alreadyCounted; // for failure-path refund
       ensembleScansEnabled = false;
     }
 
@@ -355,6 +365,13 @@ export async function handleRequest(req: Request): Promise<Response> {
           () => {},
           () => {},
         );
+      // Refund the standard-scan slot reserved above so a FAILED scan does not
+      // consume the user's lifetime allowance. Only when THIS request reserved
+      // it (not a retry that found an existing row). Deep scans are not refunded
+      // here — that pre-existing behavior is unchanged.
+      if (standardScanReserved) {
+        await refundStandardScan(serviceClient, { userId: user.id, scanId });
+      }
       return jsonResponse({ error: (err as Error).message }, 500);
     }
   } catch (err) {

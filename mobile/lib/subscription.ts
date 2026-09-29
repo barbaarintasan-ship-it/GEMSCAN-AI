@@ -54,6 +54,16 @@ export type DeepScanBalance = {
   remaining: number; // allowance-remaining + purchased
 };
 
+// Standard Scan balance the app DISPLAYS (read-only). Authoritative enforcement
+// is server-side in orchestrate-scan; this is only a hint for the UI. `period`
+// is "lifetime" for the free trial (never resets) or "day" for paid abuse caps.
+export type StandardScanBalance = {
+  limit: number | null; // null = unlimited
+  used: number;
+  remaining: number | null; // null = unlimited
+  period: "day" | "lifetime";
+};
+
 export type SubscriptionStatus = {
   tier: SubscriptionTier;
   status: "active" | "past_due" | "canceled" | "expired";
@@ -61,6 +71,9 @@ export type SubscriptionStatus = {
   source: string | null;
   features: SubscriptionFeatures;
   deepScan: DeepScanBalance;
+  // Standard Scan balance for display. Optional so an older backend that does
+  // not send it never crashes the app (defaulted in fetchSubscriptionStatus).
+  standardScan?: StandardScanBalance;
   // True when the account may use the enterprise platform (field exploration,
   // samples) — the owner, OR a member of an active organization. Optional so an
   // older backend that does not send it is read as `false`.
@@ -93,8 +106,14 @@ export async function fetchSubscriptionStatus(accessToken: string): Promise<Subs
   }
 
   const json = (await res.json()) as SubscriptionStatus;
-  // Default the balance so older backends (pre-credits) never crash the app.
-  return { ...json, deepScan: json.deepScan ?? EMPTY_DEEP_SCAN, enterprise: json.enterprise ?? false };
+  // Default the balances so older backends (pre-credits / pre-standardScan)
+  // never crash the app. A missing standardScan simply hides the counter.
+  return {
+    ...json,
+    deepScan: json.deepScan ?? EMPTY_DEEP_SCAN,
+    standardScan: json.standardScan,
+    enterprise: json.enterprise ?? false,
+  };
 }
 
 export function useSubscriptionStatus() {

@@ -818,7 +818,7 @@ export default function CaptureScreen() {
 
         {retakeReason &&
           (isScanLimitError(retakeReason) ? (
-            <UpgradePrompt />
+            <UpgradePrompt period={sub?.standardScan?.period ?? "lifetime"} />
           ) : (
             <Text style={styles.errorText}>{retakeReason}</Text>
           ))}
@@ -853,6 +853,8 @@ export default function CaptureScreen() {
         visible={chooserVisible}
         remaining={deepRemaining}
         recommendDeep={recommendDeep}
+        standardRemaining={sub?.standardScan?.remaining ?? null}
+        standardPeriod={sub?.standardScan?.period ?? "lifetime"}
         onChoose={handleAnalyze}
         onClose={() => setChooserVisible(false)}
       />

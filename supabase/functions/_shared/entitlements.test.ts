@@ -34,11 +34,21 @@ Deno.test("featuresForTier: lifetime is treated identically to premium", () => {
   assertEquals(featuresForTier("lifetime"), featuresForTier("premium"));
 });
 
-Deno.test("featuresForTier: free — 3 Standard/day, 0 Deep Scans", () => {
+Deno.test("featuresForTier: free — 10 Standard scans LIFETIME (never resets), 0 Deep Scans", () => {
   const features = featuresForTier("free");
-  assertEquals(features.standardScanDailyLimit, 3);
+  assertEquals(features.standardScanDailyLimit, 10);
+  assertEquals(features.standardScanLimitPeriod, "lifetime");
   assertEquals(features.deepScanAllowance, 0);
   assertEquals(features.pdfReports, false);
+});
+
+Deno.test("featuresForTier: paid tiers keep a DAILY standard cap (no lifetime period)", () => {
+  // Regression guard: the lifetime cap is free-only. Paid tiers must not
+  // inherit it, or a paid user's scans would be capped forever.
+  assertEquals(featuresForTier("premium").standardScanLimitPeriod, undefined);
+  assertEquals(featuresForTier("professional").standardScanLimitPeriod, undefined);
+  assertEquals(featuresForTier("premium").standardScanDailyLimit, 30);
+  assertEquals(featuresForTier("professional").standardScanDailyLimit, 100);
 });
 
 Deno.test("featuresForTier: unknown tier falls back to free", () => {
@@ -47,7 +57,8 @@ Deno.test("featuresForTier: unknown tier falls back to free", () => {
 
 Deno.test("featuresForTier: empty string tier falls back to free (fail-closed)", () => {
   const features = featuresForTier("");
-  assertEquals(features.standardScanDailyLimit, 3);
+  assertEquals(features.standardScanDailyLimit, 10);
+  assertEquals(features.standardScanLimitPeriod, "lifetime");
   assertEquals(features.deepScanAllowance, 0);
 });
 

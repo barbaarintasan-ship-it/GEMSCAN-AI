@@ -130,14 +130,61 @@ Deno.serve(async (req) => {
       /* leave zeros */
     }
 
+    // Standard Scan balance so the app can show "X free scans left" and, for
+    // the free lifetime tier, a paywall instead of a "come back tomorrow"
+    // message. Non-authoritative display only — the real cap is enforced at
+    // scan time in orchestrate-scan. Read with the caller's own JWT (RLS scopes
+    // scan_usage to their rows). Counted with the SAME rule as enforcement:
+    // distinct scan_id + rows with a null scan_id, over the tier's window.
+    // Fails soft to nulls so a hiccup never blocks the subscription check.
+    const features = featuresForTier(tier);
+    const stdPeriod: "day" | "lifetime" = features.standardScanLimitPeriod ?? "day";
+    let standardScan: {
+      limit: number | null;
+      used: number;
+      remaining: number | null;
+      period: "day" | "lifetime";
+    } = { limit: features.standardScanDailyLimit, used: 0, remaining: features.standardScanDailyLimit, period: stdPeriod };
+    try {
+      let q = supabase
+        .from("scan_usage")
+        .select("scan_id")
+        .eq("user_id", user.id)
+        .eq("scan_type", "standard");
+      if (stdPeriod === "day") {
+        const startOfToday = new Date();
+        startOfToday.setUTCHours(0, 0, 0, 0);
+        q = q.gte("created_at", startOfToday.toISOString());
+      }
+      const { data: rows } = await q;
+      // Match consume_standard_scan: distinct non-null scan_id + each null row.
+      const distinct = new Set<string>();
+      let nullRows = 0;
+      for (const r of rows ?? []) {
+        if (r.scan_id == null) nullRows += 1;
+        else distinct.add(r.scan_id as string);
+      }
+      const used = distinct.size + nullRows;
+      const limit = features.standardScanDailyLimit;
+      standardScan = {
+        limit,
+        used,
+        remaining: limit == null ? null : Math.max(limit - used, 0),
+        period: stdPeriod,
+      };
+    } catch (_e) {
+      /* leave the tier defaults */
+    }
+
     return new Response(
       JSON.stringify({
         tier,
         status: owner ? "active" : (subscription?.status ?? "active"),
         currentPeriodEnd: owner ? null : (subscription?.current_period_end ?? null),
         source: owner ? "owner" : (subscription?.source ?? null),
-        features: featuresForTier(tier),
+        features,
         deepScan,
+        standardScan,
         enterprise,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },

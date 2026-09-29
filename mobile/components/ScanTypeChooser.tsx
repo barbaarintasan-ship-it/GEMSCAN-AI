@@ -1,6 +1,8 @@
 // "Choose Scan Type" sheet shown before a scan runs.
 //
-//   🔍 Standard Scan — one cheap AI model, everyday use, unlimited-ish.
+//   🔍 Standard Scan — one cheap AI model. Free tier gets a fixed LIFETIME
+//                      allowance (shown here as "N free scans left"); paid
+//                      tiers get a generous daily cap.
 //   💎 Deep Scan     — the 3-AI ensemble, spends ONE Deep Scan credit.
 //
 // PAYMENT ARCHITECTURE: this app NEVER sells anything in-app. When Deep Scan
@@ -18,15 +20,32 @@ type Props = {
   visible: boolean;
   remaining: number; // Deep Scan credits remaining (read-only, from backend).
   recommendDeep?: boolean; // smart recommendation for likely-valuable items.
+  // Standard scans left (read-only, from backend). null/undefined = unlimited
+  // (paid abuse cap) → no counter shown. A finite number is shown to the user;
+  // `standardPeriod` picks lifetime vs daily wording.
+  standardRemaining?: number | null;
+  standardPeriod?: "day" | "lifetime";
   onChoose: (type: ScanType) => void;
   onClose: () => void;
 };
 
-export default function ScanTypeChooser({ visible, remaining, recommendDeep, onChoose, onClose }: Props) {
+export default function ScanTypeChooser({
+  visible,
+  remaining,
+  recommendDeep,
+  standardRemaining,
+  standardPeriod = "lifetime",
+  onChoose,
+  onClose,
+}: Props) {
   const { i18n } = useTranslation();
   const so = i18n.language === "so";
   const L = (en: string, s: string) => (so ? s : en);
   const hasCredits = remaining > 0;
+  const showStandardCount = standardRemaining != null;
+  const standardLabel = standardPeriod === "lifetime"
+    ? L(`${standardRemaining} free scans left`, `${standardRemaining} scan oo bilaash ah ayaa hadhay`)
+    : L(`${standardRemaining} left today`, `${standardRemaining} ayaa maanta hadhay`);
 
   return (
     <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -54,6 +73,7 @@ export default function ScanTypeChooser({ visible, remaining, recommendDeep, onC
               <Text style={styles.optLine}>
                 {L("Fast identification · everyday use", "Aqoonsi degdeg · isticmaal maalinle")}
               </Text>
+              {showStandardCount && <Text style={styles.credits}>{standardLabel}</Text>}
             </View>
             <Ionicons name="chevron-forward" size={18} color="#8A8A8E" />
           </Pressable>

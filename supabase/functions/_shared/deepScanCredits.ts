@@ -107,17 +107,77 @@ export async function consumeDeepScan(
   return source;
 }
 
-/** Record a Standard (single-model) scan. Standard scans never spend credits. */
-export async function recordStandardScan(
+export type StandardScanVerdict = {
+  allowed: boolean; // false => caller must block the scan (limit reached)
+  used: number; // scans counted against the window AFTER this call
+  remaining: number | null; // null when the limit is unlimited
+  alreadyCounted: boolean; // true => this scanId was already recorded (a retry)
+};
+
+/**
+ * Atomically enforce AND record ONE Standard (single-model) scan against the
+ * free-tier lifetime cap (or a paid daily cap). Delegates to the
+ * consume_standard_scan SQL function so the count check and the usage insert
+ * happen in a single per-user-serialized transaction — concurrent scans can
+ * never both slip past the cap, and a retried request (same scanId) is
+ * idempotent (counted once). Standard scans never spend credits.
+ *
+ * The caller blocks the scan when `allowed` is false. Reuses the existing
+ * scan_usage ledger — there is no separate counter.
+ */
+export async function consumeStandardScan(
   client: SupabaseClient,
-  args: { userId: string; scanId: string; plan: string; aiModels: string[] },
-): Promise<void> {
-  await client.from("scan_usage").insert({
-    user_id: args.userId,
-    scan_id: args.scanId,
-    scan_type: "standard",
-    ai_models_used: args.aiModels,
-    credits_used: 0,
-    subscription_plan: args.plan,
+  args: {
+    userId: string;
+    scanId: string;
+    plan: string;
+    limit: number | null; // null = unlimited (abuse guard disabled)
+    lifetime: boolean; // true = all-time window; false = per-UTC-day
+    aiModels?: string[];
+  },
+): Promise<StandardScanVerdict> {
+  const { data, error } = await client.rpc("consume_standard_scan", {
+    p_user_id: args.userId,
+    p_scan_id: args.scanId,
+    p_limit: args.limit,
+    p_lifetime: args.lifetime,
+    p_plan: args.plan,
+    p_ai_models: args.aiModels ?? ["gemini"],
   });
+  if (error) throw new Error(`consume_standard_scan failed: ${error.message}`);
+  // A set-returning function comes back as an array of rows via PostgREST.
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | { allowed: boolean; used: number; remaining: number | null; already_counted: boolean }
+    | undefined;
+  if (!row) throw new Error("consume_standard_scan returned no row");
+  return {
+    allowed: row.allowed,
+    used: row.used,
+    remaining: row.remaining ?? null,
+    alreadyCounted: row.already_counted,
+  };
+}
+
+/**
+ * Best-effort compensating refund: remove the standard usage row that
+ * consumeStandardScan reserved for a scan that then FAILED, so a failed scan
+ * does not consume the lifetime allowance. Only call this when THIS request
+ * inserted the row (verdict.alreadyCounted === false) — never delete a row a
+ * prior successful scan created. Swallows its own errors: a lingering row
+ * over-counts by one at worst, and never under-counts to give away a free scan.
+ */
+export async function refundStandardScan(
+  client: SupabaseClient,
+  args: { userId: string; scanId: string },
+): Promise<void> {
+  try {
+    await client
+      .from("scan_usage")
+      .delete()
+      .eq("user_id", args.userId)
+      .eq("scan_id", args.scanId)
+      .eq("scan_type", "standard");
+  } catch {
+    /* best-effort */
+  }
 }

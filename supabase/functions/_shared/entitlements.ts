@@ -4,8 +4,10 @@
 // tier unlock" — see 05-Monetization-Legal-Payments.md for the pricing.
 //
 // COST MODEL (why this shape):
-//   - Standard Scan  = ONE cost-efficient AI model (Gemini). Cheap → allowed
-//     generously, capped only to stop abuse (standardScanDailyLimit).
+//   - Standard Scan  = ONE cost-efficient AI model (Gemini). On PAID tiers it
+//     is allowed generously and capped per-day only to stop abuse. On the FREE
+//     tier it is a lifetime trial: a fixed total of scans that never resets
+//     (see standardScanLimitPeriod).
 //   - Deep Scan      = the full 3-AI ensemble (Gemini + OpenAI + Claude). This
 //     is the expensive path, so it is METERED with credits, never unlimited.
 //       * deepScanAllowance = Deep Scans included per subscription period.
@@ -13,7 +15,16 @@
 //   There is intentionally NO "ensembleScans: true" flag any more — nothing
 //   grants unlimited ensemble access.
 export type SubscriptionFeatures = {
-  standardScanDailyLimit: number | null; // null = unlimited (abuse guard only)
+  // The Standard Scan cap. null = unlimited (abuse guard only). Its meaning is
+  // set by standardScanLimitPeriod: a per-UTC-day cap ("day") or a never-
+  // resetting lifetime total ("lifetime"). Kept named *DailyLimit for backward
+  // compatibility with the mobile SubscriptionFeatures type and older backends.
+  standardScanDailyLimit: number | null;
+  // "day": standardScanDailyLimit resets every UTC midnight (paid tiers).
+  // "lifetime": it is a total that never resets (free tier). Optional so an
+  // older backend that predates this field is read as "day" — exactly its
+  // behavior before the field existed. Mirrors mobile/lib/subscription.ts.
+  standardScanLimitPeriod?: "day" | "lifetime";
   deepScanAllowance: number; // included Deep Scans per subscription period
   askAGemologist: boolean;
   inventoryManagement: boolean;
@@ -76,7 +87,11 @@ export function featuresForTier(tier: string): SubscriptionFeatures {
     case "free":
     default:
       return {
-        standardScanDailyLimit: 3, // 3 Standard scans/day
+        // Free tier is a lifetime trial: 10 Standard scans total, ever — it
+        // does NOT reset daily. Enforced server-side against the all-time
+        // scan_usage ledger (see consume_standard_scan / orchestrate-scan).
+        standardScanDailyLimit: 10,
+        standardScanLimitPeriod: "lifetime",
         deepScanAllowance: 0, // no included Deep Scans (can buy credits)
         askAGemologist: false,
         inventoryManagement: false,
