@@ -648,6 +648,11 @@ export default function CaptureScreen() {
       if (err instanceof OrchestrationError && err.code === "deep_credits_exhausted") {
         setCreditsExhausted(true);
         setChooserVisible(true);
+      } else if (err instanceof OrchestrationError && isScanLimitError(err)) {
+        // Standard-scan allowance exhausted (daily or free lifetime) — detected
+        // by the machine code, not message wording. Store the server message;
+        // the render shows the styled upgrade card (isScanLimitError matches it).
+        setRetakeReason(err.message);
       } else if ((err as Error).name !== "AbortError") {
         // AbortError means the user navigated away — don't surface a "retake"
         // error for a scan they already left.

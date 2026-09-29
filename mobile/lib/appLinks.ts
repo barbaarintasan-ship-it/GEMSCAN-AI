@@ -61,10 +61,40 @@ export function buildArtifactReportPaymentUrl(purchaseId: string, method?: "mobi
 // rulings, increasingly permit external-payment links.)
 export const EXTERNAL_PURCHASES_ENABLED = Platform.OS !== "ios";
 
-// True when a scan failed because the free-tier daily limit was reached — used
-// to show an upgrade prompt instead of a raw error.
-export function isScanLimitError(message?: string | null): boolean {
+// The server code that means "standard-scan allowance exhausted" (daily abuse
+// cap OR free lifetime cap). Returned by orchestrate-scan with HTTP 429 and
+// carried on OrchestrationError.code — the authoritative, wording-independent
+// signal. Kept as a named constant so client and tests agree on the string.
+export const STANDARD_LIMIT_REACHED_CODE = "standard_limit_reached";
+
+// True when a scan was blocked because the standard-scan allowance is used up —
+// used to show the upgrade/paywall card instead of a raw error.
+//
+// Prefers the machine-readable error CODE when given the error object (robust
+// to any server-message wording change); falls back to matching the human
+// message when only a string is available (e.g. a render path that stored
+// err.message). The message match covers BOTH the daily wording ("...Standard
+// Scan limit reached...") and the lifetime wording ("...used all of your free
+// lifetime scans...") so the paywall shows for either.
+export function isScanLimitError(
+  input?: string | { code?: string | null; message?: string | null } | null,
+): boolean {
+  if (input == null) return false;
+  if (typeof input !== "string") {
+    if (input.code === STANDARD_LIMIT_REACHED_CODE) return true;
+    return matchesScanLimitMessage(input.message);
+  }
+  return matchesScanLimitMessage(input);
+}
+
+function matchesScanLimitMessage(message?: string | null): boolean {
   if (!message) return false;
   const m = message.toLowerCase();
-  return m.includes("scan limit") || m.includes("daily scan") || m.includes("free tier");
+  return (
+    m.includes("scan limit") || // "...Standard Scan limit reached..." (daily)
+    m.includes("daily scan") ||
+    m.includes("free tier") ||
+    m.includes("lifetime scan") || // "...free lifetime scans..." (lifetime)
+    m.includes("free lifetime")
+  );
 }
