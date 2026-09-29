@@ -54,7 +54,7 @@
     },
     "android": {
       "package": "com.gemscan.ai",
-      "versionCode": 149,
+      "versionCode": 151,
       "permissions": [
         "CAMERA"
       ],

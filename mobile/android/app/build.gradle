@@ -151,7 +151,7 @@ android {
         // silently drifted apart twice, and each time the phone reported a version
         // this repo had never built. `lib/__tests__/appVersion.test.ts` fails the
         // build before that can ship a third time.
-        versionCode 149
+        versionCode 151
         versionName "1.38.25"
     }
     signingConfigs {
