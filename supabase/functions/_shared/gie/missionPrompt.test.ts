@@ -11,7 +11,9 @@ import {
   buildMissionPrompt, parseMissionFindings,
   type EnginePackageSummary, type StructuredEvidenceSummary,
 } from "./missionPrompt.ts";
-import { findForbiddenLanguage } from "../../../../shared/geo-core/gie/missionFindings.ts";
+import {
+  findForbiddenLanguage, type FindingRecommendation,
+} from "../../../../shared/geo-core/gie/missionFindings.ts";
 
 const META = { model: "test-model", commodity: "gold", analysedAt: 1_760_000_000_000 };
 
@@ -265,6 +267,35 @@ Deno.test("the Somali instruction demands equal meaning, not a simpler version",
   assertStringIncludes(p, "same geological meaning at the same confidence");
   assertStringIncludes(p, "do not simplify it");
   assertStringIncludes(p, "xidid quartz ah (quartz vein)");
+});
+
+// ── GI-1b: the engine's own next action, and cross-evidence synthesis ───────
+
+Deno.test("GI-1b: the engine's deterministic next action reaches the prompt as a GIVEN FACT", () => {
+  const recs: FindingRecommendation[] = [
+    { action: "recommend_lab_assay", priority: 1, becauseOf: ["quartz_vein", "fault_proximity"] },
+    { action: "recommend_geophysics", priority: 2, becauseOf: ["structural_ambiguity"] },
+  ];
+  const p = buildMissionPrompt(summary(), recs);
+  assertStringIncludes(p, "THE ENGINE'S DETERMINISTIC NEXT ACTION(S)");
+  assertStringIncludes(p, "1. recommend_lab_assay — because: quartz_vein, fault_proximity");
+  assertStringIncludes(p, "2. recommend_geophysics — because: structural_ambiguity");
+  assertStringIncludes(p, "not a suggestion for you to revise");
+});
+
+Deno.test("GI-1b: with no recommendations supplied, the section still renders without crashing", () => {
+  const p = buildMissionPrompt(summary());
+  assertStringIncludes(p, "THE ENGINE'S DETERMINISTIC NEXT ACTION(S)");
+  assertStringIncludes(p, "(not computed for this prompt)");
+});
+
+Deno.test("GI-1b: the prompt demands synthesis, not a category-by-category list", () => {
+  const p = buildMissionPrompt(summary());
+  assertStringIncludes(p, "SYNTHESIZE: name what corroborates, what conflicts");
+  assertStringIncludes(p, "CORROBORATE each other");
+  assertStringIncludes(p, "any CONFLICT between");
+  assertStringIncludes(p, "confirmed absent — name the conflict, do not smooth over it");
+  assertStringIncludes(p, "evidence in general");
 });
 
 // ── The parser ──────────────────────────────────────────────────────────────

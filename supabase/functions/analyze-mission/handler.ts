@@ -43,10 +43,10 @@ import {
   type VerifiedObject, type VerificationSummary,
 } from "../_shared/r2/verify.ts";
 import {
-  analyzeExplorationPackage, geminiProvider,
+  analyzeExplorationPackage, claudeProvider,
   type AIProvider, type AnalyzeOutcome,
 } from "../_shared/gie/analyzeMission.ts";
-import { runVision, defaultVisionDeps } from "../_shared/gie/vision.ts";
+import { runVision, defaultVisionDepsClaude } from "../_shared/gie/vision.ts";
 import type { EnginePackageSummary, StructuredEvidenceSummary } from "../_shared/gie/missionPrompt.ts";
 import type { MissionFindings } from "../../../shared/geo-core/gie/missionFindings.ts";
 
@@ -205,7 +205,7 @@ export const realDeps: AnalyzeMissionDeps = {
   },
 
   verify: (config, keys) => verifyObjects(config, keys),
-  provider: geminiProvider,
+  provider: claudeProvider,
   config: () => r2ConfigFromEnv((k) => Deno.env.get(k)),
   now: () => Date.now(),
 
@@ -545,13 +545,13 @@ export async function runAnalysis(
       verify: async (_c, keys) => keys.map((k) =>
         byKey.get(k) ?? { key: k, exists: false, bytes: null, status: 0 }),
       // Read the photographs: presign a short-lived GET per verified key, then run
-      // the vision stage (resize → Gemini) over them. Enrichment only — if it
+      // the vision stage (resize → Claude) over them. Enrichment only — if it
       // throws, analyzeExplorationPackage swallows it and reports with no visual
       // section.
       vision: async (photoRefs) => {
         const urls = await Promise.all(photoRefs.map((p) =>
           presignR2Url({ config: cfg.config, key: p.key, method: "GET", expiresIn: 300 })));
-        return runVision(urls, defaultVisionDeps);
+        return runVision(urls, defaultVisionDepsClaude);
       },
       now: deps.now,
     },

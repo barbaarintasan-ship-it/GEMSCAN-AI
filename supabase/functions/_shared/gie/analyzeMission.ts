@@ -186,8 +186,23 @@ export async function analyzeExplorationPackage(
     }
   }
 
+  // ── ENGINE decides WHAT to do next; the model may only explain WHY ──────────
+  //
+  // Computed HERE, before the model is even asked, so the model can be handed the
+  // engine's own next action as a GIVEN FACT (GI-1b) and explain it in
+  // narrative.interpretation — rather than the model guessing at a recommendation
+  // that gets silently discarded afterward. Over the SAME combined evidence list
+  // (client structured evidence + this analysis's AI-visual items) that produces
+  // `integratedProspectivity` below, so the two numbers and the recommendation can
+  // never disagree about what evidence exists.
+  const nextActionItems = [
+    ...clientEvidenceItemsFrom(input.payload),
+    ...aiVisualToScoredEvidence(visualObservations, input.engine.targetCell),
+  ];
+  const recommendations = determineNextActions(deriveNextActionInput(nextActionItems));
+
   // ── 3–4. Ask the provider ─────────────────────────────────────────────────
-  const prompt = buildMissionPrompt(input.engine);
+  const prompt = buildMissionPrompt(input.engine, recommendations);
   let text: string;
   try {
     text = await deps.provider.generate(prompt);
@@ -232,20 +247,13 @@ export async function analyzeExplorationPackage(
     input.payload, visualObservations, input.engine.targetCell,
   );
 
-  // ── 7b. ENGINE decides WHAT to do next; the model may only explain WHY ──────
+  // ── 7b. `recommendations` is the deterministic engine's output, computed above ──
   //
-  // Priority 3. `recommendations` from the parsed response is discarded
-  // unconditionally here — never trusted, never merged — and replaced with the
-  // deterministic engine's own output, over the SAME combined evidence list
-  // (client structured evidence + this analysis's AI-visual items) that
-  // produced `integratedProspectivity` above, so the two numbers and the
-  // recommendation can never disagree about what evidence exists.
-  const nextActionItems = [
-    ...clientEvidenceItemsFrom(input.payload),
-    ...aiVisualToScoredEvidence(visualObservations, input.engine.targetCell),
-  ];
-  const recommendations = determineNextActions(deriveNextActionInput(nextActionItems));
-
+  // Priority 3. Whatever the model returned in its own `recommendations` field
+  // was parsed into `parsed.findings.recommendations` but is fully overwritten
+  // here, never merged — see the "model's OWN recommendations are discarded"
+  // test. `recommendations` itself was computed before the prompt was even
+  // built (above), so the model was told this exact same decision as a fact.
   const capped: MissionFindings = {
     ...withVisual,
     confidence: ceiling,
@@ -381,6 +389,57 @@ export function geminiProvider(): AIProvider {
         candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
       };
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) throw new Error("model returned no text");
+      return text;
+    },
+  };
+}
+
+/**
+ * Claude, replacing Gemini as the mission-analysis reasoning model.
+ *
+ * Same swap point as geminiProvider — this is passed as a different
+ * `AIProvider`, nothing else in analyzeExplorationPackage changes. Auth
+ * headers and the /v1/messages shape mirror the already-working
+ * orchestrate-scan/providers/claudeVision.ts. Anthropic has no JSON-only
+ * response mode (Gemini's responseMimeType), so the prompt itself is told to
+ * answer with nothing but the JSON object — parseMissionFindings already
+ * strips ``` fences regardless, so a stray fence does not break parsing.
+ */
+export function claudeProvider(): AIProvider {
+  const model = Deno.env.get("CLAUDE_MODEL") ?? "claude-sonnet-4-6";
+  const ANTHROPIC_VERSION = "2023-06-01";
+  return {
+    model,
+    async generate(prompt: string): Promise<string> {
+      const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+      if (!apiKey) throw new Error("ANTHROPIC_API_KEY not configured");
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": ANTHROPIC_VERSION,
+        },
+        body: JSON.stringify({
+          model,
+          // Generously sized: the bilingual (EN + Somali) findings object is what
+          // truncated Gemini at 2048 (see geminiProvider above). No response-format
+          // knob exists here, so the room is given up front instead of discovered
+          // by a truncated JSON.parse failure on a real mission.
+          max_tokens: 4096,
+          temperature: 0.2,
+          system: "Respond with nothing but a single strict JSON object. No markdown " +
+            "fences, no prose before or after it.",
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      const data = await res.json() as {
+        content?: Array<{ text?: string }>;
+        error?: { message?: string };
+      };
+      if (!res.ok) throw new Error(data?.error?.message ?? `model returned ${res.status}`);
+      const text = data.content?.[0]?.text;
       if (!text) throw new Error("model returned no text");
       return text;
     },

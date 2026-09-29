@@ -314,6 +314,54 @@ export const defaultVisionDeps: VisionDeps = {
   },
 };
 
+// ── Claude deps: same size-safety machinery, Claude does the reading ────────
+//
+// Only `generate` differs from defaultVisionDeps — probeSizeBytes/
+// fetchImageBase64/resize are provider-agnostic image plumbing (HTTP HEAD,
+// GET, ImageScript downscale), none of it specific to which model reads the
+// result. Spreading them here rather than duplicating means the hard-won
+// size/OOM fixes above apply identically to both providers.
+const CLAUDE_MODEL = Deno.env.get("CLAUDE_MODEL") ?? "claude-sonnet-4-6";
+const ANTHROPIC_VERSION = "2023-06-01";
+
+export const defaultVisionDepsClaude: VisionDeps = {
+  probeSizeBytes: defaultVisionDeps.probeSizeBytes,
+  fetchImageBase64: defaultVisionDeps.fetchImageBase64,
+  resize: defaultVisionDeps.resize,
+  generate: async (prompt, images) => {
+    const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!apiKey) throw new Error("ANTHROPIC_API_KEY not configured");
+    const imageBlocks = images.map((im) => ({
+      type: "image",
+      source: { type: "base64", media_type: im.mimeType, data: im.base64 },
+    }));
+    const res = await fetchWithTimeout(
+      "https://api.anthropic.com/v1/messages",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": ANTHROPIC_VERSION,
+        },
+        body: JSON.stringify({
+          model: CLAUDE_MODEL,
+          max_tokens: 1800,
+          temperature: 0.2,
+          system: "Respond with nothing but a single strict JSON object. No markdown " +
+            "fences, no prose before or after it.",
+          messages: [{ role: "user", content: [{ type: "text", text: prompt }, ...imageBlocks] }],
+        }),
+      },
+      BUDGET_MS.visionGenerate,
+      "Claude vision",
+    );
+    const raw = await res.json();
+    if (!res.ok) throw new Error(raw?.error?.message ?? `Claude API error (status ${res.status})`);
+    return raw?.content?.[0]?.text ?? "";
+  },
+};
+
 function clamp01(n: number): number {
   return Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0));
 }

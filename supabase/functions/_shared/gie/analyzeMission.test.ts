@@ -726,6 +726,30 @@ Deno.test("even a model response with NO recommendations key at all still gets a
   assertEquals(out.findings.recommendations.length > 0, true);
 });
 
+Deno.test("GI-1b: the prompt tells the model the SAME recommendation that ends up in the findings", async () => {
+  // The model is handed the engine's next action as a fact and asked to explain
+  // it — so the prompt's action code and the final findings' action code must be
+  // the exact same one, not two independently-computed values that happen to
+  // agree by coincidence.
+  let capturedPrompt = "";
+  const out = await analyzeExplorationPackage(
+    input({ payload: { missionId: "ms-abc", integratedEvidenceItems: [
+      { weight: 0.6, tier: "mapped", role: "structural", group: "structure:f1" },
+    ] } }),
+    {
+      provider: {
+        model: "test-model",
+        generate: async (prompt) => { capturedPrompt = prompt; return GOOD_RESPONSE; },
+      },
+      r2: R2, verify: allPresent, now: () => NOW,
+    },
+  );
+  if (out.status !== "analysed") throw new Error("expected analysed");
+  assertEquals(out.findings.recommendations.some((r) => r.action === "recommend_geophysics"), true);
+  assertStringIncludes(capturedPrompt, "THE ENGINE'S DETERMINISTIC NEXT ACTION(S)");
+  assertStringIncludes(capturedPrompt, "recommend_geophysics");
+});
+
 Deno.test("a mission with real structural evidence and no geophysics/mapping recommends geophysics", async () => {
   const out = await analyzeExplorationPackage(
     input({ payload: { missionId: "ms-abc", integratedEvidenceItems: [

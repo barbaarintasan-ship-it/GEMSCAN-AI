@@ -273,7 +273,10 @@ function structuredEvidenceSection(s: StructuredEvidenceSummary | undefined): st
   ];
 }
 
-export function buildMissionPrompt(p: EnginePackageSummary): string {
+export function buildMissionPrompt(
+  p: EnginePackageSummary,
+  recommendations: readonly FindingRecommendation[] = [],
+): string {
   const layer = (name: string, value: string | number | null, unit = "") =>
     `  ${name}: ${value == null ? "NOT AVAILABLE" : `${value}${unit}`}`;
 
@@ -292,6 +295,11 @@ export function buildMissionPrompt(p: EnginePackageSummary): string {
     "   that is different from being measured and found absent, and you must say so.",
     "5. State what is MISSING explicitly. In greenfield exploration most evidence is",
     "   absent, and a report listing only what was found reads as a complete picture.",
+    "6. Do NOT describe the five evidence categories in isolation ('there is an assay,",
+    "   there is mapping...'). SYNTHESIZE: name what corroborates, what conflicts, and",
+    "   what is still missing to move this target forward. Explain the engine's own",
+    "   next action (given below) in terms of the SPECIFIC evidence that justifies it —",
+    "   you may not propose a different action.",
     "",
     "WHAT THE ENGINE MEASURED (facts — use as evidence, do not alter)",
     layer("prospectivity score (0..1, a RANKING not a probability)", p.prospectivityScore),
@@ -332,6 +340,17 @@ export function buildMissionPrompt(p: EnginePackageSummary): string {
     `  photographs: ${p.photoCount}   track points: ${p.trackPoints}`,
     ...structuredEvidenceSection(p.structuredEvidence),
     "",
+    "THE ENGINE'S DETERMINISTIC NEXT ACTION(S) — decided by a fixed rule engine over",
+    "the evidence above, BEFORE you were asked anything. This is a given fact, like",
+    "the prospectivity score — not a suggestion for you to revise, replace, or add to.",
+    "In narrative.interpretation, explain WHY this follows from the SPECIFIC evidence",
+    "above, in the priority order given:",
+    ...(recommendations.length > 0
+      ? recommendations.map((r, i) =>
+          `  ${i + 1}. ${r.action}` +
+          (r.becauseOf.length > 0 ? ` — because: ${r.becauseOf.join(", ")}` : ""))
+      : ["  (not computed for this prompt)"]),
+    "",
     "OUTPUT — STRICT JSON, no markdown, no commentary:",
     "{",
     '  "interest": "notable|moderate|limited|none",',
@@ -360,6 +379,15 @@ export function buildMissionPrompt(p: EnginePackageSummary): string {
     "soften it, do not strengthen it. Keep established technical terms in English in",
     "brackets where it helps, e.g. 'xidid quartz ah (quartz vein)', 'jeex (fault)',",
     "'isbeddel macdaneed (alteration)'.",
+    "",
+    "`narrative.interpretation` must be a SYNTHESIS across the evidence above, not a",
+    "category-by-category list. Explicitly name: (a) which pieces of evidence",
+    "CORROBORATE each other (point to the same conclusion), (b) any CONFLICT between",
+    "categories (e.g. mapping suggests a fault that a field check specifically",
+    "confirmed absent — name the conflict, do not smooth over it), and (c) why the",
+    "engine's next action above follows from this specific evidence picture, not from",
+    "evidence in general. `narrative.summary` stays a short overview; the synthesis",
+    "belongs in `narrative.interpretation`.",
   ].join("\n");
 }
 
