@@ -25,8 +25,14 @@ export const SUBSCRIPTION_TIMEOUT_MS = 10_000;
 export type SubscriptionTier = "free" | "premium" | "lifetime" | "professional";
 
 export type SubscriptionFeatures = {
-  // Standard Scan = one cheap AI model; capped per day only to stop abuse.
+  // Standard Scan = one cheap AI model; capped to stop abuse (paid tiers,
+  // resets daily) or to bound the free trial (free tier, never resets — see
+  // standardScanLimitPeriod).
   standardScanDailyLimit: number | null;
+  // "day": the limit above resets every UTC midnight. "lifetime": it never
+  // resets — free tier only. Optional so an older backend that predates this
+  // field is read as "day", matching this field's behavior before it existed.
+  standardScanLimitPeriod?: "day" | "lifetime";
   // Deep Scan = the expensive 3-AI ensemble, included per period (metered).
   deepScanAllowance: number;
   askAGemologist: boolean;
