@@ -337,7 +337,10 @@ export function MapWorkspaceProvider({ children }: { children: React.ReactNode }
       // Scans the pack and pushes several hundred kilobytes to the map. Named so
       // a stall landing here is attributed rather than "unattributed".
       const built = markPhase("map.buildScene");
-      const next = buildScene(data, centre, radius);
+      // `want` is the actual on-screen viewport (camera view ∪ fitting box) —
+      // passed so lineaments are chosen from what the geologist is looking at,
+      // not sampled across the whole SCENE_MARGIN-inflated scene.
+      const next = buildScene(data, centre, radius, want);
       built();
       builtRadius.current = radius;
       builtAt.current = Date.now();

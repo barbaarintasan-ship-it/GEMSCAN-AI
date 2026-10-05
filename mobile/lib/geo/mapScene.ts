@@ -174,6 +174,57 @@ function largestFirst(lines: SceneLine[], max: number): SceneLine[] {
     .slice(0, max);
 }
 
+/**
+ * Centre of a line's bounding box over ALL its vertices. Order-independent
+ * (min/max are commutative) and free of the first-vertex boundary bias, so a
+ * segment straddling a grid cell is placed by the centre of its footprint.
+ */
+function lineBBoxCentre(line: SceneLine): [number, number] {
+  let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+  for (const path of line.paths) for (const [lng, lat] of path) {
+    if (lng < a) a = lng; if (lng > c) c = lng;
+    if (lat < b) b = lat; if (lat > d) d = lat;
+  }
+  return [(a + c) / 2, (b + d) / 2];
+}
+
+/**
+ * Pick up to `max` lines spread EVENLY across `bbox`, deterministically and
+ * INDEPENDENT of input/pack order. For the DEM lineaments (every one a 2-vertex
+ * segment) largestFirst() cannot rank and degenerates to "first `max` in source
+ * order", which clustered them all in the far south so the north/NE never drew.
+ * Buckets into a ~sqrt(max) grid by bbox-centre, orders each cell by the stable
+ * feature id, and round-robins across cells. Returns the input unchanged when it
+ * already fits (so a view with few lines draws all of them).
+ */
+export function spatialSubsample(
+  lines: SceneLine[], max: number,
+  bbox: readonly [number, number, number, number],
+): SceneLine[] {
+  if (lines.length <= max) return lines;
+  const n = Math.max(1, Math.floor(Math.sqrt(max)));
+  const wLng = (bbox[2] - bbox[0]) || 1e-9, wLat = (bbox[3] - bbox[1]) || 1e-9;
+  const buckets = new Map<string, SceneLine[]>();
+  for (const l of lines) {
+    const [rx, ry] = lineBBoxCentre(l);
+    const cx = Math.min(n - 1, Math.max(0, Math.floor(((rx - bbox[0]) / wLng) * n)));
+    const cy = Math.min(n - 1, Math.max(0, Math.floor(((ry - bbox[1]) / wLat) * n)));
+    const k = cx + "," + cy;
+    const g = buckets.get(k); if (g) g.push(l); else buckets.set(k, [l]);
+  }
+  for (const g of buckets.values()) g.sort((p, q) => (p.id < q.id ? -1 : p.id > q.id ? 1 : 0));
+  const keys = [...buckets.keys()].sort();
+  const out: SceneLine[] = [];
+  for (let depth = 0, added = true; out.length < max && added; depth++) {
+    added = false;
+    for (const k of keys) {
+      const g = buckets.get(k)!;
+      if (depth < g.length) { out.push(g[depth]); added = true; if (out.length >= max) break; }
+    }
+  }
+  return out;
+}
+
 function thin<T>(ring: T[], max: number): T[] {
   if (ring.length <= max) return ring;
   const step = Math.ceil(ring.length / max);
@@ -199,6 +250,10 @@ export function buildScene(
   data: PackData,
   centre: { lat: number; lng: number },
   radiusM: number,
+  // The actual on-screen viewport bbox (camera `want` box from workspace). Used
+  // ONLY to choose which lineaments to draw — show everything in view, not a
+  // sample of the whole pan-margin. Optional: falls back to the scene bbox.
+  viewportBbox?: readonly [number, number, number, number],
 ): MapScene {
   const spanM = radiusM * SCENE_MARGIN;
   const dLat = spanM / M_PER_DEG_LAT;
@@ -255,7 +310,17 @@ export function buildScene(
   // 9 MB across the bridge on every scene rebuild.
   const cappedDrainage = largestFirst(drainage, MAX_LINES_PER_KIND);
   const cappedFaults = largestFirst(faults, MAX_LINES_PER_KIND);
-  const cappedLineaments = largestFirst(lineaments, MAX_LINES_PER_KIND);
+  // Lineaments are uniform 2-vertex segments, so largestFirst() cannot rank
+  // them and clustered the whole budget by source order (in production: all in
+  // the south, so Qardho/NE drew none). Instead show what is actually IN VIEW:
+  // all viewport lineaments when <=MAX_LINES_PER_KIND, else a spatially-even
+  // subsample of the viewport. Faults/contacts/drainage are untouched.
+  const vbox = viewportBbox ?? bbox;
+  const viewportLineaments = lineaments.filter((l) => {
+    const [rx, ry] = lineBBoxCentre(l);
+    return rx >= vbox[0] && rx <= vbox[2] && ry >= vbox[1] && ry <= vbox[3];
+  });
+  const cappedLineaments = spatialSubsample(viewportLineaments, MAX_LINES_PER_KIND, vbox);
   const cappedContacts = largestFirst(contacts, MAX_LINES_PER_KIND);
   const cappedOther = largestFirst(otherLines, MAX_LINES_PER_KIND);
 
